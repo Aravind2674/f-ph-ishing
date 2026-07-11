@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ThreatFusion</title>
+  <link rel="stylesheet" href="popup.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 22-8-4.5v-9l8-4.5 8 4.5v9Z"/>
+        <path d="M12 22V13"/>
+        <path d="M12 13 4 8.5"/>
+        <path d="M20 8.5 12 13"/>
+      </svg>
+    </div>
+    <h1>ThreatFusion</h1>
+  </div>
+
+  <div class="container">
+    <div id="target-info" class="target-info">
+      <span class="label">Current URL:</span>
+      <div id="target-url" class="url-text">Loading...</div>
+    </div>
+
+    <button id="scan-btn" class="btn-primary" disabled>
+      <span id="btn-text">Scan This Page</span>
+      <span id="btn-loader" class="loader hidden"></span>
+    </button>
+
+    <div id="error-box" class="error-box hidden"></div>
+
+    <div id="result-box" class="result-box hidden">
+      <div class="result-header">
+        <h2 id="risk-label" class="risk-label">Unknown</h2>
+        <div class="score-container">
+          <div class="score-label">ML Risk Score</div>
+          <div id="ml-score" class="score-value">0%</div>
+        </div>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-label">Baseline Rule</span>
+          <span id="baseline-score" class="stat-value">0%</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">AV Detections</span>
+          <span id="av-detects" class="stat-value">0/0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Open Ports</span>
+          <span id="open-ports" class="stat-value">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
