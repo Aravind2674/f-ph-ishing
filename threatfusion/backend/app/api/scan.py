@@ -194,8 +194,8 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             
         if shodan and shodan.open_ports:
             summary_parts.append(f"There are {len(shodan.open_ports)} exposed ports, ")
-            if cve and cve.vulnerabilities:
-                summary_parts.append(f"with {len(cve.vulnerabilities)} known CVEs detected.")
+            if cve and cve.cves:
+                summary_parts.append(f"with {len(cve.cves)} known CVEs detected.")
             else:
                 summary_parts.append("with no critical CVEs immediately apparent.")
                 

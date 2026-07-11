@@ -197,9 +197,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           
           <div className="mt-auto">
             <span className="font-label-md text-label-md text-on-surface-variant block mb-xs">Vulnerabilities</span>
-            {result.cve?.vulnerabilities?.length ? (
+            {result.cve?.cves?.length ? (
               <div className="max-h-24 overflow-y-auto">
-                {result.cve.vulnerabilities.map((v: any, i: number) => (
+                {result.cve.cves.map((v: any, i: number) => (
                   <span key={i} className="font-mono-data text-mono-data text-error block truncate" title={v.id}>
                     {v.id} {v.severity && `(${v.severity})`}
                   </span>
