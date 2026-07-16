@@ -95,8 +95,8 @@ def test_explain_prediction(model: FusionModel, malicious_features: FeatureVecto
     """Test that SHAP explainability works."""
     explanations = explain_prediction(model, malicious_features)
     
-    # Should explain exactly 13 features
-    assert len(explanations) == 13
+    # Should explain exactly 19 features
+    assert len(explanations) == 19
     
     # Should be sorted by absolute SHAP value, descending
     abs_vals = [abs(e.shap_value) for e in explanations]

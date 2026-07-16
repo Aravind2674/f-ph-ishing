@@ -12,6 +12,49 @@
   .animate-fade-in-up {
     animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
+  
+  .glass-panel {
+      background-color: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .glass-panel-hot {
+      background-color: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+  }
+  
+  .glow-text-primary {
+      text-shadow: 0 0 8px rgba(173, 198, 255, 0.5);
+  }
+  
+  .glow-text-error {
+      text-shadow: 0 0 8px rgba(255, 180, 171, 0.5);
+  }
+  
+  .ticker-wrap {
+      width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      box-sizing: border-box;
+  }
+  
+  .ticker {
+      display: inline-block;
+      animation: ticker 20s linear infinite;
+  }
+  
+  .pulse-dot {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .orbit-spin {
+      animation: spin 60s linear infinite;
+  }
 }
 
 @keyframes fadeInUp {
@@ -25,6 +68,36 @@
   }
 }
 
+@keyframes ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 body {
-  @apply bg-background text-on-background font-body-md;
+  @apply bg-[#020617] text-on-background font-body-md;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }

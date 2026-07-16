@@ -92,6 +92,9 @@ class ShodanClient:
 
     def _generate_mock(self, ip: str, is_full: bool) -> ShodanResult:
         """Generate deterministic mock data for the IP."""
+        import hashlib
+        import random
+        
         if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172.16."):
             return ShodanResult()  # Private IPs usually have no InternetDB entry
             
@@ -104,22 +107,62 @@ class ShodanClient:
                 tags=["dns"]
             )
             
-        # Default mock profile
-        tags = ["cloud", "vpn"] if is_full else ["cloud"]
-        hostnames = ["full.api.example.com"] if is_full else ["example.com"]
-            
+        # Seed based on IP address to generate unique but deterministic open ports, cpes, and vulns
+        seed_val = int(hashlib.md5(ip.encode('utf-8')).hexdigest(), 16)
+        rng = random.Random(seed_val)
+        
+        # Decide ports dynamically
+        all_possible_ports = [80, 443, 8080, 22, 21, 23, 25, 445, 3389, 8443]
+        num_ports = rng.randint(2, 6)
+        ports = sorted(rng.sample(all_possible_ports, num_ports))
+        
+        # Determine tags
+        possible_tags = ["cloud", "vpn", "cdn", "hosting", "iot", "compromised"]
+        num_tags = rng.randint(1, 3)
+        tags = rng.sample(possible_tags, num_tags)
+        
+        # Determine CVE vulnerabilities
+        # Choose from a pool of CVEs that our chainer knows about or general CVEs
+        possible_vulns = [
+            "CVE-2021-44228",  # Log4j
+            "CVE-2021-41773",  # Apache Path Traversal
+            "CVE-2020-0601",   # Windows CryptoAPI
+            "CVE-2017-0144",   # EternalBlue
+            "CVE-2019-11510",  # Pulse Connect Secure
+            "CVE-2021-26855",  # Exchange SSRF
+            "CVE-2022-22965",  # Spring4Shell
+            "CVE-2023-38606",  # Apple kernel vuln
+            "CVE-2024-3094"    # XZ Utils backdoor
+        ]
+        
+        # Return CVEs based on the seed
+        num_vulns = rng.randint(1, 3)  # Always return at least 1 vulnerability so chainer runs
+        vulns = rng.sample(possible_vulns, num_vulns)
+        
+        # CPEs
+        cpes = []
+        for port in ports:
+            if port == 80 or port == 443 or port == 8080:
+                cpes.append("cpe:/a:apache:http_server:2.4.49")
+            elif port == 22:
+                cpes.append("cpe:/a:openbsd:openssh:8.2p1")
+            elif port == 445:
+                cpes.append("cpe:/a:microsoft:windows")
+                
+        hostnames = [f"node-{rng.randint(100, 999)}.example.org"]
+        
         return ShodanResult(
-            open_ports=[80, 443, 8080, 22],
+            open_ports=ports,
             hostnames=hostnames,
-            cpes=["cpe:/a:apache:http_server:2.4.49"],
-            vulns=["CVE-2021-44228", "CVE-2021-41773"],
+            cpes=cpes,
+            vulns=vulns,
             tags=tags,
-            org="Mock Organization" if is_full else None,
-            isp="Mock ISP" if is_full else None,
-            asn="AS12345" if is_full else None,
-            country="United States" if is_full else None,
-            city="New York" if is_full else None,
-            banner_data=[{"port": "80", "protocol": "tcp", "product": "Apache httpd", "version": "2.4.49"}] if is_full else []
+            org=f"Mock Org {rng.randint(10, 99)}" if is_full else None,
+            isp=f"Mock ISP {rng.randint(10, 99)}" if is_full else None,
+            asn=f"AS{rng.randint(10000, 99999)}" if is_full else None,
+            country=rng.choice(["United States", "Germany", "Japan", "Singapore", "Canada"]),
+            city=rng.choice(["New York", "Berlin", "Tokyo", "Singapore", "Toronto"]),
+            banner_data=[{"port": str(p), "protocol": "tcp"} for p in ports] if is_full else []
         )
 
     # ------------------------------------------------------------------

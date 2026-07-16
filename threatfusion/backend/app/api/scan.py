@@ -71,6 +71,15 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     
     This endpoint executes synchronously for demonstration purposes.
     """
+    # ── 0. Pre-Scan Validation ──────────────────────────────────────────────
+    if request.target_type in (TargetType.DOMAIN, TargetType.URL):
+        from app.core.validation import validate_domain_target
+        from fastapi.responses import JSONResponse
+        is_valid, validation_data, normalized = await validate_domain_target(request.target)
+        if not is_valid:
+            return JSONResponse(status_code=400, content=validation_data)
+
+
     scan_id = str(uuid4())
     logger.info("Starting scan %s for %s (%s)", scan_id, request.target, request.target_type)
     
@@ -83,7 +92,6 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     sources_succeeded = []
     sources_failed = []
     
-    # Pull configuration
     from app.core.config import get_settings
     settings = get_settings()
     use_mock = settings.USE_MOCK_DATA
@@ -92,6 +100,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     shodan_client = ShodanClient(api_key=settings.SHODAN_API_KEY, use_mock=use_mock)
     cve_client = CVEClient(api_key=settings.NVD_API_KEY, use_mock=use_mock)
     tech_client = TechFingerprintClient(use_mock=use_mock)
+    
+    from app.ml.chaining import VulnerabilityChainer
+    chainer = VulnerabilityChainer()
     
     try:
         # ── 1. Data Enrichment (Sequential for rate-limit safety) ───────
@@ -160,6 +171,14 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 logger.warning("Tech fingerprinting failed: %s", e)
                 sources_failed.append("TechFingerprint")
 
+        # ── 1b. Predictive Vulnerability Chaining ───────────────────────
+        attack_paths = []
+        if cve and cve.cves:
+            try:
+                attack_paths = await chainer.build_and_solve_chain(cve.cves)
+            except Exception as e:
+                logger.warning("Vulnerability chaining failed: %s", e)
+
         # ── 2. Feature Engineering ──────────────────────────────────────
         features = extract_features(vt, shodan, cve, tech)
         
@@ -216,6 +235,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             ml_score=m_score,
             ml_label=m_label,
             explanations=explanations,
+            attack_paths=attack_paths,
             summary=summary_text,
             data_sources_succeeded=sources_succeeded,
             data_sources_failed=sources_failed,

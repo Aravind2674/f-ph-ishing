@@ -1,28 +1,6 @@
 {
-  "accuracy": 0.8365,
-  "precision": 0.8394160583941606,
-  "recall": 0.8231083844580777,
-  "f1": 0.8311822405782138,
-  "roc_auc": 0.8416263471520216,
-  "feature_names": [
-    "vt_malicious_ratio",
-    "vt_suspicious_ratio",
-    "vt_reputation_score",
-    "vt_last_seen_days_ago",
-    "shodan_open_port_count",
-    "shodan_has_high_risk_port",
-    "shodan_cve_count",
-    "shodan_max_cvss_score",
-    "shodan_has_iot_tag",
-    "shodan_has_compromised_tag",
-    "shodan_service_diversity_score",
-    "shodan_high_risk_cpe_count",
-    "tech_count",
-    "tech_has_known_eol_component",
-    "tech_avg_confidence",
-    "tech_stack_diversity_count",
-    "tech_has_eol_cms_version",
-    "ssl_cert_valid",
-    "domain_age_days"
-  ]
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0
 }

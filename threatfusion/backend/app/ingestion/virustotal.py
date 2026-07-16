@@ -117,6 +117,10 @@ class VirusTotalClient:
 
     def _generate_mock(self, target: str) -> VirusTotalResult:
         """Generate deterministic mock data based on the target string."""
+        import hashlib
+        import random
+        from datetime import datetime, timezone, timedelta
+        
         target_lower = target.lower()
         if "malicious" in target_lower or "evil" in target_lower:
             return VirusTotalResult(
@@ -141,15 +145,33 @@ class VirusTotalClient:
                 categories={'Fortinet': 'business', 'Sophos': 'business'}
             )
         else:
+            # Seed based on target domain to generate unique but deterministic scores
+            seed_val = int(hashlib.md5(target.encode('utf-8')).hexdigest(), 16)
+            rng = random.Random(seed_val)
+            
+            malicious = rng.randint(0, 8)
+            suspicious = rng.randint(0, 3)
+            undetected = rng.randint(2, 10)
+            total = 73
+            harmless = total - malicious - suspicious - undetected
+            reputation = rng.randint(-30, 90)
+            
+            cats = ['business', 'technology', 'education', 'news', 'suspicious', 'shopping']
+            cat = rng.choice(cats)
+            
+            # Deterministic last seen days
+            days_ago = rng.randint(0, 100)
+            last_date = datetime.now(timezone.utc) - timedelta(days=days_ago)
+            
             return VirusTotalResult(
-                malicious_count=2, 
-                harmless_count=65, 
-                suspicious_count=1, 
-                undetected_count=5, 
-                total_engines=73,
-                reputation_score=-5, 
-                last_analysis_date=datetime.now(timezone.utc),
-                categories={'Fortinet': 'suspicious'}
+                malicious_count=malicious,
+                harmless_count=harmless,
+                suspicious_count=suspicious,
+                undetected_count=undetected,
+                total_engines=total,
+                reputation_score=reputation,
+                last_analysis_date=last_date,
+                categories={'Fortinet': cat}
             )
 
     def _parse_response(self, data: dict[str, Any]) -> VirusTotalResult:

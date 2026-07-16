@@ -52,8 +52,16 @@ class TechFingerprintClient:
             self._client = None
 
     def _generate_mock(self, url: str) -> TechFingerprintResult:
+        import hashlib
+        import random
+        
         url_lower = url.lower()
         techs = []
+        
+        # Seed based on URL to generate unique but deterministic technologies
+        seed_val = int(hashlib.md5(url.encode('utf-8')).hexdigest(), 16)
+        rng = random.Random(seed_val)
+        
         if "wordpress" in url_lower:
             techs.extend([
                 DetectedTechnology(name="WordPress", version="6.1", categories=["CMS"], confidence=100),
@@ -67,16 +75,30 @@ class TechFingerprintClient:
                 DetectedTechnology(name="Vercel", categories=["PaaS"], confidence=100)
             ])
         else:
-            techs.extend([
-                DetectedTechnology(name="Nginx", version="1.21.0", categories=["Web servers"], confidence=100),
-                DetectedTechnology(name="jQuery", version="3.6.0", categories=["JavaScript libraries"], confidence=100),
-                DetectedTechnology(name="Google Analytics", categories=["Analytics"], confidence=90)
-            ])
+            # Generate deterministic mix of popular technologies
+            web_servers = [("Nginx", "1.21.0"), ("Apache", "2.4.41"), ("LiteSpeed", None)]
+            js_libs = [("jQuery", "3.6.0"), ("Lodash", "4.17.21"), ("React", "18.2.0")]
+            analytics = [("Google Analytics", None), ("Mixpanel", None), ("Hotjar", None)]
+            cms = [("Drupal", "9.2"), ("Joomla", "4.0"), ("Shopify", None), (None, None)]
             
+            server_name, server_ver = rng.choice(web_servers)
+            js_name, js_ver = rng.choice(js_libs)
+            anal_name = rng.choice(analytics)[0]
+            cms_name, cms_ver = rng.choice(cms)
+            
+            if server_name:
+                techs.append(DetectedTechnology(name=server_name, version=server_ver, categories=["Web servers"], confidence=100))
+            if js_name:
+                techs.append(DetectedTechnology(name=js_name, version=js_ver, categories=["JavaScript libraries"], confidence=100))
+            if anal_name:
+                techs.append(DetectedTechnology(name=anal_name, categories=["Analytics"], confidence=95))
+            if cms_name:
+                techs.append(DetectedTechnology(name=cms_name, version=cms_ver, categories=["CMS"], confidence=100))
+                
         return TechFingerprintResult(
             technologies=techs,
-            headers_analyzed=15,
-            scripts_analyzed=5
+            headers_analyzed=rng.randint(8, 20),
+            scripts_analyzed=rng.randint(3, 12)
         )
 
     async def fingerprint_url(self, url: str) -> TechFingerprintResult:

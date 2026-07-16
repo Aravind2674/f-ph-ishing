@@ -475,6 +475,11 @@ class ScanResult(BaseModel):
         description="SHAP‑based per‑feature risk explanations",
     )
 
+    attack_paths: Optional[list[AttackPath]] = Field(
+        None,
+        description="Discovered vulnerability chains and attack paths",
+    )
+
     # ── Metadata ─────────────────────────────────────────────────────
     data_sources_succeeded: list[str] = Field(
         default_factory=list,
@@ -519,6 +524,28 @@ class ScanHistoryItem(BaseModel):
     ml_label: Optional[str] = None
 
 
+class AttackChainNode(BaseModel):
+    """A single node representing a vulnerability in an attack chain."""
+
+    cve_id: str = Field(..., description="CVE ID, e.g. CVE-2021-44228")
+    cvss_score: Optional[float] = Field(None, description="CVSS base score")
+    epss_score: float = Field(0.0, description="EPSS exploitation probability score")
+    is_in_kev: bool = Field(False, description="Whether the CVE is in CISA KEV catalog")
+    exploit_db_id: Optional[str] = Field(None, description="Exploit-DB script ID if available")
+    pre_conditions: list[str] = Field(default_factory=list, description="Conditions required to exploit")
+    post_conditions: list[str] = Field(default_factory=list, description="State changes after exploitation")
+    description: str = Field("", description="Brief vulnerability description")
+
+
+class AttackPath(BaseModel):
+    """A logical path of chained vulnerabilities leading to a potential compromise."""
+
+    path_id: str = Field(..., description="Unique identifier for the attack path")
+    nodes: list[AttackChainNode] = Field(default_factory=list, description="Sequence of chained vulnerability nodes")
+    total_risk_score: float = Field(0.0, description="Aggregated risk probability (0.0-1.0)")
+    summary: str = Field("", description="Human-readable description of the attack sequence")
+
+
 class HealthResponse(BaseModel):
     """Health‑check response for ``GET /api/v1/health``.
 
@@ -533,3 +560,4 @@ class HealthResponse(BaseModel):
         True,
         description="True when running with mock data (no live API keys configured)",
     )
+

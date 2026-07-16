@@ -10,6 +10,24 @@ export interface RiskExplanation {
   human_readable: string;
 }
 
+export interface AttackChainNode {
+  cve_id: string;
+  cvss_score: number | null;
+  epss_score: number;
+  is_in_kev: boolean;
+  exploit_db_id: string | null;
+  pre_conditions: string[];
+  post_conditions: string[];
+  description: string;
+}
+
+export interface AttackPath {
+  path_id: string;
+  nodes: AttackChainNode[];
+  total_risk_score: number;
+  summary: string;
+}
+
 export interface ScanResult {
   scan_id: string;
   target: string;
@@ -19,6 +37,7 @@ export interface ScanResult {
   ml_score: number;
   ml_label: string;
   explanations: RiskExplanation[];
+  attack_paths?: AttackPath[];
   summary: string;
   virustotal: any;
   shodan: any;
