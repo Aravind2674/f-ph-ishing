@@ -8,6 +8,7 @@ import { History } from './components/History';
 import { Settings } from './components/Settings';
 import { Card } from './components/ui/card';
 import { Skeleton } from './components/ui/skeleton';
+import { SiteMeteorsBackground } from './components/ui/site-meteors-background';
 import { submitScan } from './api';
 import type { ScanResult as IScanResult, ScanRequest } from './api';
 
@@ -45,40 +46,49 @@ function App() {
   };
 
   return (
-    <DashboardLayout activeTab={currentView} onTabChange={setCurrentView as any}>
-      {currentView === 'history' && <History />}
-      {currentView === 'settings' && <Settings />}
-      {currentView === 'scan' && (
-        <div className="flex flex-col gap-5">
-          <ScanForm onSubmit={handleScanSubmit} loading={loading} />
+    <>
+      {/*
+        Ambient meteors — mounted once at the app root (sibling of the shell),
+        not inside DashboardLayout or per-view, so it never remounts on nav and
+        stays behind floating nav / opaque cards via -z-10.
+      */}
+      <SiteMeteorsBackground />
 
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card className="flex items-start gap-3 border-line-strong p-5">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface-2">
-                  <AlertTriangle className="size-4 text-foreground" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">Scan failed</h3>
-                  <p className="mt-1 font-mono text-xs text-muted">{error}</p>
-                </div>
-              </Card>
-            </motion.div>
-          )}
+      <DashboardLayout activeTab={currentView} onTabChange={setCurrentView as any}>
+        {currentView === 'history' && <History />}
+        {currentView === 'settings' && <Settings />}
+        {currentView === 'scan' && (
+          <div className="flex flex-col gap-5">
+            <ScanForm onSubmit={handleScanSubmit} loading={loading} />
 
-          {loading && <ScanningState />}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="flex items-start gap-3 border-line-strong p-5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface-2">
+                    <AlertTriangle className="size-4 text-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Scan failed</h3>
+                    <p className="mt-1 font-mono text-xs text-muted">{error}</p>
+                  </div>
+                </Card>
+              </motion.div>
+            )}
 
-          {!loading && !error && scanResult && (
-            <ScanResult result={scanResult} onRescan={handleRescan} />
-          )}
+            {loading && <ScanningState />}
 
-          {!loading && !error && !scanResult && <IdleState />}
-        </div>
-      )}
-    </DashboardLayout>
+            {!loading && !error && scanResult && (
+              <ScanResult result={scanResult} onRescan={handleRescan} />
+            )}
+
+            {!loading && !error && !scanResult && <IdleState />}
+          </div>
+        )}
+      </DashboardLayout>
+    </>
   );
 }
 

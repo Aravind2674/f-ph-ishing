@@ -16,11 +16,11 @@ import {
 } from "lucide-react";
 import type { ScanResult as IScanResult, RiskExplanation, AttackPath } from "@/api";
 import { cn } from "@/lib/utils";
-import { resolveSeverity } from "@/lib/severity";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
+import { RiskScorePanel } from "@/components/RiskScorePanel";
 
 interface ScanResultProps {
   result: IScanResult;
@@ -28,85 +28,6 @@ interface ScanResultProps {
 }
 
 const pct = (n: number) => Math.round((n ?? 0) * 100);
-
-/* ────────────────────────────────────────────────────────────────────────
- * Monochrome score dial. The ring's stroke opacity scales with severity, so
- * a "hotter" score reads as a brighter ring — never a red one.
- * ──────────────────────────────────────────────────────────────────────── */
-function ScoreDial({
-  value,
-  label,
-  sublabel,
-  emphasis = false,
-  scoreLabel,
-}: {
-  value: number; // 0..100
-  label: string;
-  sublabel: string;
-  emphasis?: boolean;
-  scoreLabel?: string | null;
-}) {
-  const sev = resolveSeverity(value / 100, scoreLabel);
-  const R = 46;
-  const C = 2 * Math.PI * R;
-  const offset = C - (C * value) / 100;
-
-  return (
-    <div className="flex items-center gap-5">
-      <div className="relative size-28 shrink-0">
-        <svg viewBox="0 0 110 110" className="size-full -rotate-90">
-          <circle
-            cx="55"
-            cy="55"
-            r={R}
-            fill="none"
-            stroke="hsl(0 0% 100% / 0.08)"
-            strokeWidth={emphasis ? 7 : 6}
-          />
-          <circle
-            cx="55"
-            cy="55"
-            r={R}
-            fill="none"
-            stroke="hsl(var(--foreground))"
-            strokeOpacity={sev.intensity}
-            strokeWidth={emphasis ? 7 : 6}
-            strokeLinecap="round"
-            strokeDasharray={C}
-            strokeDashoffset={offset}
-            style={{ transition: "stroke-dashoffset 1s cubic-bezier(0.22,1,0.36,1)" }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-3xl font-semibold tabular-nums text-foreground">
-            {value}
-          </span>
-          <span className="font-mono text-[9px] uppercase tracking-wide2 text-subtle">
-            / 100
-          </span>
-        </div>
-      </div>
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "text-sm tracking-tight",
-              emphasis ? "font-semibold text-foreground" : "font-medium text-muted"
-            )}
-          >
-            {label}
-          </span>
-          {emphasis && <Badge variant="solid">Primary</Badge>}
-        </div>
-        <p className="mt-0.5 text-xs text-subtle">{sublabel}</p>
-        <div className="mt-3 flex items-center gap-3">
-          <RiskMeter score={value / 100} label={scoreLabel} />
-          <SeverityTag score={value / 100} label={scoreLabel} showIcon={false} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ────────────────────────────────────────────────────────────────────────
  * SHAP waterfall. Sign is drawn with DIRECTION (right = raises risk, left =
@@ -300,7 +221,6 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
   const [copied, setCopied] = useState(false);
   const baseline = pct(result.baseline_score);
   const ml = pct(result.ml_score ?? result.baseline_score);
-  const delta = ml - baseline;
 
   const explanations = result.explanations ?? [];
   const topShap = [...explanations]
@@ -384,33 +304,13 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         <p className="text-sm leading-relaxed text-muted">{result.summary}</p>
       )}
 
-      {/* ── Score comparison: baseline vs ML fusion ───────────────────── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-6">
-          <ScoreDial
-            value={baseline}
-            label="Baseline Heuristic"
-            sublabel="Weighted-sum rule score"
-          />
-        </Card>
-        <Card interactive className="p-6">
-          <ScoreDial
-            value={ml}
-            label="ML Fusion (XGBoost)"
-            sublabel="Learned multi-source score"
-            scoreLabel={result.ml_label}
-            emphasis
-          />
-          {/* Model-vs-baseline delta, drawn in mono. */}
-          <div className="mt-4 flex items-center gap-2 border-t border-line pt-3 font-mono text-[11px] uppercase tracking-wide2 text-subtle">
-            <span>Δ vs baseline</span>
-            <span className="text-foreground">
-              {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
-              {Math.abs(delta)}
-            </span>
-          </div>
-        </Card>
-      </div>
+      {/* ── Score comparison — quiet dual cards + verdict row ─────────── */}
+      <RiskScorePanel
+        baselineScore={baseline}
+        mlScore={ml}
+        severityLabel={result.ml_label}
+        revealKey={result.scan_id}
+      />
 
       {/* ── SHAP explanation + data sources ───────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

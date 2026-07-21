@@ -110,6 +110,7 @@ export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
             <div className="flex flex-1 items-center gap-3 pl-2">
               <active.icon className="size-4 shrink-0 text-subtle" />
               <input
+                id="tf-target-input"
                 type="text"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
@@ -131,7 +132,12 @@ export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
             >
               {loading ? (
                 <>
-                  <span className="size-3.5 animate-spin rounded-full border border-background/40 border-t-background" />
+                  {/* Pulse dots instead of a spinner — matches the designed loading language. */}
+                  <span className="flex items-center gap-1" aria-hidden>
+                    <span className="size-1 animate-pulse rounded-full bg-background" />
+                    <span className="size-1 animate-pulse rounded-full bg-background [animation-delay:120ms]" />
+                    <span className="size-1 animate-pulse rounded-full bg-background [animation-delay:240ms]" />
+                  </span>
                   Scanning
                 </>
               ) : (

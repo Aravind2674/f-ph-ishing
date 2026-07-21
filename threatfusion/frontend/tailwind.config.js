@@ -82,6 +82,18 @@ export default {
           from: { transform: "rotate(0deg)" },
           to: { transform: "rotate(360deg)" },
         },
+        // Aceternity Meteors — required by animate-meteor-effect on <Meteors />.
+        "meteor-effect": {
+          "0%": {
+            transform: "rotate(215deg) translateX(0)",
+            opacity: "1",
+          },
+          "70%": { opacity: "1" },
+          "100%": {
+            transform: "rotate(215deg) translateX(-500px)",
+            opacity: "0",
+          },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.4s ease-out both",
@@ -89,6 +101,7 @@ export default {
         scan: "scan 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
         shimmer: "shimmer 1.8s ease-in-out infinite",
         "spin-slow": "spin-slow 24s linear infinite",
+        "meteor-effect": "meteor-effect 5s linear infinite",
       },
     },
   },

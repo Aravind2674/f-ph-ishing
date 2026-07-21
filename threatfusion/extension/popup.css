@@ -74,7 +74,8 @@ body {
 }
 
 .brand-name {
-  font-family: "JetBrains Mono", monospace;
+  /* Wordmark is chrome → Inter (sans), not mono. */
+  font-family: "Inter", system-ui, sans-serif;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
