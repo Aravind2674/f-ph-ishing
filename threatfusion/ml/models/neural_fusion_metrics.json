@@ -1,0 +1,59 @@
+{
+  "model": "UrlFusionNet (char-CNN text branch + tabular MLP fusion)",
+  "framework": "pytorch",
+  "n_parameters": 41539,
+  "n_samples": 10000,
+  "epochs": 12,
+  "test_size": 2000,
+  "ablation": {
+    "fused": {
+      "accuracy": 0.851,
+      "precision": 0.8287128712871287,
+      "recall": 0.8700623700623701,
+      "f1": 0.8488843813387424,
+      "roc_auc": 0.8571887805991851
+    },
+    "text_only": {
+      "accuracy": 0.851,
+      "precision": 0.8287128712871287,
+      "recall": 0.8700623700623701,
+      "f1": 0.8488843813387424,
+      "roc_auc": 0.8582257780234659
+    },
+    "tabular_only": {
+      "accuracy": 0.842,
+      "precision": 0.8249496981891348,
+      "recall": 0.8523908523908524,
+      "f1": 0.8384458077709611,
+      "roc_auc": 0.8446366553302971
+    }
+  },
+  "primary": {
+    "accuracy": 0.851,
+    "precision": 0.8287128712871287,
+    "recall": 0.8700623700623701,
+    "f1": 0.8488843813387424,
+    "roc_auc": 0.8571887805991851
+  },
+  "feature_names": [
+    "vt_malicious_ratio",
+    "vt_suspicious_ratio",
+    "vt_reputation_score",
+    "vt_last_seen_days_ago",
+    "shodan_open_port_count",
+    "shodan_has_high_risk_port",
+    "shodan_cve_count",
+    "shodan_max_cvss_score",
+    "shodan_has_iot_tag",
+    "shodan_has_compromised_tag",
+    "shodan_service_diversity_score",
+    "shodan_high_risk_cpe_count",
+    "tech_count",
+    "tech_has_known_eol_component",
+    "tech_avg_confidence",
+    "tech_stack_diversity_count",
+    "tech_has_eol_cms_version",
+    "ssl_cert_valid",
+    "domain_age_days"
+  ]
+}

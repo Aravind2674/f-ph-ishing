@@ -388,6 +388,32 @@ class RiskExplanation(BaseModel):
     )
 
 
+class NeuralExplanation(BaseModel):
+    """A suspicious substring surfaced by the character-level neural model.
+
+    Produced by :class:`~app.ml.neural_fusion.NeuralFusionModel.explain_url`
+    via per-character saliency. Unlike ``RiskExplanation`` (which attributes the
+    score to *tabular* features), this points at the exact span of the URL
+    *string* that drove the lexical phishing signal — e.g. a ``paypa1``
+    look-alike token or a suspicious ``-verify-account`` chain.
+    """
+
+    substring: str = Field(
+        ...,
+        description="The high-attention substring of the URL",
+    )
+    start: int = Field(..., description="Start character index within the URL")
+    end: int = Field(..., description="End character index (exclusive)")
+    importance: float = Field(
+        ...,
+        description="Normalised saliency in [0, 1]; higher = stronger phishing signal",
+    )
+    human_readable: str = Field(
+        ...,
+        description="Plain-English explanation of the substring's contribution",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Composite / orchestrator‑level models
 # ---------------------------------------------------------------------------
@@ -469,6 +495,28 @@ class ScanResult(BaseModel):
         description="Human‑readable risk label: low / medium / high / critical",
     )
 
+    # ── Neural fusion model (char-CNN + tabular) ─────────────────────
+    neural_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Neural fusion risk probability from URL string + tabular features",
+    )
+    neural_label: Optional[str] = Field(
+        None,
+        description="Human-readable neural risk label: Low / Medium / High / Critical",
+    )
+    neural_url_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="URL-string-only neural risk (no enrichment) — the zero-day signal",
+    )
+    neural_explanations: list[NeuralExplanation] = Field(
+        default_factory=list,
+        description="Suspicious URL substrings from character-level saliency",
+    )
+
     # ── Explanations ─────────────────────────────────────────────────
     explanations: list[RiskExplanation] = Field(
         default_factory=list,
@@ -522,6 +570,8 @@ class ScanHistoryItem(BaseModel):
     baseline_score: Optional[float] = None
     ml_score: Optional[float] = None
     ml_label: Optional[str] = None
+    neural_score: Optional[float] = None
+    neural_label: Optional[str] = None
 
 
 class AttackChainNode(BaseModel):
@@ -560,4 +610,19 @@ class HealthResponse(BaseModel):
         True,
         description="True when running with mock data (no live API keys configured)",
     )
+
+
+# ---------------------------------------------------------------------------
+# Forward-reference resolution
+# ---------------------------------------------------------------------------
+# ``ScanResult`` references ``AttackPath`` / ``AttackChainNode`` and
+# ``NeuralExplanation`` which are declared later in / earlier in this module.
+# Combined with ``from __future__ import annotations`` (all annotations become
+# strings), some pydantic/FastAPI versions fail to resolve these lazily during
+# response-model schema generation ("name 'Optional' is not defined"). Rebuilding
+# the affected models now — once every symbol in this module exists — resolves
+# the references deterministically at import time.
+ScanResult.model_rebuild()
+ScanResponse.model_rebuild()
+ScanHistoryItem.model_rebuild()
 

@@ -10,6 +10,16 @@ export interface RiskExplanation {
   human_readable: string;
 }
 
+// A suspicious URL substring surfaced by the character-level neural model
+// (via saliency). Mirrors backend NeuralExplanation.
+export interface NeuralExplanation {
+  substring: string;
+  start: number;
+  end: number;
+  importance: number;
+  human_readable: string;
+}
+
 export interface AttackChainNode {
   cve_id: string;
   cvss_score: number | null;
@@ -36,6 +46,12 @@ export interface ScanResult {
   baseline_score: number;
   ml_score: number;
   ml_label: string;
+  // Neural fusion model (char-CNN + tabular). Optional — present only when the
+  // trained checkpoint is available on the backend.
+  neural_score?: number | null;
+  neural_label?: string | null;
+  neural_url_score?: number | null;
+  neural_explanations?: NeuralExplanation[];
   explanations: RiskExplanation[];
   attack_paths?: AttackPath[];
   summary: string;
@@ -61,6 +77,8 @@ export interface ScanHistoryItem {
   baseline_score: number;
   ml_score: number;
   ml_label: string;
+  neural_score?: number | null;
+  neural_label?: string | null;
 }
 
 // Mirrors backend HealthResponse (GET /health). `mock_mode` lets the UI show a
