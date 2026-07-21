@@ -95,13 +95,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware — allow all origins during development.
-# In production, this should be restricted to the frontend's domain.
-# We need CORS because the React frontend (localhost:5173) calls the
-# API (localhost:8000) from a different origin.
+# CORS middleware — allow Vite/React dev origins.
+# Note: allow_origins=["*"] is incompatible with allow_credentials=True
+# in browsers, which surfaces as a CORS failure on fetch.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Restrict in production
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

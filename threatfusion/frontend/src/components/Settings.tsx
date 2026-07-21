@@ -1,47 +1,222 @@
-import React from 'react';
+import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import {
+  ShieldCheck,
+  Radar,
+  Bug,
+  Boxes,
+  Eye,
+  EyeOff,
+  Info,
+  type LucideIcon,
+} from "lucide-react";
+import { fetchHealth } from "@/api";
+import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+
+/*
+ * Settings — grouped by ingestion source. This is a presentation-layer surface:
+ * the backend owns the real configuration via environment variables, so the
+ * inputs here are local-only and never leave the browser. The mock/live toggle
+ * *reflects* the backend's reported mode (GET /health) and clearly states that
+ * switching to live requires a backend restart with USE_MOCK_DATA=false.
+ */
+
+interface Source {
+  id: string;
+  name: string;
+  icon: LucideIcon;
+  env: string;
+  desc: string;
+  keyless?: boolean;
+}
+
+const SOURCES: Source[] = [
+  {
+    id: "virustotal",
+    name: "VirusTotal",
+    icon: ShieldCheck,
+    env: "VIRUSTOTAL_API_KEY",
+    desc: "File & URL reputation, AV engine detections.",
+  },
+  {
+    id: "shodan",
+    name: "Shodan",
+    icon: Radar,
+    env: "SHODAN_API_KEY",
+    desc: "Host exposure, open ports, service CPEs. InternetDB works without a key.",
+  },
+  {
+    id: "cve",
+    name: "CVE / NVD",
+    icon: Bug,
+    env: "NVD_API_KEY",
+    desc: "Vulnerability severity enrichment. Key is optional (raises rate limits).",
+  },
+  {
+    id: "tech",
+    name: "Tech Fingerprint",
+    icon: Boxes,
+    env: "—",
+    desc: "Local Wappalyzer-style detection. Runs entirely on the backend.",
+    keyless: true,
+  },
+];
+
+function SourceRow({ source }: { source: Source }) {
+  const [value, setValue] = useState("");
+  const [reveal, setReveal] = useState(false);
+  const Icon = source.icon;
+
+  return (
+    <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line bg-surface-2">
+          <Icon className="size-4 text-foreground" />
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground">
+              {source.name}
+            </span>
+            {source.keyless ? (
+              <Badge variant="subtle">Local</Badge>
+            ) : (
+              <span className="font-mono text-[10px] text-subtle">
+                {source.env}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 max-w-sm text-xs text-subtle">{source.desc}</p>
+        </div>
+      </div>
+
+      {!source.keyless && (
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:max-w-xs">
+          <div className="relative flex-1">
+            <Input
+              type={reveal ? "text" : "password"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="Not set"
+              className="pr-9 font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={() => setReveal((r) => !r)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-foreground"
+              aria-label={reveal ? "Hide key" : "Reveal key"}
+            >
+              {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            </button>
+          </div>
+          <Button variant="subtle" size="sm" disabled={!value.trim()}>
+            Save
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const Settings: React.FC = () => {
+  const [mock, setMock] = useState(true);
+  const [dirty, setDirty] = useState(false);
+  const [known, setKnown] = useState(false);
+
+  // Seed the toggle from the backend's reported mode.
+  useEffect(() => {
+    fetchHealth()
+      .then((h) => {
+        setMock(h.mock_mode);
+        setKnown(true);
+      })
+      .catch(() => setKnown(false));
+  }, []);
+
   return (
-    <div className="flex flex-col gap-6 animate-fade-in-up max-w-4xl mx-auto w-full">
-      <div className="flex justify-between items-end">
-        <div>
-          <h2 className="text-headline-xl font-headline-xl font-bold text-on-surface tracking-tighter">System Configurations</h2>
-          <p className="text-body-lg text-outline mt-1">Manage API keys and intelligence feeds.</p>
-        </div>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className="mx-auto flex w-full max-w-3xl flex-col gap-5"
+    >
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight text-foreground">
+          Settings
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Data mode and ingestion sources.
+        </p>
       </div>
 
-      <div className="glass-panel rounded-xl p-6">
-        <h3 className="text-title-lg font-bold text-on-surface mb-6 flex items-center gap-2">
-          <span className="material-symbols-outlined text-primary">key</span> Integration Keys
-        </h3>
-        
-        <div className="flex flex-col gap-6">
+      {/* Prominent mock/live mode toggle. */}
+      <Card interactive className="p-5">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <label className="block text-label-sm font-label-sm text-outline uppercase tracking-widest mb-2">VirusTotal API Key</label>
-            <div className="flex gap-4">
-              <input type="password" value="****************************************" className="flex-1 bg-surface-container-high border border-white/10 rounded px-4 py-2 text-on-surface focus:outline-none focus:border-primary transition-colors" readOnly />
-              <button className="bg-surface-variant text-on-surface border border-white/10 px-4 py-2 rounded hover:bg-white/5 transition-all">Update</button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">
+                Data Mode
+              </span>
+              <Badge variant={mock ? "subtle" : "solid"}>
+                {mock ? "Mock" : "Live"}
+              </Badge>
             </div>
+            <p className="mt-1 max-w-md text-xs text-muted">
+              {mock
+                ? "Serving synthetic data so the demo runs without API keys."
+                : "Serving live intelligence from configured sources."}
+            </p>
           </div>
-          
-          <div>
-            <label className="block text-label-sm font-label-sm text-outline uppercase tracking-widest mb-2">Shodan API Key</label>
-            <div className="flex gap-4">
-              <input type="password" value="********************************" className="flex-1 bg-surface-container-high border border-white/10 rounded px-4 py-2 text-on-surface focus:outline-none focus:border-primary transition-colors" readOnly />
-              <button className="bg-surface-variant text-on-surface border border-white/10 px-4 py-2 rounded hover:bg-white/5 transition-all">Update</button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+              <span className={cn(mock && "text-foreground")}>Mock</span>
+              <Switch
+                checked={!mock}
+                onCheckedChange={(on) => {
+                  setMock(!on);
+                  setDirty(true);
+                }}
+                aria-label="Toggle live data mode"
+              />
+              <span className={cn(!mock && "text-foreground")}>Live</span>
             </div>
-          </div>
-          
-          <div>
-            <label className="block text-label-sm font-label-sm text-outline uppercase tracking-widest mb-2">ThreatFox API Key</label>
-            <div className="flex gap-4">
-              <input type="password" defaultValue="" placeholder="Enter key..." className="flex-1 bg-surface-container-high border border-error/50 rounded px-4 py-2 text-on-surface focus:outline-none focus:border-primary transition-colors" />
-              <button className="bg-primary text-on-primary px-4 py-2 rounded hover:bg-primary-fixed-dim transition-all">Save</button>
-            </div>
-            <p className="text-error text-body-sm mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">warning</span> Missing required key</p>
           </div>
         </div>
-      </div>
-    </div>
+
+        {/* Honest note: the switch is UI-only; the backend owns the real mode. */}
+        {(dirty || !known) && (
+          <div className="mt-4 flex items-start gap-2 rounded-md border border-line bg-surface-2 p-3 text-xs text-muted">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-subtle" />
+            <span>
+              This toggle reflects the backend's <code className="font-mono text-foreground">USE_MOCK_DATA</code>{" "}
+              setting. To change it, update <code className="font-mono text-foreground">backend/.env</code> and restart the API — it can't be flipped at runtime from the browser.
+            </span>
+          </div>
+        )}
+      </Card>
+
+      {/* Ingestion sources, grouped. */}
+      <Card>
+        <div className="border-b border-line p-5">
+          <span className="text-sm font-semibold text-foreground">
+            Ingestion Sources
+          </span>
+          <p className="mt-0.5 text-xs text-subtle">
+            Keys entered here stay in your browser; the backend reads its own from{" "}
+            <code className="font-mono text-muted">.env</code>.
+          </p>
+        </div>
+        <div className="divide-y divide-line">
+          {SOURCES.map((s) => (
+            <SourceRow key={s.id} source={s} />
+          ))}
+        </div>
+      </Card>
+    </motion.div>
   );
 };

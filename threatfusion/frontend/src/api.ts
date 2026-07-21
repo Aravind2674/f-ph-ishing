@@ -63,7 +63,15 @@ export interface ScanHistoryItem {
   ml_label: string;
 }
 
-const API_BASE = "http://localhost:8000";
+// Mirrors backend HealthResponse (GET /health). `mock_mode` lets the UI show a
+// clear mock/live indicator so a viewer always knows whether data is synthetic.
+export interface HealthResponse {
+  status: string;
+  version: string;
+  mock_mode: boolean;
+}
+
+const API_BASE = "http://127.0.0.1:8000";
 
 export const submitScan = async (request: ScanRequest): Promise<ScanResponse> => {
   const res = await fetch(`${API_BASE}/scan`, {
@@ -79,6 +87,16 @@ export const submitScan = async (request: ScanRequest): Promise<ScanResponse> =>
 
 export const fetchHistory = async (): Promise<ScanHistoryItem[]> => {
   const res = await fetch(`${API_BASE}/scan/history`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+};
+
+// Lightweight liveness probe used by the dashboard shell to render the
+// mock/live badge. Additive only — existing call signatures are untouched.
+export const fetchHealth = async (): Promise<HealthResponse> => {
+  const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }

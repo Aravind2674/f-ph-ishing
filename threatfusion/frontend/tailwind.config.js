@@ -1,101 +1,99 @@
 /** @type {import('tailwindcss').Config} */
+
+/*
+ * ThreatFusion design system — "red-team ops console".
+ *
+ * Strictly monochrome: there are no hues in this palette. Depth and hierarchy
+ * come from layered greys, hairline borders and controlled opacity. Every colour
+ * token is driven by a CSS variable (see src/index.css) expressed as raw HSL
+ * channels, which lets Tailwind's `<alpha-value>` opacity modifiers work
+ * (e.g. `bg-surface/50`). Severity/risk is communicated via typography weight,
+ * fill-vs-outline, bar density and iconography — never hue.
+ */
 export default {
-    content: [
-      "./index.html",
-      "./src/**/*.{js,ts,jsx,tsx}",
-    ],
-    darkMode: "class",
-    theme: {
-        extend: {
-            "colors": {
-                "outline-variant": "#424754",
-                "on-secondary": "#263143",
-                "surface-tint": "#adc6ff",
-                "on-tertiary-fixed-variant": "#723600",
-                "on-surface": "#e1e2ec",
-                "secondary-fixed-dim": "#bcc7de",
-                "secondary-fixed": "#d8e3fb",
-                "on-tertiary-container": "#461f00",
-                "tertiary": "#ffb786",
-                "error-container": "#93000a",
-                "outline": "#8c909f",
-                "on-error": "#690005",
-                "on-surface-variant": "#c2c6d6",
-                "on-tertiary": "#502400",
-                "surface-container-high": "#272a31",
-                "on-secondary-fixed-variant": "#3c475a",
-                "on-primary-fixed": "#001a42",
-                "surface-bright": "#363941",
-                "on-error-container": "#ffdad6",
-                "tertiary-fixed": "#ffdcc6",
-                "inverse-primary": "#005ac2",
-                "surface-container-low": "#191b23",
-                "primary-container": "#4d8eff",
-                "surface-container-highest": "#32353c",
-                "surface-container": "#1d2027",
-                "on-secondary-fixed": "#111c2d",
-                "on-primary-fixed-variant": "#004395",
-                "error": "#ffb4ab",
-                "tertiary-fixed-dim": "#ffb786",
-                "inverse-on-surface": "#2e3038",
-                "background": "#10131a",
-                "surface-container-lowest": "#0b0e15",
-                "on-tertiary-fixed": "#311400",
-                "on-background": "#e1e2ec",
-                "surface-variant": "#32353c",
-                "on-secondary-container": "#aeb9d0",
-                "primary-fixed-dim": "#adc6ff",
-                "secondary-container": "#3e495d",
-                "primary-fixed": "#d8e2ff",
-                "tertiary-container": "#df7412",
-                "secondary": "#bcc7de",
-                "on-primary": "#002e6a",
-                "primary": "#adc6ff",
-                "inverse-surface": "#e1e2ec",
-                "on-primary-container": "#00285d",
-                "surface": "#10131a",
-                "surface-dim": "#10131a"
-            },
-            "borderRadius": {
-                "DEFAULT": "0.125rem",
-                "lg": "0.25rem",
-                "xl": "0.5rem",
-                "full": "0.75rem"
-            },
-            "spacing": {
-                "container-margin": "24px",
-                "stack-md": "16px",
-                "stack-sm": "8px",
-                "gutter": "16px",
-                "unit": "4px",
-                "stack-lg": "32px"
-            },
-            "fontFamily": {
-                "body-lg": ["Inter", "sans-serif"],
-                "label-sm": ["Geist", "sans-serif"],
-                "headline-xl": ["Outfit", "sans-serif"],
-                "headline-lg": ["Outfit", "sans-serif"],
-                "body-md": ["Inter", "sans-serif"],
-                "mono-data": ["Geist", "monospace"],
-                "headline-md": ["Outfit", "sans-serif"],
-                "label-md": ["Geist", "sans-serif"],
-                "body-sm": ["Inter", "sans-serif"]
-            },
-            "fontSize": {
-                "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-                "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.08em", "fontWeight": "600" }],
-                "headline-xl": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-                "headline-lg": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
-                "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
-                "mono-data": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
-                "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
-                "label-md": ["13px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
-                "body-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }]
-            }
-        }
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        background: "hsl(var(--background) / <alpha-value>)",
+        foreground: "hsl(var(--foreground) / <alpha-value>)",
+        surface: {
+          DEFAULT: "hsl(var(--surface) / <alpha-value>)",   // elevation 1 — cards
+          2: "hsl(var(--surface-2) / <alpha-value>)",         // elevation 2 — controls
+          3: "hsl(var(--surface-3) / <alpha-value>)",         // elevation 3 — hover / active
+        },
+        muted: "hsl(var(--muted) / <alpha-value>)",           // secondary text
+        subtle: "hsl(var(--subtle) / <alpha-value>)",         // tertiary text / labels
+        accent: "hsl(var(--accent) / <alpha-value>)",         // near-white emphasis fill
+        ring: "hsl(var(--ring) / <alpha-value>)",
+        // Hairline borders carry their alpha inside the variable itself, so they
+        // are intentionally NOT alpha-value driven.
+        line: "hsl(var(--line))",
+        "line-strong": "hsl(var(--line-strong))",
+      },
+      borderColor: {
+        // Default `border` utility = 1px low-opacity white hairline.
+        DEFAULT: "hsl(var(--line))",
+      },
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      borderRadius: {
+        sm: "calc(var(--radius) - 2px)",
+        DEFAULT: "var(--radius)",
+        md: "var(--radius)",
+        lg: "calc(var(--radius) + 2px)",
+        xl: "calc(var(--radius) + 6px)",
+      },
+      letterSpacing: {
+        tightest: "-0.03em",
+        wide2: "0.14em",
+        wide3: "0.22em",
+      },
+      boxShadow: {
+        // Subtle white "border-glow" for interactive card hover states.
+        glow: "0 0 0 1px hsl(0 0% 100% / 0.14), 0 0 28px -8px hsl(0 0% 100% / 0.18)",
+        "glow-sm": "0 0 0 1px hsl(0 0% 100% / 0.10), 0 0 16px -8px hsl(0 0% 100% / 0.12)",
+      },
+      keyframes: {
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "fade-in-up": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        // Vertical "scan line" sweep used by loading states instead of spinners.
+        scan: {
+          "0%": { transform: "translateY(-120%)", opacity: "0" },
+          "10%": { opacity: "1" },
+          "90%": { opacity: "1" },
+          "100%": { transform: "translateY(2200%)", opacity: "0" },
+        },
+        // Skeleton shimmer sweep.
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
+        // Slow crosshair rotation for the idle targeting console.
+        "spin-slow": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+      },
+      animation: {
+        "fade-in": "fade-in 0.4s ease-out both",
+        "fade-in-up": "fade-in-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
+        scan: "scan 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+        shimmer: "shimmer 1.8s ease-in-out infinite",
+        "spin-slow": "spin-slow 24s linear infinite",
+      },
     },
-    plugins: [
-      require('@tailwindcss/forms'),
-      require('@tailwindcss/container-queries')
-    ],
-  }
+  },
+  plugins: [
+    require("@tailwindcss/forms"),
+    require("@tailwindcss/container-queries"),
+  ],
+};

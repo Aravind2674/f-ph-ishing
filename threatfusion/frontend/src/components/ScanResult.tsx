@@ -1,456 +1,661 @@
-import React from 'react';
-import type { ScanResult as IScanResult } from '../api';
+import React, { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Copy,
+  Check,
+  Download,
+  RefreshCw,
+  ChevronDown,
+  Network,
+  Boxes,
+  Bug,
+  GitBranch,
+  ArrowRight,
+  CircleAlert,
+  Radar,
+} from "lucide-react";
+import type { ScanResult as IScanResult, RiskExplanation, AttackPath } from "@/api";
+import { cn } from "@/lib/utils";
+import { resolveSeverity } from "@/lib/severity";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 
 interface ScanResultProps {
   result: IScanResult;
   onRescan?: () => void;
 }
 
-const VulnerabilityOrbitMap: React.FC<{ cves: any[] }> = ({ cves }) => {
-  if (!cves || cves.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-48 rounded-lg border border-white/10 p-4">
-        <span className="material-symbols-outlined text-outline-variant text-[48px] mb-2">shield</span>
-        <span className="text-on-surface-variant font-label-md text-center">No vulnerabilities detected</span>
-      </div>
-    );
-  }
+const pct = (n: number) => Math.round((n ?? 0) * 100);
 
-  const cx = 120;
-  const cy = 100;
-  const r = 60;
+/* ────────────────────────────────────────────────────────────────────────
+ * Monochrome score dial. The ring's stroke opacity scales with severity, so
+ * a "hotter" score reads as a brighter ring — never a red one.
+ * ──────────────────────────────────────────────────────────────────────── */
+function ScoreDial({
+  value,
+  label,
+  sublabel,
+  emphasis = false,
+  scoreLabel,
+}: {
+  value: number; // 0..100
+  label: string;
+  sublabel: string;
+  emphasis?: boolean;
+  scoreLabel?: string | null;
+}) {
+  const sev = resolveSeverity(value / 100, scoreLabel);
+  const R = 46;
+  const C = 2 * Math.PI * R;
+  const offset = C - (C * value) / 100;
 
   return (
-    <div className="flex flex-col items-center justify-center p-2 relative">
-      <svg width="240" height="200" className="w-full max-w-[240px] drop-shadow-[0_0_15px_rgba(173,198,255,0.1)]">
-        {/* Lines from center to orbits */}
-        {cves.map((_, i) => {
-          const angle = (i * 2 * Math.PI) / cves.length;
-          const x = cx + r * Math.cos(angle);
-          const y = cy + r * Math.sin(angle);
-          return (
-            <line
-              key={`line-${i}`}
-              x1={cx}
-              y1={cy}
-              x2={x}
-              y2={y}
-              stroke="rgba(255,255,255,0.1)"
-              strokeWidth="1.5"
-              strokeDasharray="4 4"
-            />
-          );
-        })}
-
-        {/* Center Target Node */}
-        <circle cx={cx} cy={cy} r="18" fill="currentColor" className="text-primary pulse-dot" style={{ filter: 'drop-shadow(0 0 8px rgba(173,198,255,0.5))' }} />
-        <text
-          x={cx}
-          y={cy + 3}
-          textAnchor="middle"
-          fill="#0b0e15"
-          fontSize="8"
-          fontWeight="bold"
-          className="pointer-events-none"
-        >
-          TARGET
-        </text>
-
-        {/* Orbit Nodes */}
-        {cves.map((cve, i) => {
-          const angle = (i * 2 * Math.PI) / cves.length;
-          const x = cx + r * Math.cos(angle);
-          const y = cy + r * Math.sin(angle);
-          
-          let colorClass = 'text-primary';
-          const cvss = cve.cvss_v3_score ?? cve.cvss_score ?? 5.0;
-          if (cve.severity === 'CRITICAL' || cvss >= 9.0) colorClass = 'text-error';
-          else if (cve.severity === 'HIGH' || cvss >= 7.0) colorClass = 'text-tertiary';
-          else if (cve.severity === 'MEDIUM' || cvss >= 4.0) colorClass = 'text-yellow-400';
-
-          return (
-            <g key={`node-${i}`} className="cursor-pointer group">
-              <circle
-                cx={x}
-                cy={y}
-                r="8"
-                fill="currentColor"
-                className={`${colorClass} transition-transform duration-300 group-hover:scale-125`}
-              />
-              <text
-                x={x}
-                y={y - 12}
-                textAnchor="middle"
-                fill="#e1e2ec"
-                fontSize="7"
-                fontWeight="bold"
-                className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none drop-shadow-md"
-              >
-                {cve.cve_id || cve.id}
-              </text>
-              <circle
-                cx={x}
-                cy={y}
-                r="12"
-                fill="transparent"
-                stroke="currentColor"
-                strokeWidth="1"
-                className={`${colorClass} opacity-0 group-hover:opacity-100 transition-opacity`}
-              />
-              <title>{`${cve.cve_id || cve.id} (CVSS: ${cvss})`}</title>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="flex gap-2 justify-center flex-wrap mt-2 text-[10px] font-mono-data text-outline">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-error"></span> Critical</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-tertiary"></span> High</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span> Medium</span>
+    <div className="flex items-center gap-5">
+      <div className="relative size-28 shrink-0">
+        <svg viewBox="0 0 110 110" className="size-full -rotate-90">
+          <circle
+            cx="55"
+            cy="55"
+            r={R}
+            fill="none"
+            stroke="hsl(0 0% 100% / 0.08)"
+            strokeWidth={emphasis ? 7 : 6}
+          />
+          <circle
+            cx="55"
+            cy="55"
+            r={R}
+            fill="none"
+            stroke="hsl(var(--foreground))"
+            strokeOpacity={sev.intensity}
+            strokeWidth={emphasis ? 7 : 6}
+            strokeLinecap="round"
+            strokeDasharray={C}
+            strokeDashoffset={offset}
+            style={{ transition: "stroke-dashoffset 1s cubic-bezier(0.22,1,0.36,1)" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="font-mono text-3xl font-semibold tabular-nums text-foreground">
+            {value}
+          </span>
+          <span className="font-mono text-[9px] uppercase tracking-wide2 text-subtle">
+            / 100
+          </span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-sm tracking-tight",
+              emphasis ? "font-semibold text-foreground" : "font-medium text-muted"
+            )}
+          >
+            {label}
+          </span>
+          {emphasis && <Badge variant="solid">Primary</Badge>}
+        </div>
+        <p className="mt-0.5 text-xs text-subtle">{sublabel}</p>
+        <div className="mt-3 flex items-center gap-3">
+          <RiskMeter score={value / 100} label={scoreLabel} />
+          <SeverityTag score={value / 100} label={scoreLabel} showIcon={false} />
+        </div>
       </div>
     </div>
   );
-};
+}
 
-const AttackPathGraph: React.FC<{ path: any }> = ({ path }) => {
-  const steps = ["Internet Access", ...path.nodes.map((n: any) => n.cve_id), path.summary.split("achieve ")[1] || "Compromise"];
-  const width = 640;
-  const height = 90;
-  const nodeWidth = 110;
-  const nodeHeight = 36;
-  const padding = 20;
-  const spacing = (width - padding * 2 - nodeWidth) / (steps.length - 1);
+/* ────────────────────────────────────────────────────────────────────────
+ * SHAP waterfall. Sign is drawn with DIRECTION (right = raises risk, left =
+ * lowers it) and FILL (solid vs hollow) — magnitude with bar length. No hue.
+ * ──────────────────────────────────────────────────────────────────────── */
+function ShapWaterfall({ items }: { items: RiskExplanation[] }) {
+  const maxAbs = Math.max(...items.map((e) => Math.abs(e.shap_value)), 0.0001);
 
   return (
-    <div className="overflow-x-auto w-full py-2">
-      <svg width={width} height={height} className="min-w-[640px] mx-auto">
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8c909f" />
-          </marker>
-        </defs>
-        
-        {/* Draw connectors */}
-        {steps.slice(0, -1).map((_, i) => {
-          const x1 = padding + i * spacing + nodeWidth;
-          const y1 = height / 2;
-          const x2 = padding + (i + 1) * spacing;
-          const y2 = height / 2;
-          return (
-            <g key={`arrow-${i}`}>
-              <line x1={x1} y1={y1} x2={x2 - 8} y2={y2} stroke="#8c909f" strokeWidth="1.5" markerEnd="url(#arrow)" strokeDasharray="2 2" className="animate-[dash_1s_linear_infinite]" />
-              {i < path.nodes.length && (
-                <text x={(x1 + x2) / 2} y={y1 - 6} textAnchor="middle" fill="#adc6ff" fontSize="8" fontWeight="bold">
-                  Exploits
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Draw nodes */}
-        {steps.map((step, i) => {
-          const x = padding + i * spacing;
-          const y = height / 2 - nodeHeight / 2;
-          
-          let isStart = i === 0;
-          let isEnd = i === steps.length - 1;
-          let isVuln = !isStart && !isEnd;
-          
-          let bgColor = "rgba(46, 48, 56, 0.8)";
-          let strokeColor = "rgba(255,255,255,0.1)";
-          let textColor = "#e1e2ec";
-          
-          if (isStart) {
-            bgColor = "rgba(0, 90, 194, 0.2)";
-            strokeColor = "#adc6ff";
-            textColor = "#adc6ff";
-          } else if (isEnd) {
-            bgColor = "rgba(255, 180, 171, 0.1)";
-            strokeColor = "#ffb4ab";
-            textColor = "#ffb4ab";
-          } else {
-            bgColor = "rgba(223, 116, 18, 0.1)";
-            strokeColor = "#df7412";
-            textColor = "#df7412";
-          }
-
-          return (
-            <g key={`node-${i}`} className="group cursor-pointer">
-              <rect
-                x={x}
-                y={y}
-                width={nodeWidth}
-                height={nodeHeight}
-                rx="6"
-                fill={bgColor}
-                stroke={strokeColor}
-                strokeWidth="1.5"
-                className="transition-all duration-300 group-hover:filter group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.2)] backdrop-blur-sm"
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+        <span>← lowers risk</span>
+        <span>raises risk →</span>
+      </div>
+      {items.map((exp, i) => {
+        const raises = exp.shap_value > 0;
+        const widthPct = Math.max((Math.abs(exp.shap_value) / maxAbs) * 50, 2);
+        return (
+          <motion.div
+            key={`${exp.feature_name}-${i}`}
+            initial={{ opacity: 0, x: raises ? 8 : -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.04, duration: 0.35 }}
+          >
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+              <span className="truncate text-xs text-muted">{exp.human_readable}</span>
+              <span className="shrink-0 font-mono text-xs tabular-nums text-foreground">
+                {raises ? "+" : "−"}
+                {Math.abs(exp.shap_value).toFixed(3)}
+              </span>
+            </div>
+            {/* Center-anchored track: bars grow out from the middle axis. */}
+            <div className="relative h-2 w-full rounded-sm bg-surface-2">
+              <div className="absolute left-1/2 top-0 h-full w-px bg-line-strong" />
+              <div
+                className={cn(
+                  "absolute top-0 h-full",
+                  raises
+                    ? "left-1/2 rounded-r-sm bg-foreground"
+                    : "right-1/2 rounded-l-sm border border-foreground/60 bg-foreground/10"
+                )}
+                style={{ width: `${widthPct}%` }}
               />
-              <text
-                x={x + nodeWidth / 2}
-                y={y + nodeHeight / 2 + 3}
-                textAnchor="middle"
-                fill={textColor}
-                fontSize="8"
-                fontWeight="bold"
-              >
-                {step.length > 18 ? step.substring(0, 16) + "..." : step}
-              </text>
-              {isVuln && (
-                <title>{path.nodes[i - 1].description}</title>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-      <style>{`@keyframes dash { to { stroke-dashoffset: -4; } }`}</style>
+            </div>
+          </motion.div>
+        );
+      })}
     </div>
   );
-};
+}
+
+/* Collapsible full feature-vector table (all 19 dimensions). */
+function FeatureVectorTable({ items }: { items: RiskExplanation[] }) {
+  const [open, setOpen] = useState(false);
+  const sorted = [...items].sort(
+    (a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value)
+  );
+
+  return (
+    <Card>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between p-5 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Boxes className="size-4 text-muted" />
+          <span className="text-sm font-semibold text-foreground">
+            Feature Vector
+          </span>
+          <Badge variant="subtle">{items.length} dims</Badge>
+        </div>
+        <ChevronDown
+          className={cn(
+            "size-4 text-subtle transition-transform duration-300",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-line">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="px-5 py-2 text-left font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+                      Feature
+                    </th>
+                    <th className="px-5 py-2 text-right font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+                      Value
+                    </th>
+                    <th className="px-5 py-2 text-right font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+                      Contribution
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((f, i) => (
+                    <tr
+                      key={`${f.feature_name}-${i}`}
+                      className="border-b border-line last:border-0 hover:bg-surface-2/50"
+                    >
+                      <td className="px-5 py-2">
+                        <div className="font-mono text-xs text-foreground">
+                          {f.feature_name}
+                        </div>
+                        <div className="text-[11px] text-subtle">
+                          {f.human_readable}
+                        </div>
+                      </td>
+                      <td className="px-5 py-2 text-right font-mono text-xs tabular-nums text-muted">
+                        {Number(f.feature_value).toFixed(3)}
+                      </td>
+                      <td className="px-5 py-2 text-right font-mono text-xs tabular-nums text-foreground">
+                        {f.shap_value > 0 ? "+" : "−"}
+                        {Math.abs(f.shap_value).toFixed(3)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Card>
+  );
+}
+
+/* Monochrome horizontal node-link attack chain. */
+function AttackChain({ path }: { path: AttackPath }) {
+  const steps = [
+    { label: "Foothold", meta: "entry" },
+    ...path.nodes.map((n) => ({
+      label: n.cve_id,
+      meta: n.is_in_kev ? "KEV" : n.cvss_score ? `CVSS ${n.cvss_score}` : "",
+    })),
+    { label: "Compromise", meta: "objective" },
+  ];
+
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="flex min-w-max items-stretch gap-0">
+        {steps.map((s, i) => (
+          <React.Fragment key={i}>
+            <div
+              className={cn(
+                "flex min-w-[132px] flex-col justify-center rounded-md border px-3 py-2.5",
+                i === 0 || i === steps.length - 1
+                  ? "border-line-strong bg-surface-2"
+                  : "border-line bg-surface"
+              )}
+            >
+              <span className="font-mono text-xs text-foreground">{s.label}</span>
+              {s.meta && (
+                <span className="mt-0.5 font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+                  {s.meta}
+                </span>
+              )}
+            </div>
+            {i < steps.length - 1 && (
+              <div className="flex items-center px-1.5 text-subtle">
+                <span className="h-px w-4 bg-line-strong" />
+                <ArrowRight className="size-3.5" />
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Small labelled data block used inside enrichment panels. */
+function DataRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="tf-eyebrow">{label}</span>
+      <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
 
 export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
-  const formatScore = (score: number) => Math.round(score * 100);
-  const baselineScore = formatScore(result.baseline_score);
-  const mlScore = formatScore(result.ml_score ?? result.baseline_score);
+  const [copied, setCopied] = useState(false);
+  const baseline = pct(result.baseline_score);
+  const ml = pct(result.ml_score ?? result.baseline_score);
+  const delta = ml - baseline;
 
-  const getGaugeColor = (score: number) => {
-    if (score >= 80) return '#ffb4ab'; // Error
-    if (score >= 50) return '#ffb786'; // Tertiary
-    return '#adc6ff'; // Primary
-  };
+  const explanations = result.explanations ?? [];
+  const topShap = [...explanations]
+    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
+    .slice(0, 6);
 
-  const getLabelClass = (label: string) => {
-    switch (label) {
-      case 'Critical': return 'bg-error/20 text-error border-error/50';
-      case 'High': return 'bg-tertiary/20 text-tertiary border-tertiary/50';
-      case 'Medium': return 'bg-yellow-400/20 text-yellow-400 border-yellow-400/50';
-      case 'Low': return 'bg-primary/20 text-primary border-primary/50';
-      default: return 'bg-surface-variant text-on-surface border-white/10';
+  const shodan = result.shodan;
+  const techs: any[] = result.tech_fingerprint?.technologies ?? [];
+  const cves: any[] = result.cve?.cves ?? [];
+  const vt = result.virustotal;
+
+  const copyTarget = async () => {
+    try {
+      await navigator.clipboard.writeText(result.target);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard may be unavailable in some contexts — non-fatal */
     }
   };
 
-  const topExplanations = [...result.explanations]
-    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
-    .slice(0, 5);
-  
-  const maxShap = Math.max(...topExplanations.map(e => Math.abs(e.shap_value)), 1);
-
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+    // Export the full raw result as JSON (an evidence artefact for a report).
+    const blob = new Blob([JSON.stringify(result, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `threatfusion-report-${result.scan_id}.json`;
+    a.download = `threatfusion-${result.scan_id}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in-up">
-      {/* Target Header */}
-      <div className="flex justify-between items-end mb-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <span className={`px-3 py-1 rounded text-xs uppercase tracking-widest font-bold border ${getLabelClass(result.ml_label || 'Low')}`}>
-              {result.ml_label || 'Unknown'}
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-5"
+    >
+      {/* ── Target header ─────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-3">
+            <SeverityTag score={ml / 100} label={result.ml_label} />
+            <span className="font-mono text-xs text-subtle">
+              {result.scan_id.slice(0, 8).toUpperCase()}
             </span>
-            <span className="font-mono-data text-outline text-body-sm">
-              Scan ID: {result.scan_id.substring(0, 8).toUpperCase()}
-            </span>
+            <Badge variant="subtle">{result.target_type}</Badge>
           </div>
-          <h2 className="text-headline-xl font-headline-xl font-bold text-on-surface tracking-tighter flex items-center gap-3">
-            {result.target}
-            <span className="material-symbols-outlined text-outline cursor-pointer hover:text-primary transition-colors text-[24px]">content_copy</span>
-          </h2>
-          <p className="font-mono-data text-primary mt-1 flex items-center gap-2">
-             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span> Scan Completed: {new Date(result.timestamp).toLocaleString()}
+          <div className="flex items-center gap-2">
+            <h2 className="truncate font-mono text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+              {result.target}
+            </h2>
+            <button
+              onClick={copyTarget}
+              className="text-subtle transition-colors hover:text-foreground"
+              aria-label="Copy target"
+            >
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </button>
+          </div>
+          <p className="mt-1 font-mono text-xs text-subtle">
+            {new Date(result.timestamp).toLocaleString()}
           </p>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={onRescan}
-            className="bg-surface-container-high border border-white/10 hover:border-primary/50 text-on-surface px-4 py-2 rounded transition-all flex items-center gap-2 font-label-md uppercase tracking-wider"
-          >
-            <span className="material-symbols-outlined text-[18px]">refresh</span> Re-Scan
-          </button>
-          <button 
-            onClick={handleExport}
-            className="bg-primary hover:bg-primary-fixed-dim text-on-primary px-4 py-2 rounded transition-all flex items-center gap-2 font-label-md uppercase tracking-wider shadow-[0_0_15px_rgba(173,198,255,0.3)]"
-          >
-            <span className="material-symbols-outlined text-[18px]">download</span> Export PDF
-          </button>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" size="sm" onClick={onRescan}>
+            <RefreshCw className="size-3.5" />
+            Re-scan
+          </Button>
+          <Button variant="subtle" size="sm" onClick={handleExport}>
+            <Download className="size-3.5" />
+            Export JSON
+          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="glass-panel-hot rounded-xl p-6 relative overflow-hidden group flex items-center justify-between">
-              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-error/5 to-transparent"></div>
-              <div>
-                  <h3 className="text-title-lg font-headline-md font-bold text-error glow-text-error mb-1">Baseline Risk</h3>
-                  <p className="text-outline text-body-sm max-w-[200px]">Heuristic scoring based on signature matches.</p>
-              </div>
-              <div className="relative w-24 h-24">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.05)" strokeWidth="8" fill="none" />
-                  <circle cx="50" cy="50" r="40" stroke="currentColor" className="text-error" strokeWidth="8" fill="none" strokeDasharray="251.2" strokeDashoffset={251.2 - (251.2 * baselineScore / 100)} strokeLinecap="round" style={{ filter: 'drop-shadow(0 0 4px rgba(255,180,171,0.5))' }} />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-headline-md font-bold text-on-surface">{baselineScore}</span>
-                </div>
-              </div>
-          </div>
-          <div className="glass-panel rounded-xl p-6 relative overflow-hidden group flex items-center justify-between border-primary/30 shadow-[0_0_20px_rgba(173,198,255,0.1)]">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-              <div>
-                  <h3 className="text-title-lg font-headline-md font-bold text-primary glow-text-primary mb-1">ML Fusion Engine</h3>
-                  <p className="text-outline text-body-sm max-w-[200px]">AI-driven predictive scoring using XGBoost.</p>
-              </div>
-              <div className="relative w-24 h-24">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.05)" strokeWidth="8" fill="none" />
-                  <circle cx="50" cy="50" r="40" stroke="currentColor" className="text-primary" strokeWidth="8" fill="none" strokeDasharray="251.2" strokeDashoffset={251.2 - (251.2 * mlScore / 100)} strokeLinecap="round" style={{ filter: 'drop-shadow(0 0 6px rgba(173,198,255,0.6))' }} />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-headline-md font-bold text-on-surface">{mlScore}</span>
-                </div>
-              </div>
-          </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="glass-panel rounded-xl p-6 lg:col-span-2 relative overflow-hidden">
-             <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-title-lg font-headline-md font-bold text-on-surface flex items-center gap-2">
-                      <span className="material-symbols-outlined text-primary">psychology</span>
-                      AI Decision Rationale (SHAP)
-                  </h3>
-             </div>
-             <div className="flex flex-col gap-4">
-               {topExplanations.map((exp, idx) => {
-                 const widthPct = Math.max((Math.abs(exp.shap_value) / maxShap) * 100, 5);
-                 const isPositive = exp.shap_value > 0;
-                 return (
-                   <div key={idx} className="bg-surface-container-high/50 p-3 rounded border border-white/5">
-                       <div className="flex justify-between font-label-md text-label-md mb-2">
-                           <span className="text-on-surface-variant">{exp.human_readable}</span>
-                           <span className={`${isPositive ? 'text-error' : 'text-primary'} font-mono-data`}>
-                               {isPositive ? '+' : ''}{exp.shap_value.toFixed(2)}
-                           </span>
-                       </div>
-                       <div className={`w-full bg-surface-container h-1.5 rounded-full overflow-hidden flex ${isPositive ? 'justify-start' : 'justify-end'}`}>
-                           <div className={`${isPositive ? 'bg-error shadow-[0_0_10px_rgba(255,180,171,0.5)]' : 'bg-primary shadow-[0_0_10px_rgba(173,198,255,0.5)]'} h-full rounded-full transition-all duration-1000`} style={{ width: `${widthPct}%` }}></div>
-                       </div>
-                   </div>
-                 );
-               })}
-             </div>
-          </div>
-
-          <div className="glass-panel rounded-xl p-6 flex flex-col gap-4">
-             <h3 className="text-title-lg font-headline-md font-bold text-on-surface flex items-center gap-2 mb-2">
-                  <span className="material-symbols-outlined text-tertiary">layers</span>
-                  Tech Stack
-             </h3>
-             {result.tech_fingerprint?.technologies?.length ? (
-               result.tech_fingerprint.technologies.map((tech: any, idx: number) => (
-                 <div key={idx} className="flex items-center justify-between p-3 border border-white/10 rounded hover:bg-white/5 transition-colors group">
-                     <div className="flex items-center gap-3">
-                         <div className="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-outline group-hover:text-primary transition-colors">
-                             <span className="material-symbols-outlined text-[18px]">terminal</span>
-                         </div>
-                         <span className="text-body-sm text-on-surface">{tech.name}</span>
-                     </div>
-                     <span className={`text-xs font-mono-data px-2 py-1 rounded ${tech.is_eol ? 'bg-error/20 text-error border border-error/30' : 'bg-surface-variant text-outline border border-white/5'}`}>
-                         v{tech.version || 'Unknown'} {tech.is_eol ? '(EOL)' : ''}
-                     </span>
-                 </div>
-               ))
-             ) : (
-               <div className="text-outline text-body-sm p-4 text-center">No technologies detected.</div>
-             )}
-          </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div className="glass-panel rounded-xl p-6 flex flex-col gap-4">
-             <h3 className="text-title-lg font-headline-md font-bold text-on-surface flex items-center gap-2 mb-4">
-                  <span className="material-symbols-outlined text-tertiary">radar</span>
-                  Network Exposure (Shodan)
-             </h3>
-             {result.shodan ? (
-                 <div className="flex flex-col gap-5">
-                     <div className="flex flex-col gap-2">
-                         <span className="text-outline text-label-sm uppercase tracking-widest font-bold">Open Ports</span>
-                         <div className="flex gap-2 flex-wrap">
-                             {result.shodan.open_ports?.length ? result.shodan.open_ports.map((port: number) => (
-                                 <span key={port} className="bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface font-mono-data text-xs px-3 py-1.5 rounded border border-white/5 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-tertiary"></span>{port}</span>
-                             )) : <span className="text-outline text-xs">None detected</span>}
-                         </div>
-                     </div>
-                     <div className="flex flex-col gap-2">
-                         <span className="text-outline text-label-sm uppercase tracking-widest font-bold">Hostnames</span>
-                         <div className="flex gap-2 flex-wrap">
-                             {result.shodan.hostnames?.length ? result.shodan.hostnames.map((hn: string) => (
-                                 <span key={hn} className="bg-surface-container text-on-surface text-xs px-2 py-1 rounded border border-white/5">{hn}</span>
-                             )) : <span className="text-outline text-xs">None detected</span>}
-                         </div>
-                     </div>
-                     <div className="flex flex-col gap-2">
-                         <span className="text-outline text-label-sm uppercase tracking-widest font-bold">CPEs Detected</span>
-                         <div className="flex gap-2 flex-wrap">
-                             {result.shodan.cpes?.length ? result.shodan.cpes.slice(0, 5).map((cpe: string) => (
-                                 <span key={cpe} className="bg-surface-container text-outline text-[10px] font-mono-data px-2 py-1 rounded border border-white/5 break-all">{cpe}</span>
-                             )) : <span className="text-outline text-xs">None detected</span>}
-                             {result.shodan.cpes?.length > 5 && <span className="text-outline text-[10px] px-2 py-1">+{result.shodan.cpes.length - 5} more</span>}
-                         </div>
-                     </div>
-                 </div>
-             ) : (
-                 <div className="text-outline text-body-sm p-4 text-center border border-white/5 rounded bg-surface-container-low/50 h-full flex flex-col items-center justify-center gap-2">
-                     <span className="material-symbols-outlined text-[32px] opacity-50">cloud_off</span>
-                     No Shodan data available for this target.
-                 </div>
-             )}
-          </div>
-
-          <div className="glass-panel rounded-xl p-6">
-               <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-title-lg font-headline-md font-bold text-on-surface flex items-center gap-2">
-                        <span className="material-symbols-outlined text-tertiary">hub</span>
-                        Vulnerability Exposure Orbit Map
-                    </h3>
-               </div>
-               <VulnerabilityOrbitMap cves={result.cve?.cves || []} />
-          </div>
-      </div>
-
-      {result.attack_paths && result.attack_paths.length > 0 && (
-        <div className="glass-panel rounded-xl p-6 border border-error/20 shadow-[0_0_30px_rgba(255,180,171,0.05)]">
-             <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-title-lg font-headline-md font-bold text-error flex items-center gap-2">
-                      <span className="material-symbols-outlined text-error">account_tree</span>
-                      Predictive Attack Chains
-                  </h3>
-             </div>
-             
-             <div className="flex flex-col gap-6">
-               {result.attack_paths.map((path) => (
-                 <div key={path.path_id} className="border border-white/10 rounded-lg bg-surface-container-low/50 overflow-hidden">
-                     <div className="flex justify-between items-center p-4 border-b border-white/10 bg-black/20">
-                         <span className="font-label-md uppercase tracking-wider text-outline">Path #{path.path_id} <span className="text-on-surface mx-2">•</span> {path.summary}</span>
-                         <span className="text-error font-mono-data text-xs bg-error/10 px-2 py-1 rounded border border-error/20 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">warning</span> Probability: {Math.round(path.total_risk_score * 100)}%
-                         </span>
-                     </div>
-                     <div className="p-4">
-                         <AttackPathGraph path={path} />
-                     </div>
-                 </div>
-               ))}
-             </div>
-        </div>
+      {result.summary && (
+        <p className="text-sm leading-relaxed text-muted">{result.summary}</p>
       )}
-    </div>
+
+      {/* ── Score comparison: baseline vs ML fusion ───────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-6">
+          <ScoreDial
+            value={baseline}
+            label="Baseline Heuristic"
+            sublabel="Weighted-sum rule score"
+          />
+        </Card>
+        <Card interactive className="p-6">
+          <ScoreDial
+            value={ml}
+            label="ML Fusion (XGBoost)"
+            sublabel="Learned multi-source score"
+            scoreLabel={result.ml_label}
+            emphasis
+          />
+          {/* Model-vs-baseline delta, drawn in mono. */}
+          <div className="mt-4 flex items-center gap-2 border-t border-line pt-3 font-mono text-[11px] uppercase tracking-wide2 text-subtle">
+            <span>Δ vs baseline</span>
+            <span className="text-foreground">
+              {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
+              {Math.abs(delta)}
+            </span>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── SHAP explanation + data sources ───────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <div className="flex items-center gap-2 p-5 pb-4">
+            <Radar className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Decision Rationale
+            </span>
+            <span className="tf-eyebrow ml-1">SHAP · top drivers</span>
+          </div>
+          <div className="px-5 pb-5">
+            {topShap.length ? (
+              <ShapWaterfall items={topShap} />
+            ) : (
+              <p className="py-6 text-center text-sm text-subtle">
+                No explanation data returned for this scan.
+              </p>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <CircleAlert className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Data Sources
+            </span>
+          </div>
+          <div className="flex flex-col gap-4">
+            <DataRow label={`Succeeded · ${result.data_sources_succeeded?.length ?? 0}`}>
+              {result.data_sources_succeeded?.length ? (
+                result.data_sources_succeeded.map((s) => (
+                  <Badge key={s} variant="outline">
+                    {s}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-subtle">None</span>
+              )}
+            </DataRow>
+            <DataRow label={`Failed · ${result.data_sources_failed?.length ?? 0}`}>
+              {result.data_sources_failed?.length ? (
+                result.data_sources_failed.map((s) => (
+                  <Badge key={s} variant="ghost" className="line-through">
+                    {s}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-subtle">None</span>
+              )}
+            </DataRow>
+            {vt && (
+              <div className="border-t border-line pt-3">
+                <span className="tf-eyebrow">AV Detections</span>
+                <p className="mt-1 font-mono text-lg tabular-nums text-foreground">
+                  {vt.malicious_count ?? 0}
+                  <span className="text-subtle">
+                    {" "}
+                    / {vt.total_engines ?? "?"}
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Full feature vector (collapsible) ─────────────────────────── */}
+      {explanations.length > 0 && <FeatureVectorTable items={explanations} />}
+
+      {/* ── Enrichment: network exposure + tech stack ─────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Network className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Network Exposure
+            </span>
+            <span className="tf-eyebrow ml-1">Shodan</span>
+          </div>
+          {shodan ? (
+            <div className="flex flex-col gap-4">
+              <DataRow label="Open Ports">
+                {shodan.open_ports?.length ? (
+                  shodan.open_ports.map((p: number) => (
+                    <span
+                      key={p}
+                      className="rounded border border-line bg-surface-2 px-2 py-1 font-mono text-xs tabular-nums text-foreground"
+                    >
+                      {p}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-subtle">None detected</span>
+                )}
+              </DataRow>
+              {shodan.hostnames?.length > 0 && (
+                <DataRow label="Hostnames">
+                  {shodan.hostnames.map((h: string) => (
+                    <span
+                      key={h}
+                      className="rounded border border-line bg-surface-2 px-2 py-1 font-mono text-[11px] text-muted"
+                    >
+                      {h}
+                    </span>
+                  ))}
+                </DataRow>
+              )}
+              {shodan.cpes?.length > 0 && (
+                <DataRow label="CPEs">
+                  {shodan.cpes.slice(0, 6).map((c: string) => (
+                    <span
+                      key={c}
+                      className="max-w-full truncate rounded border border-line bg-surface-2 px-2 py-1 font-mono text-[10px] text-subtle"
+                    >
+                      {c}
+                    </span>
+                  ))}
+                </DataRow>
+              )}
+            </div>
+          ) : (
+            <EmptyPanel icon={Network} text="No network exposure data." />
+          )}
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Boxes className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Technology Stack
+            </span>
+            <span className="tf-eyebrow ml-1">Fingerprint</span>
+          </div>
+          {techs.length ? (
+            <div className="flex flex-col divide-y divide-line">
+              {techs.map((t, i) => (
+                <div key={i} className="flex items-center justify-between py-2.5 first:pt-0">
+                  <span className="text-sm text-foreground">{t.name}</span>
+                  <span
+                    className={cn(
+                      "rounded border px-2 py-0.5 font-mono text-[10px]",
+                      t.is_eol
+                        ? "border-line-strong font-semibold text-foreground"
+                        : "border-line text-subtle"
+                    )}
+                  >
+                    v{t.version || "?"}
+                    {t.is_eol ? " · EOL" : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyPanel icon={Boxes} text="No technologies detected." />
+          )}
+        </Card>
+      </div>
+
+      {/* ── Vulnerabilities ───────────────────────────────────────────── */}
+      {cves.length > 0 && (
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Bug className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Vulnerabilities
+            </span>
+            <Badge variant="subtle">{cves.length}</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {cves.map((c, i) => {
+              const id = c.cve_id || c.id;
+              const cvss = c.cvss_v3_score ?? c.cvss_score;
+              return (
+                <div
+                  key={id || i}
+                  className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2"
+                >
+                  <span className="font-mono text-xs text-foreground">{id}</span>
+                  {cvss != null && (
+                    <span className="flex items-center gap-2">
+                      <RiskMeter score={Number(cvss) / 10} />
+                      <span className="font-mono text-xs tabular-nums text-muted">
+                        {Number(cvss).toFixed(1)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Predictive attack chains ──────────────────────────────────── */}
+      {result.attack_paths && result.attack_paths.length > 0 && (
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <GitBranch className="size-4 text-muted" />
+            <span className="text-sm font-semibold text-foreground">
+              Predictive Attack Chains
+            </span>
+            <Badge variant="subtle">{result.attack_paths.length}</Badge>
+          </div>
+          <div className="flex flex-col gap-4">
+            {result.attack_paths.map((path) => (
+              <div
+                key={path.path_id}
+                className="rounded-lg border border-line bg-surface-2/40"
+              >
+                <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                  <span className="font-mono text-xs text-muted">
+                    Path {path.path_id} · {path.summary}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <RiskMeter score={path.total_risk_score} />
+                    <span className="font-mono text-xs tabular-nums text-foreground">
+                      {pct(path.total_risk_score)}%
+                    </span>
+                  </span>
+                </div>
+                <div className="p-4">
+                  <AttackChain path={path} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </motion.div>
   );
 };
+
+function EmptyPanel({
+  icon: Icon,
+  text,
+}: {
+  icon: typeof Network;
+  text: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-line py-8 text-center">
+      <Icon className="size-6 text-subtle/60" />
+      <span className="text-xs text-subtle">{text}</span>
+    </div>
+  );
+}

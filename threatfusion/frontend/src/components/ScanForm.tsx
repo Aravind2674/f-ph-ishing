@@ -1,70 +1,149 @@
-import React, { useState } from 'react';
-import type { ScanRequest } from '../api';
+import React, { useState } from "react";
+import { motion } from "framer-motion";
+import { Globe, Server, Link2, Hash, Crosshair, ArrowRight } from "lucide-react";
+import type { ScanRequest } from "@/api";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface ScanFormProps {
   onSubmit: (req: ScanRequest) => void;
   loading: boolean;
 }
 
+type TargetType = ScanRequest["target_type"];
+
+// Target-type registry drives the segmented selector, the input placeholder and
+// the little inline "syntax" hint so target entry feels like a real console.
+const TARGET_TYPES: {
+  id: TargetType;
+  label: string;
+  icon: typeof Globe;
+  placeholder: string;
+  hint: string;
+}[] = [
+  { id: "domain", label: "Domain", icon: Globe, placeholder: "evil.example.com", hint: "FQDN" },
+  { id: "ip", label: "IP", icon: Server, placeholder: "185.220.101.47", hint: "IPv4 / IPv6" },
+  { id: "url", label: "URL", icon: Link2, placeholder: "https://example.com/login", hint: "Absolute URL" },
+  { id: "file_hash", label: "Hash", icon: Hash, placeholder: "44d88612fea8a8f36de82e1278abb02f", hint: "MD5 / SHA-1 / SHA-256" },
+];
+
 export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
-  const [target, setTarget] = useState('');
-  const [type, setType] = useState<ScanRequest['target_type']>('domain');
+  const [target, setTarget] = useState("");
+  const [type, setType] = useState<TargetType>("domain");
+
+  const active = TARGET_TYPES.find((t) => t.id === type)!;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!target.trim()) return;
-    onSubmit({ target, target_type: type });
+    if (!target.trim() || loading) return;
+    onSubmit({ target: target.trim(), target_type: type });
   };
 
   return (
-    <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg hover:shadow-ambient transition-shadow">
-      <h2 className="font-title-lg text-title-lg text-on-surface mb-md flex items-center gap-sm">
-        <span className="material-symbols-outlined text-primary">target</span>
-        New Scan
-      </h2>
-      
-      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-md items-center">
-        <div className="w-full sm:w-auto min-w-[150px]">
-          <select 
-            className="w-full bg-surface-container-low border border-outline-variant rounded-lg py-sm px-md text-on-surface focus:ring-2 focus:ring-primary/10 focus:border-primary outline-none transition-all font-body-md"
-            value={type} 
-            onChange={e => setType(e.target.value as any)}
-            disabled={loading}
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className="relative overflow-hidden rounded-xl border border-line bg-surface"
+    >
+      {/* Faint crosshair motif in the corner — reinforces "targeting console". */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-10 -top-10 opacity-[0.06]"
+      >
+        <Crosshair className="size-48" strokeWidth={0.5} />
+      </div>
+
+      {/* Scan-line sweep while a scan is in flight (replaces a spinner). */}
+      {loading && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 overflow-hidden">
+          <div className="tf-scanline absolute inset-x-0 h-16 animate-scan" />
+        </div>
+      )}
+
+      <div className="relative p-6 md:p-8">
+        <div className="mb-6 flex items-center gap-2">
+          <Crosshair className="size-4 text-muted" />
+          <span className="tf-eyebrow">Target Acquisition</span>
+        </div>
+
+        <h1 className="mb-1 text-2xl font-semibold tracking-tightest text-foreground md:text-3xl">
+          Map the attack surface.
+        </h1>
+        <p className="mb-6 max-w-xl text-sm text-muted">
+          Enter a target to fuse VirusTotal, Shodan, CVE and technology signals
+          into a single explainable risk score.
+        </p>
+
+        {/* Target-type segmented selector. */}
+        <div className="mb-3 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface-2 p-1">
+          {TARGET_TYPES.map((t) => {
+            const Icon = t.icon;
+            const isActive = t.id === type;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                disabled={loading}
+                onClick={() => setType(t.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
+                  isActive
+                    ? "bg-foreground text-background"
+                    : "text-muted hover:bg-surface-3 hover:text-foreground"
+                )}
+              >
+                <Icon className="size-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div
+            className={cn(
+              "group flex flex-col gap-3 rounded-lg border bg-background p-2 transition-colors sm:flex-row sm:items-center",
+              "border-line focus-within:border-line-strong focus-within:shadow-glow-sm"
+            )}
           >
-            <option value="domain">Domain</option>
-            <option value="ip">IP Address</option>
-            <option value="url">URL</option>
-            <option value="file_hash">File Hash</option>
-          </select>
-        </div>
-        
-        <div className="w-full flex-1 relative">
-          <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline">search</span>
-          <input 
-            type="text" 
-            className="w-full bg-surface-container-low pl-[40px] pr-md py-sm rounded-lg border border-outline-variant focus:ring-2 focus:ring-primary/10 focus:border-primary outline-none transition-all font-body-md text-body-md text-on-surface" 
-            placeholder="e.g. evil.example.com, 8.8.8.8..." 
-            value={target}
-            onChange={e => setTarget(e.target.value)}
-            disabled={loading}
-          />
-        </div>
-        
-        <button 
-          type="submit" 
-          disabled={loading || !target.trim()}
-          className="w-full sm:w-auto px-lg py-sm bg-primary text-on-primary font-label-md text-label-md rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-sm disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          {loading ? (
-            <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
-          ) : (
-            <>
-              <span className="material-symbols-outlined text-[20px]">radar</span>
-              Scan Now
-            </>
-          )}
-        </button>
-      </form>
-    </div>
+            <div className="flex flex-1 items-center gap-3 pl-2">
+              <active.icon className="size-4 shrink-0 text-subtle" />
+              <input
+                type="text"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                disabled={loading}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={active.placeholder}
+                className="w-full bg-transparent py-2 font-mono text-sm text-foreground placeholder:text-subtle outline-none disabled:opacity-60"
+              />
+              <span className="hidden shrink-0 font-mono text-[10px] uppercase tracking-wide2 text-subtle sm:inline">
+                {active.hint}
+              </span>
+            </div>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={loading || !target.trim()}
+              className="w-full sm:w-auto"
+            >
+              {loading ? (
+                <>
+                  <span className="size-3.5 animate-spin rounded-full border border-background/40 border-t-background" />
+                  Scanning
+                </>
+              ) : (
+                <>
+                  Run Scan
+                  <ArrowRight className="size-4" />
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </motion.section>
   );
 };

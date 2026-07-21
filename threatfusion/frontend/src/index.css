@@ -2,102 +2,131 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ThreatFusion — monochrome "red-team ops console" design tokens.
+ *
+ * Colours are stored as raw HSL channels (hue 0, saturation 0% everywhere) so
+ * the whole system is provably hueless. Tailwind reads these via
+ * `hsl(var(--token) / <alpha-value>)`; see tailwind.config.js.
+ */
+@layer base {
+  :root {
+    /* Layered near-blacks for depth (never a flat #000). */
+    --background: 0 0% 4%;   /* #0a0a0a — page canvas          */
+    --surface: 0 0% 7%;      /* #111111 — card / elevation 1   */
+    --surface-2: 0 0% 10%;   /* #1a1a1a — controls / elevation 2 */
+    --surface-3: 0 0% 14%;   /* #242424 — hover / elevation 3  */
+
+    /* Off-white text (avoids the glare of pure #fff). */
+    --foreground: 0 0% 91%;  /* #e8e8e8 — primary copy         */
+    --muted: 0 0% 64%;       /* #a3a3a3 — secondary copy       */
+    --subtle: 0 0% 42%;      /* #6b6b6b — labels / tertiary    */
+    --accent: 0 0% 98%;      /* #fafafa — near-white emphasis  */
+    --ring: 0 0% 100%;       /* focus ring (used with opacity) */
+
+    /* Hairline borders: 1px, low-opacity white — alpha baked in. */
+    --line: 0 0% 100% / 0.08;
+    --line-strong: 0 0% 100% / 0.16;
+
+    --radius: 0.375rem;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--line));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* A whisper of vignette + a faint dot-grid so the black never reads as dead flat. */
+    background-image:
+      radial-gradient(120% 120% at 50% -10%, hsl(0 0% 100% / 0.03) 0%, transparent 55%),
+      radial-gradient(hsl(0 0% 100% / 0.018) 1px, transparent 1px);
+    background-size: 100% 100%, 40px 40px;
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-foreground text-background;
+  }
+
+  /* Tabular numerals for all monospace data so columns/scores stay aligned. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* A single, restrained surface treatment reused across every card. */
+  .tf-card {
+    @apply rounded-lg border border-line bg-surface;
+  }
+
+  /* Interactive cards: a low-opacity white border-glow on hover — no colour. */
+  .tf-card-interactive {
+    @apply tf-card transition-all duration-300;
+  }
+  .tf-card-interactive:hover {
+    @apply border-line-strong shadow-glow-sm;
+  }
+
+  /* Micro-label used for section eyebrows / column headers. */
+  .tf-eyebrow {
+    @apply font-mono text-[10px] uppercase tracking-wide3 text-subtle;
+  }
+}
+
 @layer utilities {
-  .shadow-ambient {
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
+  /* The scan-line element used inside loading overlays. */
+  .tf-scanline {
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      hsl(0 0% 100% / 0.55),
+      transparent
+    );
   }
-  .shadow-modal {
-    box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.1);
-  }
-  .animate-fade-in-up {
-    animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  }
-  
-  .glass-panel {
-      background-color: rgba(30, 41, 59, 0.7);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-  
-  .glass-panel-hot {
-      background-color: rgba(30, 41, 59, 0.7);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
-  }
-  
-  .glow-text-primary {
-      text-shadow: 0 0 8px rgba(173, 198, 255, 0.5);
-  }
-  
-  .glow-text-error {
-      text-shadow: 0 0 8px rgba(255, 180, 171, 0.5);
-  }
-  
-  .ticker-wrap {
-      width: 100%;
-      overflow: hidden;
-      white-space: nowrap;
-      box-sizing: border-box;
-  }
-  
-  .ticker {
-      display: inline-block;
-      animation: ticker 20s linear infinite;
-  }
-  
-  .pulse-dot {
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
-  
-  .orbit-spin {
-      animation: spin 60s linear infinite;
+
+  /* Skeleton shimmer track. */
+  .tf-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(0 0% 100% / 0.06),
+      transparent
+    );
+    animation: shimmer 1.8s ease-in-out infinite;
   }
 }
 
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes ticker {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .5; }
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-body {
-  @apply bg-[#020617] text-on-background font-body-md;
-}
-
+/* Thin, monochrome scrollbars to match the console aesthetic. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  background: hsl(0 0% 100% / 0.09);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: hsl(0 0% 100% / 0.18);
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }

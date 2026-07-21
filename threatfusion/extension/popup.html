@@ -3,62 +3,80 @@
 <head>
   <meta charset="UTF-8">
   <title>ThreatFusion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Same two typefaces as the dashboard: Inter (UI) + JetBrains Mono (data). -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="header">
-    <div class="logo">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="m12 22-8-4.5v-9l8-4.5 8 4.5v9Z"/>
-        <path d="M12 22V13"/>
-        <path d="M12 13 4 8.5"/>
-        <path d="M20 8.5 12 13"/>
-      </svg>
+  <!-- Header -->
+  <header class="header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/>
+          <path d="M4 6h.01"/>
+          <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/>
+          <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/>
+          <path d="M12 18h.01"/>
+          <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/>
+          <circle cx="12" cy="12" r="2"/>
+          <path d="m13.41 10.59 5.66-5.66"/>
+        </svg>
+      </span>
+      <span class="brand-name">THREAT<span class="brand-dim">FUSION</span></span>
     </div>
-    <h1>ThreatFusion</h1>
-  </div>
+    <span id="mode-badge" class="badge">···</span>
+  </header>
 
-  <div class="container">
-    <div id="target-info" class="target-info">
-      <span class="label">Current URL:</span>
-      <div id="target-url" class="url-text">Loading...</div>
-    </div>
+  <main class="container">
+    <!-- Target -->
+    <section class="target">
+      <span class="eyebrow">Current Target</span>
+      <div id="target-url" class="target-url">Loading…</div>
+    </section>
 
-    <button id="scan-btn" class="btn-primary" disabled>
+    <button id="scan-btn" class="btn" disabled>
       <span id="btn-text">Scan This Page</span>
-      <span id="btn-loader" class="loader hidden"></span>
+      <span id="btn-loader" class="loader hidden" aria-hidden="true"></span>
     </button>
 
     <div id="error-box" class="error-box hidden"></div>
 
-    <div id="result-box" class="result-box hidden">
-      <div class="result-header">
-        <h2 id="risk-label" class="risk-label">Unknown</h2>
-        <div class="score-container">
-          <div class="score-label">ML Risk Score</div>
-          <div id="ml-score" class="score-value">0%</div>
+    <!-- Result -->
+    <section id="result-box" class="result hidden">
+      <div class="result-head">
+        <div>
+          <span class="eyebrow">ML Fusion Score</span>
+          <div id="ml-score" class="score">0</div>
+        </div>
+        <div class="sev">
+          <div id="risk-meter" class="meter" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <span id="risk-label" class="sev-label">UNKNOWN</span>
         </div>
       </div>
-      
+
       <div class="divider"></div>
-      
-      <div class="stats-grid">
-        <div class="stat-item">
-          <span class="stat-label">Baseline Rule</span>
-          <span id="baseline-score" class="stat-value">0%</span>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-label">Baseline</span>
+          <span id="baseline-score" class="stat-value">0</span>
         </div>
-        <div class="stat-item">
+        <div class="stat">
           <span class="stat-label">AV Detections</span>
           <span id="av-detects" class="stat-value">0/0</span>
         </div>
-        <div class="stat-item">
+        <div class="stat">
           <span class="stat-label">Open Ports</span>
           <span id="open-ports" class="stat-value">0</span>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
+  </main>
 
   <script src="popup.js"></script>
 </body>

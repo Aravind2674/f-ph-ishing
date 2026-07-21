@@ -1,125 +1,256 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Crosshair,
+  History as HistoryIcon,
+  Settings as SettingsIcon,
+  Command as CommandIcon,
+  Radar,
+  Menu,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { fetchHealth, type HealthResponse } from "@/api";
+import { CommandPalette } from "./CommandPalette";
+
+type View = "scan" | "history" | "settings";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  activeTab?: 'scan' | 'history' | 'settings';
-  onTabChange?: (tab: 'scan' | 'history' | 'settings') => void;
+  activeTab?: View;
+  onTabChange?: (tab: View) => void;
 }
 
-export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, activeTab = 'scan', onTabChange }) => {
-  return (
-    <div className="bg-background text-on-background font-body-md min-h-screen overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container">
-      {/* TopNavBar Shell */}
-      <nav className="fixed top-0 right-0 w-full md:w-[calc(100%-16rem)] h-16 border-b border-white/10 z-40 bg-surface/80 dark:bg-surface/80 backdrop-blur-md flex justify-between items-center px-container-margin transition-all">
-        <div className="flex items-center gap-4">
-          <span className="material-symbols-outlined hidden md:block text-outline cursor-pointer hover:text-primary transition-colors">menu</span>
-          <div className="flex items-center gap-2 text-on-surface-variant font-label-sm uppercase tracking-wider">
-            <span className="hover:text-primary cursor-pointer transition-colors">ThreatFusion</span>
-            <span className="material-symbols-outlined text-[16px]">chevron_right</span>
-            <span className="text-primary font-bold border-b-2 border-primary pb-1 capitalize">{activeTab}</span>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="relative hidden lg:flex items-center group">
-            <span className="material-symbols-outlined absolute left-3 text-outline group-focus-within:text-primary transition-colors">search</span>
-            <input 
-              type="text" 
-              placeholder="Global search..." 
-              className="bg-surface-container-high border border-white/10 rounded px-10 py-1.5 text-body-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary w-64 transition-all" 
-            />
-            <div className="absolute right-2 flex gap-1">
-              <kbd className="bg-surface-variant text-outline px-1.5 rounded font-mono-data text-[10px]">⌘K</kbd>
-            </div>
-          </div>
-          
-          <button className="text-primary hover:text-primary-fixed-dim transition-colors font-label-sm uppercase tracking-wider hidden md:block">
-            Export CSV
-          </button>
-          <button 
-            onClick={() => onTabChange?.('scan')}
-            className="bg-primary text-on-primary px-4 py-1.5 rounded font-label-sm uppercase tracking-wider hover:bg-primary-fixed-dim transition-colors hidden md:block">
-            Quick Scan
-          </button>
-          
-          <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
-          
-          <button className="text-outline hover:text-primary transition-colors relative">
-            <span className="material-symbols-outlined">notifications</span>
-            <span className="absolute top-0 right-0 w-2 h-2 bg-error rounded-full animate-pulse"></span>
-          </button>
-          
-          <button className="text-outline hover:text-primary transition-colors hidden sm:block">
-            <span className="material-symbols-outlined">help</span>
-          </button>
-          
-          <div className="w-8 h-8 rounded-full bg-surface-container-highest border border-white/10 overflow-hidden cursor-pointer hover:border-primary transition-colors">
-            <img 
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuCb20Z8HAVSNXfrywUnSuxMc4GCs4tTcjK8GIhsjBhKBme7o36y1vBT0Q0CNN_5uetYnDm4VY3Tc9FU4lPLsoiIb_uCz3NyHVkN_mTzqmSygSQxahwVBqHLUvWnPn1T-g2il5NNsxXSJKL6IZTWxk21ktMGtzHc6wdT3YeUqCG2CaRC03MD7D29pi-QvlASP2UqjNrnaQTlrD9p7ssUuHyBlt7cZrVrx6sUcDjsCSVJurBeV-8hhNmzPlxTYWX1zr9cjxEm-sDvuAEp" 
-              alt="User profile"
-              className="w-full h-full object-cover"
-            />
-          </div>
-        </div>
-      </nav>
+const NAV: { id: View; label: string; icon: typeof Crosshair }[] = [
+  { id: "scan", label: "Scan", icon: Crosshair },
+  { id: "history", label: "History", icon: HistoryIcon },
+  { id: "settings", label: "Settings", icon: SettingsIcon },
+];
 
-      {/* SideNavBar Shell */}
-      <aside className="h-screen w-64 fixed left-0 top-0 border-r border-white/10 backdrop-blur-xl bg-surface-container dark:bg-surface-container-low/70 flex flex-col py-container-margin z-50 hidden md:flex">
-        <div className="px-6 mb-8 flex items-center gap-3">
-          <div className="w-10 h-10 rounded bg-primary-container flex items-center justify-center text-on-primary-container shadow-[0_0_15px_rgba(77,142,255,0.3)]">
-            <span className="material-symbols-outlined font-bold">radar</span>
-          </div>
-          <div>
-            <h1 className="font-headline-md text-headline-md font-bold text-primary tracking-tighter">ThreatFusion</h1>
-            <p className="font-label-sm text-label-sm text-tertiary-fixed-dim mt-0.5 animate-pulse flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-tertiary-fixed-dim rounded-full"></span> Live Monitoring
-            </p>
-          </div>
+/** Small left-nav item; active state is drawn with a fill + a left marker, no hue. */
+function NavItem({
+  item,
+  active,
+  onClick,
+}: {
+  item: (typeof NAV)[number];
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors",
+        active
+          ? "bg-surface-2 text-foreground"
+          : "text-muted hover:bg-surface-2/60 hover:text-foreground"
+      )}
+    >
+      {/* Active marker — a thin white bar, not a coloured accent. */}
+      <span
+        className={cn(
+          "absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-foreground transition-opacity",
+          active ? "opacity-100" : "opacity-0"
+        )}
+      />
+      <Icon className="size-4" />
+      <span className={active ? "font-medium" : ""}>{item.label}</span>
+    </button>
+  );
+}
+
+/**
+ * Mock/live indicator. Deliberately monochrome: "LIVE" is a solid dot, "MOCK"
+ * is a hollow ring, "OFFLINE" is a crossed marker. State is read from /health.
+ */
+function ModeIndicator({ health }: { health: HealthResponse | null | "error" }) {
+  if (health === "error") {
+    return (
+      <span className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+        <span className="size-1.5 rounded-full ring-1 ring-subtle" />
+        API Offline
+      </span>
+    );
+  }
+  if (!health) {
+    return (
+      <span className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide2 text-subtle">
+        <span className="size-1.5 rounded-full bg-subtle animate-pulse" />
+        Connecting
+      </span>
+    );
+  }
+  const mock = health.mock_mode;
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide2",
+        mock ? "border-line text-muted" : "border-line-strong text-foreground"
+      )}
+      title={mock ? "Serving synthetic/mock data" : "Serving live intelligence"}
+    >
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          mock ? "ring-1 ring-muted" : "bg-foreground"
+        )}
+      />
+      {mock ? "Mock Data" : "Live"}
+      <span className="text-subtle">· v{health.version}</span>
+    </span>
+  );
+}
+
+export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
+  children,
+  activeTab = "scan",
+  onTabChange,
+}) => {
+  const [health, setHealth] = useState<HealthResponse | null | "error">(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Poll health once on mount for the mock/live badge (best-effort).
+  useEffect(() => {
+    let alive = true;
+    fetchHealth()
+      .then((h) => alive && setHealth(h))
+      .catch(() => alive && setHealth("error"));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Global ⌘K / Ctrl+K shortcut to toggle the command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const navigate = useCallback(
+    (v: View) => {
+      onTabChange?.(v);
+      setMobileNavOpen(false);
+    },
+    [onTabChange]
+  );
+
+  const Brand = (
+    <div className="flex items-center gap-3 px-3">
+      <div className="flex size-9 items-center justify-center rounded-md border border-line-strong bg-surface-2">
+        <Radar className="size-5 text-foreground" />
+      </div>
+      <div className="leading-tight">
+        <div className="font-mono text-sm font-semibold tracking-tight text-foreground">
+          THREAT<span className="text-muted">FUSION</span>
         </div>
-        
-        <nav className="flex-1 flex flex-col gap-1 px-2">
-          <button 
-            onClick={() => onTabChange?.('scan')}
-            className={`flex items-center gap-3 px-4 py-3 rounded transition-colors group ${activeTab === 'scan' ? 'text-primary bg-primary/10 border-r-2 border-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5 active:scale-95'}`}
-          >
-            <span className="material-symbols-outlined group-hover:text-primary transition-colors">radar</span>
-            <span className={`font-label-md text-label-md ${activeTab === 'scan' ? 'font-bold' : ''}`}>Detailed Scan</span>
-          </button>
-          
-          <button 
-            onClick={() => onTabChange?.('history')}
-            className={`flex items-center gap-3 px-4 py-3 rounded transition-colors group ${activeTab === 'history' ? 'text-primary bg-primary/10 border-r-2 border-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5 active:scale-95'}`}
-          >
-            <span className="material-symbols-outlined group-hover:text-primary transition-colors">history</span>
-            <span className={`font-label-md text-label-md ${activeTab === 'history' ? 'font-bold' : ''}`}>Scan History</span>
-          </button>
-          
-          <button 
-            onClick={() => onTabChange?.('settings')}
-            className={`flex items-center gap-3 px-4 py-3 rounded transition-colors group ${activeTab === 'settings' ? 'text-primary bg-primary/10 border-r-2 border-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5 active:scale-95'}`}
-          >
-            <span className="material-symbols-outlined group-hover:text-primary transition-colors">settings</span>
-            <span className={`font-label-md text-label-md ${activeTab === 'settings' ? 'font-bold' : ''}`}>Settings</span>
-          </button>
-        </nav>
-        
-        <div className="px-4 mt-auto">
-          <button 
-            onClick={() => onTabChange?.('scan')}
-            className="w-full bg-surface-variant text-on-surface border border-white/10 py-2 rounded font-label-md hover:bg-white/5 transition-all mb-4 flex items-center justify-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">add</span> Quick Scan
-          </button>
-          <div className="flex items-center gap-3 px-2 py-2 text-outline text-sm">
-            <span className="material-symbols-outlined text-primary">lens</span>
-            <span className="font-label-sm text-label-sm uppercase tracking-wider">System Status</span>
-          </div>
+        <div className="tf-eyebrow">Attack-Surface Risk Fusion</div>
+      </div>
+    </div>
+  );
+
+  const NavList = (
+    <nav className="flex flex-col gap-1 px-3">
+      <div className="tf-eyebrow px-3 pb-2 pt-1">Console</div>
+      {NAV.map((item) => (
+        <NavItem
+          key={item.id}
+          item={item}
+          active={activeTab === item.id}
+          onClick={() => navigate(item.id)}
+        />
+      ))}
+    </nav>
+  );
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      {/* ── Sidebar (desktop) ─────────────────────────────────────────── */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-line bg-surface/60 py-5 backdrop-blur-xl md:flex">
+        <div className="mb-8">{Brand}</div>
+        {NavList}
+        <div className="mt-auto px-6">
+          <div className="tf-eyebrow mb-2">Session</div>
+          <ModeIndicator health={health} />
         </div>
       </aside>
 
-      {/* Main Workspace */}
-      <main className="md:ml-64 pt-20 px-container-margin pb-container-margin min-h-screen">
-        {children}
+      {/* ── Mobile nav drawer ─────────────────────────────────────────── */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <div className="absolute left-0 top-0 h-full w-64 border-r border-line bg-surface py-5">
+            <div className="mb-6 flex items-center justify-between pr-3">
+              {Brand}
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                className="text-muted hover:text-foreground"
+                aria-label="Close navigation"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            {NavList}
+          </div>
+        </div>
+      )}
+
+      {/* ── Top bar ───────────────────────────────────────────────────── */}
+      <header className="fixed right-0 top-0 z-30 flex h-16 w-full items-center justify-between border-b border-line bg-background/80 px-4 backdrop-blur-xl md:w-[calc(100%-16rem)] md:px-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            className="text-muted hover:text-foreground md:hidden"
+            aria-label="Open navigation"
+          >
+            <Menu className="size-5" />
+          </button>
+          <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wide2 text-subtle">
+            <span className="hidden sm:inline">ThreatFusion</span>
+            <span className="hidden sm:inline text-subtle/50">/</span>
+            <span className="text-foreground">{activeTab}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Command palette trigger — mirrors the ⌘K shortcut. */}
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="group flex items-center gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-line-strong hover:text-foreground"
+          >
+            <CommandIcon className="size-3.5" />
+            <span className="hidden sm:inline">Command</span>
+            <kbd className="rounded border border-line bg-surface px-1 font-mono text-[10px] text-subtle">
+              ⌘K
+            </kbd>
+          </button>
+          <div className="md:hidden">
+            <ModeIndicator health={health} />
+          </div>
+        </div>
+      </header>
+
+      {/* ── Workspace ─────────────────────────────────────────────────── */}
+      <main className="min-h-screen px-4 pb-16 pt-24 md:ml-64 md:px-8">
+        <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onNavigate={navigate}
+        onNewScan={() => navigate("scan")}
+      />
     </div>
   );
 };
