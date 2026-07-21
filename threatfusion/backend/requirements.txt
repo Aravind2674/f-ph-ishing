@@ -12,6 +12,12 @@ pydantic-settings>=2.1.0
 # ── HTTP client (async, for external API calls) ─────────────────────────
 httpx>=0.25.0
 
+# ── Network Layer — real packet / DNS / ARP / 802.11 capture ────────────
+# Requires Npcap on Windows (https://npcap.com/). 802.11 deauth detection
+# additionally needs a monitor-mode-capable adapter; the layer degrades
+# honestly when that is unavailable.
+scapy>=2.5.0
+
 # ── Database ────────────────────────────────────────────────────────────
 aiosqlite>=0.19.0
 

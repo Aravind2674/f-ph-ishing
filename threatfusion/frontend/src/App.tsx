@@ -6,6 +6,7 @@ import { ScanForm } from './components/ScanForm';
 import { ScanResult } from './components/ScanResult';
 import { History } from './components/History';
 import { Settings } from './components/Settings';
+import { NetworkSection } from './components/NetworkSection';
 import { Card } from './components/ui/card';
 import { Skeleton } from './components/ui/skeleton';
 import { SiteMeteorsBackground } from './components/ui/site-meteors-background';
@@ -15,7 +16,7 @@ import type { ScanResult as IScanResult, ScanRequest } from './api';
 function App() {
   // NOTE: view/scan state management is intentionally unchanged from the
   // original — this rebuild is presentation-only.
-  const [currentView, setCurrentView] = useState<'scan' | 'history' | 'settings'>('scan');
+  const [currentView, setCurrentView] = useState<'scan' | 'network' | 'history' | 'settings'>('scan');
   const [scanResult, setScanResult] = useState<IScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +56,7 @@ function App() {
       <SiteMeteorsBackground />
 
       <DashboardLayout activeTab={currentView} onTabChange={setCurrentView as any}>
+        {currentView === 'network' && <NetworkSection />}
         {currentView === 'history' && <History />}
         {currentView === 'settings' && <Settings />}
         {currentView === 'scan' && (

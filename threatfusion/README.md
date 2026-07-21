@@ -54,15 +54,86 @@ To switch from demo mode (mock data) to live mode with real threat intelligence:
 That's it. No code changes needed — the same function signatures and response
 shapes are used in both modes.
 
+## Network Layer (real-time defensive monitoring)
+
+The **Network Layer** continuously watches a WiFi/LAN you control and raises
+scored alerts in real time. It reuses the App-Layer scoring pipeline for
+**cross-layer correlation** (a monitored device contacting an App-Layer-flagged
+domain), folds in a real **WiGLE** public-history lookup for suspected rogue
+APs, and learns a **per-device behavioural baseline** from real observed
+traffic. Open the **Network** tab in the dashboard for the live alert feed
+(Screen A) and per-alert evidence breakdown (Screen B).
+
+> No-compromise design: every value in an alert comes from a real captured
+> signal, a real WiGLE/VirusTotal lookup, or a baseline computed from real
+> observed traffic. When a signal is unavailable (no key, monitor mode
+> unsupported, API offline) the layer degrades honestly and records *why* in
+> the alert evidence — it never fabricates a value.
+
+### What real capture requires (Windows)
+
+Packet/DNS/ARP capture uses **scapy + [Npcap](https://npcap.com/)** and must
+run in an **elevated (Administrator)** process.
+
+1. Install [Npcap](https://npcap.com/#download) (tick *"Install Npcap in
+   WinPcap API-compatible Mode"*). For deauth detection also tick
+   *"Support raw 802.11 traffic (and monitor mode)"* — only useful with a
+   monitor-mode-capable adapter (see the capability matrix below).
+2. `pip install -r requirements.txt` (adds `scapy`).
+3. Configure `backend/.env` (see `.env.example`):
+   ```
+   # cross-layer correlation needs live VirusTotal
+   USE_MOCK_DATA=false
+   VIRUSTOTAL_API_KEY=your_real_key_here
+   # rogue-AP signal (register at https://wigle.net/account)
+   WIGLE_API_NAME=your_wigle_api_name
+   WIGLE_API_TOKEN=your_wigle_api_token
+   # optional capture tuning
+   NETWORK_CAPTURE_INTERFACE=        # blank = scapy default; list with the command below
+   NETWORK_MONITOR_INTERFACE=        # monitor-mode adapter for deauth (blank disables it)
+   NETWORK_GATEWAY_IP=192.168.1.1    # emphasises ARP spoofing against the gateway
+   NETWORK_MONITORED_SSIDS=MyHomeWiFi
+   NETWORK_AUTO_START=false          # true = begin capturing on API boot
+   ```
+   List interface names on Windows:
+   ```powershell
+   python -c "from scapy.all import get_windows_if_list as g; [print(i['name']) for i in g()]"
+   ```
+4. Start the backend **as Administrator**, then either set
+   `NETWORK_AUTO_START=true` or click **Start capture** in the Network tab
+   (POST `/network/monitor/start`).
+
+### Capability matrix (honest limits)
+
+| Signal | Real on Windows? | Mechanism |
+|--------|------------------|-----------|
+| ARP spoofing / MITM, new device | ✅ | scapy + Npcap passive ARP sniff |
+| DNS observation → cross-layer hit | ✅ | scapy sniff UDP/53 → App-Layer pipeline |
+| Rogue / evil-twin AP + WiGLE | ✅ | native `netsh wlan` scan (no monitor mode) |
+| Per-device behavioural baseline | ✅ | learned from the real DNS/flows above |
+| Deauth / disassoc flood | ⚠️ hardware-dependent | needs 802.11 **monitor mode**; most consumer Windows WiFi drivers don't expose raw 802.11. The detector is real and degrades honestly (visible in `/network/status`) when monitor mode is unavailable — it never fabricates deauth frames. |
+
+### Network API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /network/status` | Honest per-sensor health (available / running / reason) |
+| `GET /network/alerts` | Scored alerts, newest first (`?severity=High`) |
+| `GET /network/alerts/{id}` | One alert's full evidence breakdown |
+| `GET /network/devices` | Learned per-device baselines |
+| `GET /network/stream` | **SSE** live alert feed |
+| `POST /network/monitor/start` \| `stop` | Begin / end real capture |
+
 ## Project Structure
 ```
 threatfusion/
 ├── backend/           # FastAPI backend
 │   ├── app/
-│   │   ├── api/       # Route handlers
+│   │   ├── api/       # Route handlers (scan, health, network)
 │   │   ├── core/      # Config, logging
 │   │   ├── ingestion/ # API client wrappers
 │   │   ├── ml/        # Feature eng, scoring, model
+│   │   ├── network/   # Network Layer: sensors, enrichment, correlation, service
 │   │   └── models/    # Pydantic schemas
 │   └── tests/
 ├── ml/                # Training & evaluation scripts
