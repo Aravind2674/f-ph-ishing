@@ -12,6 +12,7 @@ import {
   History as HistoryIcon,
   Settings as SettingsIcon,
   Radar,
+  Network as NetworkIcon,
   Menu,
   X,
   Command as CommandIcon,
@@ -20,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { FloatingNavbar } from "@/components/ui/floating-navbar";
 import type { HealthResponse } from "@/api";
 
-export type NavView = "scan" | "history" | "settings";
+export type NavView = "scan" | "network" | "history" | "settings";
 
 interface FloatingNavProps {
   activeTab: NavView;
@@ -36,6 +37,7 @@ const NAV: {
   icon: typeof Crosshair;
 }[] = [
   { id: "scan", label: "Scan", icon: Crosshair },
+  { id: "network", label: "Network", icon: NetworkIcon },
   { id: "history", label: "History", icon: HistoryIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];

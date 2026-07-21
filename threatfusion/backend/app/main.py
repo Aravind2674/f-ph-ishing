@@ -71,12 +71,28 @@ async def lifespan(app: FastAPI):
         await db.executescript(CREATE_TABLES_SQL)
         await db.commit()
     logger.info("Database initialized: %s", db_path)
-    
+
+    # Step 4: Initialize the Network Layer (baseline store + alert tables).
+    # This is always initialised so the API can serve status/history even
+    # before live capture is started. Capture itself only begins when
+    # NETWORK_AUTO_START is true (needs Npcap + an elevated process) or when
+    # the operator calls POST /network/monitor/start.
+    from app.network.service import get_service
+    net_service = get_service()
+    await net_service.init()
+    if settings.NETWORK_AUTO_START:
+        logger.info("NETWORK_AUTO_START=true — starting capture")
+        await net_service.start()
+
     logger.info("🚀 ThreatFusion API ready (mock_mode=%s)", settings.USE_MOCK_DATA)
-    
+
     yield  # Application runs here
-    
-    # Shutdown cleanup (if needed in the future)
+
+    # Shutdown cleanup — stop capture threads if running.
+    try:
+        await net_service.stop()
+    except Exception:
+        logger.exception("Error stopping network monitor during shutdown")
     logger.info("ThreatFusion API shutting down")
 
 
@@ -114,6 +130,8 @@ app.add_middleware(
 # Register route handlers
 from app.api.health import router as health_router
 from app.api.scan import router as scan_router
+from app.api.network import router as network_router
 
 app.include_router(health_router)
 app.include_router(scan_router)
+app.include_router(network_router)
