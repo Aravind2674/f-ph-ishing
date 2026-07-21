@@ -56,17 +56,36 @@ def _is_valid_format(hostname: str) -> bool:
     
     return True
 
+# NAT64 well-known prefix (RFC 6052). Addresses in 64:ff9b::/96 embed an IPv4
+# address in their low 32 bits; networks using DNS64/NAT64 return these for
+# ordinary public sites. They are NOT internal, but ``is_reserved`` flags the
+# whole prefix — which wrongly blocked legitimate domains that resolve to a
+# NAT64 address (e.g. universities). We instead unwrap the embedded IPv4 and
+# judge that, so a crafted NAT64 address hiding an internal IPv4 (e.g.
+# 64:ff9b::7f00:1 → 127.0.0.1) is still correctly rejected.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
 def _is_internal(hostname: str) -> bool:
     """Checks if the hostname is an internal/loopback domain or IP."""
     if hostname in ("localhost", "localhost.localdomain"):
         return True
     try:
         ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-            return True
     except ValueError:
-        pass
-    return False
+        return False
+
+    # Unwrap NAT64 addresses to the embedded IPv4 before judging.
+    if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64_PREFIX:
+        ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 async def _check_dns(hostname: str) -> list[str]:
     """Performs DNS lookup (A, AAAA, CNAME) to get IPs."""
