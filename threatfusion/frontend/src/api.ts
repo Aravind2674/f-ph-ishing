@@ -89,6 +89,57 @@ export interface HealthResponse {
   mock_mode: boolean;
 }
 
+// ── Phase 2/3 — neural HTTP attack classifier ────────────────────────────────
+export interface PayloadFinding {
+  input: string;
+  location: string;
+  label: string;
+  is_attack: boolean;
+  confidence: number;
+  suspicious_span: string | null;
+  probs: Record<string, number>;
+}
+
+export interface AnalyzeResponse {
+  success: boolean;
+  model_loaded: boolean;
+  findings: PayloadFinding[];
+  summary: string;
+  error: string | null;
+}
+
+export interface ValueFinding {
+  location: string;
+  value: string;
+  label: string;
+  is_attack: boolean;
+  confidence: number;
+  suspicious_span: string | null;
+}
+
+export interface RequestFinding {
+  method: string;
+  url: string;
+  is_attack: boolean;
+  worst_label: string;
+  worst_location: string;
+  worst_confidence: number;
+  suspicious_span: string | null;
+  values_analyzed: number;
+  attack_values: number;
+  details: ValueFinding[];
+}
+
+export interface TrafficAnalyzeResponse {
+  success: boolean;
+  model_loaded: boolean;
+  analyzed: number;
+  flagged: number;
+  findings: RequestFinding[];
+  summary: string;
+  error: string | null;
+}
+
 const API_BASE = "http://127.0.0.1:8000";
 
 export const submitScan = async (request: ScanRequest): Promise<ScanResponse> => {
@@ -115,6 +166,35 @@ export const fetchHistory = async (): Promise<ScanHistoryItem[]> => {
 // mock/live badge. Additive only — existing call signatures are untouched.
 export const fetchHealth = async (): Promise<HealthResponse> => {
   const res = await fetch(`${API_BASE}/health`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+};
+
+// Phase 2 — classify a single payload / query string / URL with the neural
+// HTTP attack classifier.
+export const analyzePayload = async (text: string): Promise<AnalyzeResponse> => {
+  const res = await fetch(`${API_BASE}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+};
+
+// Phase 3 — score a batch of captured requests or a HAR export.
+export const analyzeTraffic = async (
+  payload: { requests?: unknown[]; har?: unknown }
+): Promise<TrafficAnalyzeResponse> => {
+  const res = await fetch(`${API_BASE}/traffic/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
