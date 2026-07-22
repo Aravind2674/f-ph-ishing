@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
@@ -38,6 +39,50 @@ from app.ml.url_model import (
 
 logger = logging.getLogger(__name__)
 
+# Registered-domain allowlist (real Tranco top-list). A character-level model
+# cannot distinguish a brand in the *registered domain* (legitimate, e.g.
+# ``paypal.com/us/signin``) from a brand used as a *token* (phishing, e.g.
+# ``paypal-verify.tk``) — the two look almost identical lexically. Suppressing
+# the URL-lexical risk when the registered domain is itself a well-known site is
+# the standard anti-phishing correction and eliminates that false-positive class.
+_ALLOWLIST_PATH = Path(__file__).with_name("top_domains.txt")
+# Score ceiling applied to an allowlisted apex domain (keeps it in the "Low"
+# band without zeroing it — a top domain can still, rarely, be compromised).
+_ALLOWLIST_CAP = 0.15
+
+
+def _load_allowlist(path: Path = _ALLOWLIST_PATH) -> frozenset:
+    """Load the registered-domain allowlist; empty (disabled) if unavailable."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return frozenset(
+            ln.strip().lower() for ln in lines if ln.strip() and not ln.startswith("#")
+        )
+    except Exception:  # missing file → feature simply disabled
+        return frozenset()
+
+
+def _registered_domain_candidates(url: str) -> set[str]:
+    """Return the last-2 and last-3 label groupings of a URL's host.
+
+    Comparing these against the allowlist matches both ``amazon.com`` (2 labels)
+    and multi-part suffixes like ``bbc.co.uk`` (3 labels), while a spoof such as
+    ``paypal.com.evil.tk`` yields only ``evil.tk`` / ``com.evil.tk`` — neither of
+    which is allowlisted, so the spoof is *not* suppressed.
+    """
+    u = (url or "").strip().lower()
+    netloc = urlparse(u if "://" in u else f"http://{u}").netloc
+    host = netloc.split("@")[-1].split(":")[0]
+    if not host or all(c.isdigit() or c == "." for c in host):  # empty or raw IPv4
+        return set()
+    labels = host.split(".")
+    cands: set[str] = set()
+    if len(labels) >= 2:
+        cands.add(".".join(labels[-2:]))
+    if len(labels) >= 3:
+        cands.add(".".join(labels[-3:]))
+    return cands
+
 
 class NeuralFusionModel:
     """Inference wrapper around a trained :class:`UrlFusionNet`."""
@@ -46,7 +91,18 @@ class NeuralFusionModel:
         self._model: Optional[UrlFusionNet] = None
         self._config: Optional[UrlFusionConfig] = None
         self._model_path: Optional[Path] = None
-        logger.info("NeuralFusionModel instance created (model not yet loaded)")
+        self._allowlist: frozenset = _load_allowlist()
+        logger.info(
+            "NeuralFusionModel instance created (model not yet loaded; "
+            "%d allowlisted domains)",
+            len(self._allowlist),
+        )
+
+    def _is_allowlisted(self, url: str) -> bool:
+        """True if the URL's registered domain is a known-legitimate top site."""
+        if not self._allowlist:
+            return False
+        return any(c in self._allowlist for c in _registered_domain_candidates(url))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -104,7 +160,10 @@ class NeuralFusionModel:
         fused_logit, _ = self._model(
             self._char_tensor(url), self._tab_tensor(features)
         )
-        return float(torch.sigmoid(fused_logit).item())
+        score = float(torch.sigmoid(fused_logit).item())
+        if self._is_allowlisted(url):
+            score = min(score, _ALLOWLIST_CAP)
+        return score
 
     @torch.no_grad()
     def predict_url_only(self, url: str) -> float:
@@ -121,7 +180,10 @@ class NeuralFusionModel:
             self._char_tensor(url),
             torch.zeros(1, self._config.n_tabular_features),  # type: ignore[union-attr]
         )
-        return float(torch.sigmoid(text_logit).item())
+        score = float(torch.sigmoid(text_logit).item())
+        if self._is_allowlisted(url):
+            score = min(score, _ALLOWLIST_CAP)
+        return score
 
     def predict(self, url: str, features: FeatureVector) -> int:
         """Binary label (0 = benign, 1 = malicious) at a 0.5 threshold."""

@@ -125,6 +125,29 @@ This introduces potential biases:
 We document this transparently as a limitation and discuss its impact
 on our evaluation metrics in the results section.
 
+> **Phase 1 update — the neural URL model now trains on real data.**
+> `ml/train_neural.py --real` trains the character-level `UrlFusionNet` on a
+> **real labelled full-URL corpus** (~40k URLs, both benign and malicious are
+> real observed URLs *with real paths*, so there is no domain-vs-full-URL
+> shortcut and nothing on the benign side is synthesised — see
+> `ml/data_sources.py`). Honest held-out performance is **F1 ≈ 0.94 /
+> ROC-AUC ≈ 0.98** for the URL-only (text) branch — lower than the earlier
+> synthetic figure precisely because the task is harder and the evaluation is
+> no longer drawn from the training distribution. The `tabular_only` ablation
+> is ~0.50 AUC by design here: with no real *multi-source* labels per URL the
+> tabular branch is fed the neutral pre-enrichment vector, so the fused score
+> leans on the URL branch. Real multi-source tabular labels are a later phase.
+>
+> **Registered-domain allowlist.** A character-level model cannot tell a brand
+> in the *registered domain* (`paypal.com/us/signin`, legitimate) from a brand
+> used as a *token* (`paypal-verify.tk`, phishing) — they are lexically almost
+> identical. `NeuralFusionModel` therefore caps the URL risk at 0.15 when the
+> registered domain is a known top site (real Tranco top-3000, in
+> `app/ml/top_domains.txt`), using last-2/last-3 label matching so a spoof like
+> `paypal.com.secure-verify.tk` (registrable domain `secure-verify.tk`) is
+> **not** suppressed. This eliminates the brand false-positive class without
+> creating a bypass.
+
 ### Mock Data Mode
 The system supports a `USE_MOCK_DATA=true` mode for development and
 demonstration without API keys. Mock responses are based on real API

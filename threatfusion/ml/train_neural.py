@@ -269,7 +269,12 @@ def _metrics(y_true: np.ndarray, y_prob: np.ndarray) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the neural fusion model")
-    parser.add_argument("--samples", type=int, default=10000)
+    parser.add_argument("--samples", type=int, default=10000,
+                        help="synthetic sample count (ignored with --real)")
+    parser.add_argument("--real", action="store_true",
+                        help="train on REAL URLhaus/PhishTank + Tranco feeds instead of synthetic")
+    parser.add_argument("--n-per-class", type=int, default=8000,
+                        help="real URLs per class when --real is set")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -281,8 +286,28 @@ def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Data ────────────────────────────────────────────────────────────
-    logger.info("Building dataset (%d samples)...", args.samples)
-    urls, tab, y = build_dataset(args.samples, seed=args.seed)
+    if args.real:
+        # Real, labelled URLs from public threat feeds. No fabricated labels.
+        from ml.data_sources import build_real_dataset
+
+        logger.info("Building REAL dataset (%d per class)...", args.n_per_class)
+        urls, labels, data_source = build_real_dataset(
+            n_per_class=args.n_per_class, seed=args.seed
+        )
+        y = np.array(labels, dtype=np.int64)
+        # Neutral pre-enrichment tabular vector — exactly what the live system
+        # feeds the tabular branch before any VT/Shodan enrichment is available.
+        # It is constant across samples, so the fused score relies on the URL
+        # branch here; training the tabular branch on real *multi-source* labels
+        # is a later phase (documented, not faked).
+        neutral = np.zeros(len(FEATURE_NAMES), dtype=np.float64)
+        neutral[FEATURE_NAMES.index("ssl_cert_valid")] = 1.0
+        neutral[FEATURE_NAMES.index("domain_age_days")] = 365.0
+        tab = np.tile(neutral, (len(urls), 1))
+    else:
+        logger.info("Building SYNTHETIC dataset (%d samples)...", args.samples)
+        urls, tab, y = build_dataset(args.samples, seed=args.seed)
+        data_source = {"source": "synthetic (np.random lexical patterns; documented limitation)"}
 
     # Deterministic train/test split.
     rng = np.random.default_rng(args.seed)
@@ -365,8 +390,9 @@ def main() -> None:
     metrics = {
         "model": "UrlFusionNet (char-CNN text branch + tabular MLP fusion)",
         "framework": "pytorch",
+        "data_source": data_source,
         "n_parameters": n_params,
-        "n_samples": args.samples,
+        "n_samples": len(urls),
         "epochs": args.epochs,
         "test_size": int(n_test),
         "ablation": ablation,
