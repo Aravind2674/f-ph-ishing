@@ -613,6 +613,61 @@ class HealthResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 — HTTP request / payload analysis (neural attack classifier)
+# ---------------------------------------------------------------------------
+
+class AnalyzeRequest(BaseModel):
+    """Request body for ``POST /analyze``.
+
+    ``text`` may be a single parameter value, a raw query string, or a full URL.
+    The endpoint classifies the value(s) with the neural HTTP attack classifier.
+    This is **passive** analysis of text the caller submits — it performs no
+    network requests against any target.
+    """
+
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=8192,
+        description="A payload, query string, or URL to analyse for injection patterns",
+        examples=["id=1' OR '1'='1", "q=<script>alert(1)</script>", "https://x.com/p?file=../../etc/passwd"],
+    )
+
+
+class PayloadFinding(BaseModel):
+    """One classifier verdict for a single analysed value."""
+
+    input: str = Field(..., description="The exact value that was classified")
+    location: str = Field(
+        ...,
+        description="Where the value came from: 'full' or 'param:<name>'",
+    )
+    label: str = Field(..., description="Predicted class: benign / sqli / xss / path-traversal / cmdi")
+    is_attack: bool = Field(..., description="True when the predicted class is not benign")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Softmax confidence of the predicted class")
+    suspicious_span: Optional[str] = Field(
+        None, description="Highest-saliency substring driving an attack verdict"
+    )
+    probs: dict[str, float] = Field(
+        default_factory=dict, description="Full per-class probability distribution"
+    )
+
+
+class AnalyzeResponse(BaseModel):
+    """Top-level response for ``POST /analyze``."""
+
+    success: bool = Field(True, description="Whether analysis completed")
+    model_loaded: bool = Field(
+        True, description="False when the classifier checkpoint is unavailable"
+    )
+    findings: list[PayloadFinding] = Field(
+        default_factory=list, description="Per-value classifier verdicts, most severe first"
+    )
+    summary: str = Field("", description="Plain-language summary of the worst finding")
+    error: Optional[str] = Field(None, description="Error message, if analysis failed")
+
+
+# ---------------------------------------------------------------------------
 # Forward-reference resolution
 # ---------------------------------------------------------------------------
 # ``ScanResult`` references ``AttackPath`` / ``AttackChainNode`` and

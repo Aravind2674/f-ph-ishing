@@ -51,8 +51,18 @@ FULLDB_URL = (
     "https://raw.githubusercontent.com/faizann24/"
     "Using-machine-learning-to-detect-malicious-URLs/master/data/data.csv"
 )
+# Phase 2 — real labelled HTTP request-parameter payloads (CSIC-2010 normal
+# params + real SQLi/XSS/path-traversal/cmdi attack payloads). Columns:
+# ``payload,length,attack_type,label`` with attack_type in
+# {norm, sqli, xss, path-traversal, cmdi}.
+HTTP_PARAMS_URL = (
+    "https://raw.githubusercontent.com/Morzeux/HttpParamsDataset/master/payload_full.csv"
+)
 
 DATA_DIR = Path("ml/data")
+
+# Ordered class list for the HTTP attack classifier. Index == model class id.
+HTTP_ATTACK_CLASSES: List[str] = ["benign", "sqli", "xss", "path-traversal", "cmdi"]
 _UA = "ThreatFusion-research/1.0 (+academic security project)"
 
 # Realistic *deep* paths applied to REAL benign domains so the two classes share
@@ -305,10 +315,80 @@ def build_real_dataset(
     return urls, labels, provenance
 
 
+# ── Phase 2: HTTP request-parameter attack payloads ─────────────────────────
+def load_http_params(data_dir: Path = DATA_DIR) -> Tuple[List[str], List[str]]:
+    """Return ``(payloads, attack_types)`` from the real HTTP-params corpus.
+
+    ``attack_type`` is one of {``norm``, ``sqli``, ``xss``, ``path-traversal``,
+    ``cmdi``}. Every payload is a real request-parameter value — normal ones from
+    CSIC-2010 web traffic, malicious ones from curated real attack corpora.
+    """
+    path = _download(HTTP_PARAMS_URL, data_dir / "http_params.csv")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    payloads: List[str] = []
+    types: List[str] = []
+    for row in csv.DictReader(io.StringIO(text)):
+        payload = row.get("payload")
+        atype = (row.get("attack_type") or "").strip().lower()
+        if payload is None or not atype:
+            continue
+        payloads.append(payload)
+        types.append(atype)
+    logger.info("HTTP-params corpus: %d payloads", len(payloads))
+    return payloads, types
+
+
+def build_http_attack_dataset(
+    seed: int = 42, data_dir: Path = DATA_DIR
+) -> Tuple[List[str], List[int], List[str], dict]:
+    """Build ``(payloads, class_ids, class_names, provenance)`` for the classifier.
+
+    ``attack_type`` values are mapped to class ids via ``HTTP_ATTACK_CLASSES``
+    (``norm`` → ``benign`` = 0). Rows are de-duplicated and shuffled. The class
+    distribution is intentionally left imbalanced (real base rates); the trainer
+    handles it with class weights and reports honest per-class metrics.
+    """
+    rng = random.Random(seed)
+    payloads, types = load_http_params(data_dir)
+
+    type_to_id = {t: i for i, t in enumerate(HTTP_ATTACK_CLASSES)}
+    type_to_id["norm"] = 0  # dataset labels benign as "norm"
+
+    seen: set = set()
+    rows: List[Tuple[str, int]] = []
+    dist: dict = {c: 0 for c in HTTP_ATTACK_CLASSES}
+    skipped = 0
+    for payload, atype in zip(payloads, types):
+        cid = type_to_id.get(atype)
+        if cid is None:
+            skipped += 1
+            continue
+        key = (payload, cid)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append((payload, cid))
+        dist[HTTP_ATTACK_CLASSES[cid]] += 1
+
+    rng.shuffle(rows)
+    out_payloads = [p for p, _ in rows]
+    out_labels = [c for _, c in rows]
+
+    provenance = {
+        "source": "real HTTP request-parameter corpus (Morzeux HttpParamsDataset; CSIC-2010 + real attack payloads)",
+        "total": len(out_payloads),
+        "class_distribution": dist,
+        "skipped_unknown_type": skipped,
+        "dedup": "exact (payload, class) pairs",
+    }
+    logger.info("HTTP attack dataset: %d payloads %s", len(out_payloads), dist)
+    return out_payloads, out_labels, list(HTTP_ATTACK_CLASSES), provenance
+
+
 if __name__ == "__main__":  # quick manual smoke test
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     u, y, prov = build_real_dataset(n_per_class=2000)
-    print("total:", len(u), "positives:", sum(y), "negatives:", len(y) - sum(y))
-    print("provenance:", prov)
-    print("sample malicious:", next(x for x, l in zip(u, y) if l == 1))
-    print("sample benign   :", next(x for x, l in zip(u, y) if l == 0))
+    print("URL total:", len(u), "positives:", sum(y), "negatives:", len(y) - sum(y))
+    p, c, names, hprov = build_http_attack_dataset()
+    print("HTTP total:", len(p), "classes:", names)
+    print("distribution:", hprov["class_distribution"])

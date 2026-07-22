@@ -104,6 +104,31 @@ The API (`/scan`) runs the neural model alongside XGBoost and returns
 in addition to the existing baseline/ML scores. Loading is best-effort: if the
 checkpoint is absent the pipeline transparently falls back to the prior scores.
 
+## Phase 2 — Neural HTTP Attack Classifier
+
+Where Phase 1 reads a URL string, Phase 2 reads the **contents of a request**.
+`PayloadCNN` (`app/ml/vuln_classifier.py`) is a character-level TextCNN that
+classifies a request-parameter value into **benign / sqli / xss /
+path-traversal / cmdi**. Unlike a signature/regex WAF — which matches fixed
+strings and is bypassed by obfuscation — a learned character model generalises to
+unseen mutations (`' OR 1=1--` vs `'/**/oR/**/1=1-- -`) because it learns the
+lexical shape of an attack.
+
+- **Training data (real).** `ml/train_vuln.py` trains on the **Morzeux
+  HttpParamsDataset** (`ml/data_sources.py` → `build_http_attack_dataset`): real
+  CSIC-2010 normal request parameters plus real SQLi/XSS/path-traversal/cmdi
+  attack payloads. The class distribution is genuinely imbalanced (benign and
+  sqli dominate); we do **not** fabricate minority samples — the loss is weighted
+  by inverse class frequency and per-class precision/recall/F1 are reported so
+  weak rare-class numbers stay visible.
+- **Explainability.** Per-character saliency highlights the substring that drove
+  the verdict (e.g. the `' or 1=1` span).
+- **API.** `POST /analyze` classifies a submitted payload, query string, or URL
+  (each parameter value individually) and returns per-value verdicts with
+  confidence and the suspicious span. It is **passive** — it classifies text the
+  caller submits and makes no network request against any target. Active,
+  scope-gated probing of a live target is a later phase.
+
 ## Evaluation Results
 
 **Conclusion:** A learned ML fusion model modestly but consistently outperforms a calibrated rule-based baseline (ROC-AUC 0.86 vs 0.82, F1 0.84 vs 0.77) on multi-source security risk classification. Expanding the feature space from 13 to 19 dimensions by incorporating richer Shodan and technology-fingerprint signals did not measurably improve raw classification performance on this dataset, but substantially enriched the SHAP-based explainability output available to analysts.
