@@ -154,6 +154,32 @@ no requests of its own. Raw packet capture (tshark/PCAP) and out-of-band blind
 detection are future additions; HTTPS payloads are covered via the mitmproxy CA
 or a HAR export rather than raw TLS sniffing.
 
+## Phase 4 — Active Verification (scope-gated, non-destructive)
+
+Phases 2–3 *flag* likely injection points; Phase 4 *confirms* them by actively
+probing the target — the "simulate the attack and check" step that separates a
+real finding from a false positive. `app/verify/active.py` + `POST /verify`.
+
+Safety is the design:
+
+- **Scope gate (default-deny).** `host_is_authorized` only permits **loopback**
+  or a host the caller explicitly attests to in `authorized_hosts`. Every other
+  host is refused *before any packet is sent* — the tool is a scoped assessment
+  aid, not a weapon.
+- **Non-destructive probes only.** Three read-only signals: a **reflected-XSS
+  canary** (a unique inert marker with raw angle brackets — confirmed only if it
+  returns unescaped), **error-based SQLi** (a lone quote; a real SQL error string
+  is the evidence), and **boolean-based SQLi** (a TRUE tautology vs a FALSE
+  contradiction; a large, consistent divergence means the condition is evaluated
+  server-side). There is deliberately no payload that writes, deletes,
+  exfiltrates, executes, or calls out-of-band.
+- **Bounded.** Short timeouts and a hard cap on parameters probed.
+
+`tools/vuln_lab.py` is a tiny local intentionally-vulnerable app (reflected-XSS,
+SQLi, and a safe/escaped control) — the local equivalent of standing up Juice
+Shop/DVWA. Verified: the engine confirms the XSS and SQLi endpoints, correctly
+clears the escaped control, and refuses any non-loopback host.
+
 ## Evaluation Results
 
 **Conclusion:** A learned ML fusion model modestly but consistently outperforms a calibrated rule-based baseline (ROC-AUC 0.86 vs 0.82, F1 0.84 vs 0.77) on multi-source security risk classification. Expanding the feature space from 13 to 19 dimensions by incorporating richer Shodan and technology-fingerprint signals did not measurably improve raw classification performance on this dataset, but substantially enriched the SHAP-based explainability output available to analysts.

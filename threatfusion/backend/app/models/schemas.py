@@ -737,6 +737,56 @@ class TrafficAnalyzeResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Phase 4 — active verification (scope-gated, non-destructive)
+# ---------------------------------------------------------------------------
+
+class VerifyRequest(BaseModel):
+    """Request body for ``POST /verify``.
+
+    ``target`` is the URL (with query parameters) to actively confirm. Probing is
+    **default-deny**: it only runs against localhost, or a host listed in
+    ``authorized_hosts`` — by which the caller attests it is authorised to test
+    that host. Anything else is refused before any request is sent.
+    """
+
+    target: str = Field(
+        ...,
+        min_length=1,
+        max_length=2048,
+        description="Target URL (with query params) to verify — localhost/authorised only",
+        examples=["http://127.0.0.1:8099/search?q=test"],
+    )
+    authorized_hosts: list[str] = Field(
+        default_factory=list,
+        description="Hosts you attest you are authorised to actively test (adds to localhost)",
+    )
+
+
+class ProbeResultModel(BaseModel):
+    """Outcome of one non-destructive active check against one parameter."""
+
+    param: str = Field(..., description="The parameter probed")
+    technique: str = Field(..., description="reflected-xss / error-sqli / boolean-sqli")
+    confirmed: bool = Field(..., description="True if the vulnerability was confirmed")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    evidence: str = Field(..., description="Human-readable evidence for the verdict")
+    payload: str = Field(..., description="The non-destructive probe value used")
+
+
+class VerifyResponse(BaseModel):
+    """Top-level response for ``POST /verify``."""
+
+    success: bool = True
+    authorized: bool = Field(..., description="False when the target host was out of scope")
+    target: str = Field(..., description="The URL that was (or would have been) probed")
+    tested_params: list[str] = Field(default_factory=list)
+    confirmed_count: int = Field(0, description="Number of confirmed vulnerabilities")
+    probes: list[ProbeResultModel] = Field(default_factory=list)
+    summary: str = Field("", description="Plain-language summary")
+    error: Optional[str] = Field(None, description="Scope refusal or other error")
+
+
+# ---------------------------------------------------------------------------
 # Forward-reference resolution
 # ---------------------------------------------------------------------------
 # ``ScanResult`` references ``AttackPath`` / ``AttackChainNode`` and
