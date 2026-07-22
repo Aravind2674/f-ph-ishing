@@ -15,6 +15,7 @@ live target is a later phase.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -39,25 +40,45 @@ for _p in (Path("ml/models/vuln_classifier.pt"), Path("../ml/models/vuln_classif
         break
 
 
+# A query string looks like ``key=value(&key=value)*`` with well-formed keys.
+# This lets us tell a real query string (``city=Barcelona&country=Spain``) — whose
+# individual VALUES should be classified — from a bare payload that merely happens
+# to contain ``=`` (``' OR 1=1--``), which must be classified whole. The classifier
+# was trained on parameter *values*, so feeding it a raw ``k=v&k=v`` string is
+# out-of-distribution and causes false positives.
+_QUERY_LIKE = re.compile(r"^([\w.\[\]%+-]+=[^&]*)(&[\w.\[\]%+-]+=[^&]*)*$")
+
+
 def _candidates(text: str) -> list[tuple[str, str]]:
     """Extract ``(location, value)`` pairs to classify from the input.
 
-    Always includes the whole string ('full'); if it parses as a URL/query with
-    parameters, each parameter value is added as ``param:<name>``. A path with
-    ``/`` segments beyond the host is also surfaced so path-traversal in the path
-    itself is caught.
-    """
-    out: list[tuple[str, str]] = [("full", text)]
-    seen = {text}
+    - Full URL → classify each query-parameter value + the URL path.
+    - Query string (``k=v&k=v``) → classify each parameter value.
+    - Anything else (a bare payload) → classify the whole string.
 
-    parts = urlsplit(text if "://" in text else f"//{text}", scheme="http")
-    for key, val in parse_qsl(parts.query, keep_blank_values=True):
-        if val and val not in seen:
-            out.append((f"param:{key}", val))
-            seen.add(val)
-    if parts.path and parts.path not in ("/", "") and parts.path not in seen:
-        out.append(("path", parts.path))
-        seen.add(parts.path)
+    The whole raw string is only classified when no parameters were extracted,
+    so a benign query string is never misjudged as a single opaque blob.
+    """
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    if "://" in text:
+        parts = urlsplit(text)
+        for key, val in parse_qsl(parts.query, keep_blank_values=True):
+            if val and val not in seen:
+                out.append((f"param:{key}", val))
+                seen.add(val)
+        if parts.path and parts.path not in ("/", "") and parts.path not in seen:
+            out.append(("path", parts.path))
+            seen.add(parts.path)
+    elif _QUERY_LIKE.match(text):
+        for key, val in parse_qsl(text, keep_blank_values=True):
+            if val and val not in seen:
+                out.append((f"param:{key}", val))
+                seen.add(val)
+
+    if not out:  # bare payload, or a query with only empty values
+        out.append(("full", text))
     return out
 
 
