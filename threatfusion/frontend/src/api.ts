@@ -140,6 +140,27 @@ export interface TrafficAnalyzeResponse {
   error: string | null;
 }
 
+// ── Phase 4 — active verification ─────────────────────────────────────────────
+export interface ProbeResult {
+  param: string;
+  technique: string;
+  confirmed: boolean;
+  confidence: number;
+  evidence: string;
+  payload: string;
+}
+
+export interface VerifyResponse {
+  success: boolean;
+  authorized: boolean;
+  target: string;
+  tested_params: string[];
+  confirmed_count: number;
+  probes: ProbeResult[];
+  summary: string;
+  error: string | null;
+}
+
 const API_BASE = "http://127.0.0.1:8000";
 
 export const submitScan = async (request: ScanRequest): Promise<ScanResponse> => {
@@ -194,6 +215,23 @@ export const analyzeTraffic = async (
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+};
+
+// Phase 4 — actively confirm injection points (scope-gated: localhost or
+// explicitly authorised hosts only).
+export const verifyTarget = async (
+  target: string,
+  authorized_hosts: string[] = []
+): Promise<VerifyResponse> => {
+  const res = await fetch(`${API_BASE}/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target, authorized_hosts }),
   });
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);

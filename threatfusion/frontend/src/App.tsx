@@ -5,6 +5,7 @@ import { DashboardLayout } from './components/DashboardLayout';
 import { ScanForm } from './components/ScanForm';
 import { ScanResult } from './components/ScanResult';
 import { Inspector } from './components/Inspector';
+import { VerifyPanel } from './components/VerifyPanel';
 import { History } from './components/History';
 import { Settings } from './components/Settings';
 import { Card } from './components/ui/card';
@@ -16,7 +17,7 @@ import type { ScanResult as IScanResult, ScanRequest } from './api';
 function App() {
   // NOTE: view/scan state management is intentionally unchanged from the
   // original — this rebuild is presentation-only.
-  const [currentView, setCurrentView] = useState<'scan' | 'inspect' | 'history' | 'settings'>('scan');
+  const [currentView, setCurrentView] = useState<'scan' | 'history' | 'settings'>('scan');
   const [scanResult, setScanResult] = useState<IScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,41 +57,72 @@ function App() {
       <SiteMeteorsBackground />
 
       <DashboardLayout activeTab={currentView} onTabChange={setCurrentView as any}>
-        {currentView === 'inspect' && <Inspector />}
         {currentView === 'history' && <History />}
         {currentView === 'settings' && <Settings />}
         {currentView === 'scan' && (
-          <div className="flex flex-col gap-5">
-            <ScanForm onSubmit={handleScanSubmit} loading={loading} />
+          <div className="flex flex-col gap-8">
+            {/* Intro — orients a first-time viewer to the three tools below. */}
+            <div className="rounded-xl border border-line bg-surface-2/40 p-4">
+              <p className="text-sm text-muted">
+                <span className="font-medium text-foreground">Three tools, one workflow.</span>{' '}
+                Assess a domain's risk, inspect requests for injection attacks, then
+                actively confirm a finding — each section below works on its own.
+              </p>
+            </div>
 
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <Card className="flex items-start gap-3 border-line-strong p-5">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface-2">
-                    <AlertTriangle className="size-4 text-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">Scan failed</h3>
-                    <p className="mt-1 font-mono text-xs text-muted">{error}</p>
-                  </div>
-                </Card>
-              </motion.div>
-            )}
+            {/* ── 01 · Scan a domain ─────────────────────────────────────── */}
+            <section className="flex flex-col gap-5">
+              <SectionDivider step="01" label="Scan a domain" hint="reputation + neural URL risk" />
+              <ScanForm onSubmit={handleScanSubmit} loading={loading} />
 
-            {loading && <ScanningState />}
+              {error && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                  <Card className="flex items-start gap-3 border-line-strong p-5">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface-2">
+                      <AlertTriangle className="size-4 text-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Scan failed</h3>
+                      <p className="mt-1 font-mono text-xs text-muted">{error}</p>
+                    </div>
+                  </Card>
+                </motion.div>
+              )}
 
-            {!loading && !error && scanResult && (
-              <ScanResult result={scanResult} onRescan={handleRescan} />
-            )}
+              {loading && <ScanningState />}
+              {!loading && !error && scanResult && (
+                <ScanResult result={scanResult} onRescan={handleRescan} />
+              )}
+              {!loading && !error && !scanResult && <IdleState />}
+            </section>
 
-            {!loading && !error && !scanResult && <IdleState />}
+            {/* ── 02 · Inspect a request ─────────────────────────────────── */}
+            <section className="flex flex-col gap-5">
+              <SectionDivider step="02" label="Inspect a request or traffic" hint="neural attack classifier" />
+              <Inspector />
+            </section>
+
+            {/* ── 03 · Verify a target ───────────────────────────────────── */}
+            <section className="flex flex-col gap-5">
+              <SectionDivider step="03" label="Verify a target" hint="safe active probes · localhost only" />
+              <VerifyPanel />
+            </section>
           </div>
         )}
       </DashboardLayout>
     </>
+  );
+}
+
+/** Labelled divider that gives the merged page clear top-to-bottom wayfinding. */
+function SectionDivider({ step, label, hint }: { step: string; label: string; hint: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2">
+      <span className="font-mono text-xs font-semibold tabular-nums text-foreground">{step}</span>
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <span className="font-mono text-[10px] uppercase tracking-wide2 text-subtle">{hint}</span>
+      <span className="ml-1 h-px flex-1 bg-line" />
+    </div>
   );
 }
 
