@@ -668,6 +668,75 @@ class AnalyzeResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Phase 3 — captured-traffic analysis
+# ---------------------------------------------------------------------------
+
+class CapturedRequestModel(BaseModel):
+    """One captured HTTP request submitted for analysis."""
+
+    method: str = Field("GET", description="HTTP method")
+    url: str = Field(..., min_length=1, description="Full request URL")
+    headers: dict[str, str] = Field(default_factory=dict, description="Request headers")
+    body: Optional[str] = Field(None, description="Raw request body, if any")
+
+
+class TrafficAnalyzeRequest(BaseModel):
+    """Batch of captured requests, or a HAR export, to analyse.
+
+    Supply ``requests`` (a normalised batch, e.g. from the mitmproxy addon) or
+    ``har`` (a HAR document exported by Burp / DevTools / ZAP). At least one is
+    required.
+    """
+
+    requests: list[CapturedRequestModel] = Field(
+        default_factory=list, description="Normalised captured requests"
+    )
+    har: Optional[dict] = Field(
+        None, description="A HAR document ({log:{entries:[...]}}) to parse"
+    )
+
+
+class ValueFindingModel(BaseModel):
+    """Classifier verdict for one attacker-controlled value within a request."""
+
+    location: str = Field(..., description="Where the value came from, e.g. 'query:id', 'body:user', 'path'")
+    value: str = Field(..., description="The exact value classified")
+    label: str = Field(..., description="benign / sqli / xss / path-traversal / cmdi")
+    is_attack: bool = Field(..., description="True when not benign")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    suspicious_span: Optional[str] = Field(None, description="Highest-saliency substring")
+
+
+class RequestFindingModel(BaseModel):
+    """Aggregated verdict for a whole captured request (its worst value)."""
+
+    method: str
+    url: str
+    is_attack: bool = Field(..., description="True if any value in the request is an attack")
+    worst_label: str = Field(..., description="Most severe class found in the request")
+    worst_location: str = Field("", description="Where the worst value was found")
+    worst_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    suspicious_span: Optional[str] = None
+    values_analyzed: int = Field(0, description="Number of values classified in this request")
+    attack_values: int = Field(0, description="How many of them were attacks")
+    details: list[ValueFindingModel] = Field(default_factory=list)
+
+
+class TrafficAnalyzeResponse(BaseModel):
+    """Top-level response for ``POST /traffic/analyze``."""
+
+    success: bool = True
+    model_loaded: bool = Field(True, description="False when the classifier is unavailable")
+    analyzed: int = Field(0, description="Number of requests analysed")
+    flagged: int = Field(0, description="Number of requests containing an attack")
+    findings: list[RequestFindingModel] = Field(
+        default_factory=list, description="Per-request verdicts, most severe first"
+    )
+    summary: str = Field("", description="Plain-language summary of the capture")
+    error: Optional[str] = Field(None, description="Error message, if analysis failed")
+
+
+# ---------------------------------------------------------------------------
 # Forward-reference resolution
 # ---------------------------------------------------------------------------
 # ``ScanResult`` references ``AttackPath`` / ``AttackChainNode`` and

@@ -129,6 +129,31 @@ lexical shape of an attack.
   caller submits and makes no network request against any target. Active,
   scope-gated probing of a live target is a later phase.
 
+## Phase 3 — Live Traffic Capture
+
+Phase 3 feeds **real HTTP traffic** into the Phase 2 classifier — the model reads
+the request packets. Capture is source-agnostic (`app/recon/traffic.py`):
+
+- **HAR import.** `parse_har` accepts a HAR export — the JSON format produced by
+  Burp Suite, Chrome/Firefox DevTools, and OWASP ZAP — so traffic from any of
+  those tools can be scored without extra integration.
+- **Live mitmproxy stream.** `tools/mitm_addon.py` is a real mitmproxy addon
+  (mitmproxy is the scriptable equivalent of Burp's proxy). Run
+  `mitmdump -s tools/mitm_addon.py` and browse an authorised target through it;
+  every request is POSTed to the backend and scored live, with injection
+  attempts printed to the event log.
+- **Analysis.** For each request, `extract_values` pulls the attacker-controlled
+  inputs — query parameters, URL path, and body (form-encoded or JSON, flattened
+  to `body:<path>`) — and classifies each; the request's verdict is its most
+  severe value.
+
+`POST /traffic/analyze` accepts either a normalised batch (`requests`) or a HAR
+document (`har`) and returns per-request verdicts, a flagged count, and a
+summary. Like Phase 2 it is **passive** — it scores captured traffic and issues
+no requests of its own. Raw packet capture (tshark/PCAP) and out-of-band blind
+detection are future additions; HTTPS payloads are covered via the mitmproxy CA
+or a HAR export rather than raw TLS sniffing.
+
 ## Evaluation Results
 
 **Conclusion:** A learned ML fusion model modestly but consistently outperforms a calibrated rule-based baseline (ROC-AUC 0.86 vs 0.82, F1 0.84 vs 0.77) on multi-source security risk classification. Expanding the feature space from 13 to 19 dimensions by incorporating richer Shodan and technology-fingerprint signals did not measurably improve raw classification performance on this dataset, but substantially enriched the SHAP-based explainability output available to analysts.

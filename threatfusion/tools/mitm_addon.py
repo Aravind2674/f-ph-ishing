@@ -1,0 +1,96 @@
+"""
+ThreatFusion – mitmproxy Live-Capture Addon  (Phase 3)
+=======================================================
+
+Streams live HTTP(S) traffic through the neural HTTP attack classifier as you
+browse. This is the real-time bridge: every request that passes through the
+proxy is forwarded to the ThreatFusion backend's ``/traffic/analyze`` endpoint
+and scored, and any injection attempt is printed to the mitmproxy event log.
+
+mitmproxy is the programmable, scriptable equivalent of Burp Suite's proxy — it
+decrypts HTTPS (with its CA installed) and hands each flow to this Python addon.
+
+Usage
+-----
+1. Install mitmproxy in *your* environment (not a backend dependency):
+
+       pip install mitmproxy
+
+2. Start the ThreatFusion backend (so ``/traffic/analyze`` is reachable):
+
+       cd threatfusion/backend && python -m uvicorn app.main:app --port 8000
+
+3. Run mitmproxy with this addon and browse the **authorised** target through it:
+
+       mitmdump -s threatfusion/tools/mitm_addon.py
+
+   Point your browser/tool at the proxy (default http://127.0.0.1:8080) and
+   install mitmproxy's CA to intercept HTTPS. Set TF_BACKEND to override the
+   backend URL.
+
+Scope & safety
+--------------
+Only run this against traffic you are authorised to test. The addon is passive —
+it observes and scores; it neither blocks nor modifies requests.
+"""
+
+from __future__ import annotations
+
+import os
+import urllib.request
+import json
+
+BACKEND = os.environ.get("TF_BACKEND", "http://127.0.0.1:8000").rstrip("/")
+ANALYZE_URL = f"{BACKEND}/traffic/analyze"
+# Skip static asset noise — these rarely carry injection and flood the log.
+_SKIP_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff",
+             ".woff2", ".ico", ".map", ".mp4", ".webp")
+
+
+def _score(method: str, url: str, headers: dict, body: str | None) -> dict | None:
+    payload = json.dumps({
+        "requests": [{"method": method, "url": url, "headers": headers, "body": body}]
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        ANALYZE_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+    except Exception as exc:  # backend down / slow — never break the proxy
+        print(f"[threatfusion] backend unreachable: {exc}")
+        return None
+
+
+def request(flow) -> None:  # mitmproxy hook, called for every request
+    r = flow.request
+    if r.path.lower().rsplit("?", 1)[0].endswith(_SKIP_EXT):
+        return
+
+    headers = {k: v for k, v in r.headers.items()}
+    body = None
+    try:
+        if r.raw_content:
+            body = r.get_text(strict=False)
+    except Exception:
+        body = None
+
+    result = _score(r.method, r.url, headers, body)
+    if not result or not result.get("findings"):
+        return
+
+    finding = result["findings"][0]
+    if finding.get("is_attack"):
+        span = finding.get("suspicious_span")
+        print(
+            f"[threatfusion] ⚠ {finding['worst_label'].upper()} "
+            f"({finding['worst_confidence']:.0%}) in {r.method} {r.url} "
+            f"@ {finding['worst_location']}"
+            + (f"  token={span!r}" if span else "")
+        )
+
+
+if __name__ == "__main__":
+    print("Run me with mitmproxy, not directly:\n"
+          "    mitmdump -s threatfusion/tools/mitm_addon.py")
