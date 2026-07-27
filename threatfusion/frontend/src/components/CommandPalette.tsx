@@ -4,12 +4,13 @@ import {
   Crosshair,
   History as HistoryIcon,
   Settings as SettingsIcon,
+  Network as NetworkIcon,
   CornerDownLeft,
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type View = "scan" | "history" | "settings";
+type View = "scan" | "network" | "history" | "settings";
 
 interface Command {
   id: string;
@@ -51,6 +52,14 @@ export function CommandPalette({
         keywords: "scan target new run analyze",
         icon: Crosshair,
         run: onNewScan,
+      },
+      {
+        id: "network",
+        label: "Network monitor",
+        hint: "Live network alert feed",
+        keywords: "network monitor alerts wifi arp dns deauth live feed",
+        icon: NetworkIcon,
+        run: () => onNavigate("network"),
       },
       {
         id: "history",

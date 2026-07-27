@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     SHODAN_API_KEY: str = "PASTE_YOUR_SHODAN_KEY_HERE"
     NVD_API_KEY: str = "PASTE_YOUR_NVD_KEY_HERE"
 
+    # ── WiGLE (Network Layer, rogue-AP signal) ──────────────────────────
+    # WiGLE uses HTTP Basic auth with an API *name* + *token* (not a single
+    # key). Obtain both from https://wigle.net/account after registering.
+    # Left blank by default — the AP scorer degrades honestly without them.
+    WIGLE_API_NAME: str = ""
+    WIGLE_API_TOKEN: str = ""
+
     # ── Feature flags ───────────────────────────────────────────────────
     # When True, enrichment services return deterministic fake data.
     # This lets students develop the UI and ML pipeline without burning
@@ -58,6 +65,28 @@ class Settings(BaseSettings):
     # VirusTotal free tier allows 4 requests per minute; we honour that
     # globally to avoid HTTP 429 responses.
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 4
+
+    # ── Network Layer — capture & monitoring ────────────────────────────
+    # Interface names are passed straight to scapy. Empty string means
+    # "let scapy pick the default interface".
+    NETWORK_CAPTURE_INTERFACE: str = ""       # ARP/DNS sniff interface
+    NETWORK_MONITOR_INTERFACE: str = ""       # 802.11 monitor-mode interface (deauth)
+    NETWORK_GATEWAY_IP: str = ""              # optional; emphasises gateway ARP spoofing
+    # Auto-start capture on API boot. Requires Npcap + elevated (Administrator)
+    # process. When capture can't start it degrades honestly (see MonitorStatus).
+    NETWORK_AUTO_START: bool = False
+    # SSIDs the operator owns/monitors. Evil-twin detection treats a new BSSID
+    # advertising one of these names as high-suspicion. Comma-separated in .env.
+    NETWORK_MONITORED_SSIDS: str = ""
+
+    # How many DNS observations before a device's baseline is "established"
+    # enough to trust deviation detection. Learned from real traffic only.
+    BASELINE_MIN_OBSERVATIONS: int = 15
+    # WiFi scan cadence (seconds) for the AP/evil-twin sensor.
+    WIFI_SCAN_INTERVAL_SECONDS: int = 30
+    # Deauth flood detection: N deauth/disassoc frames within the window.
+    DEAUTH_FLOOD_THRESHOLD: int = 20
+    DEAUTH_WINDOW_SECONDS: int = 10
 
     # ── Pydantic-settings configuration ─────────────────────────────────
     # ``env_file`` tells pydantic-settings to read a `.env` next to the
