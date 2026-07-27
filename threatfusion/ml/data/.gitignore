@@ -1,0 +1,4 @@
+# Downloaded training data — large, regenerable via ml/data_sources.py; never commit.
+*
+!.gitignore
+!.gitkeep

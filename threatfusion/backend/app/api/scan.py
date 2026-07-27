@@ -22,6 +22,7 @@ from app.ml.baseline import baseline_score
 from app.ml.explain import explain_prediction
 from app.ml.features import extract_features
 from app.ml.fusion_model import FusionModel
+from app.ml.neural_fusion import NeuralFusionModel
 from app.models.schemas import (
     ScanHistoryItem,
     ScanRequest,
@@ -49,6 +50,23 @@ _possible_paths = [
 for p in _possible_paths:
     if p.exists():
         _model.load(p)
+        break
+
+# ── Neural Fusion Model (char-CNN + tabular) ────────────────────────────
+# Optional deep-learning model that also reads the raw URL string. Loaded
+# best-effort: if the checkpoint is absent the pipeline silently falls back to
+# the XGBoost/baseline scores, so this never breaks an existing deployment.
+_neural_model = NeuralFusionModel()
+_neural_paths = [
+    Path("ml/models/neural_fusion.pt"),
+    Path("../ml/models/neural_fusion.pt"),
+]
+for p in _neural_paths:
+    if p.exists():
+        try:
+            _neural_model.load(p)
+        except Exception as e:  # pragma: no cover - defensive load guard
+            logger.warning("Neural fusion model failed to load: %s", e)
         break
 
 
@@ -199,6 +217,24 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             m_score = b_score
             m_label = _get_ml_label(b_score)
 
+        # ── 4b. Neural Fusion Model (char-CNN + tabular) ────────────────
+        # Reads the raw URL string, so it can flag lexical phishing patterns
+        # even when no external source has ever seen the target (zero-day).
+        neural_score = None
+        neural_label = None
+        neural_url_score = None
+        neural_explanations = []
+        if _neural_model.is_loaded:
+            try:
+                neural_score = _neural_model.predict_proba(request.target, features)
+                neural_label = _get_ml_label(neural_score)
+                neural_url_score = _neural_model.predict_url_only(request.target)
+                # String-lexical explanations only make sense for URL/domain targets.
+                if request.target_type in (TargetType.URL, TargetType.DOMAIN):
+                    neural_explanations = _neural_model.explain_url(request.target)
+            except Exception as e:
+                logger.warning("Neural fusion scoring failed: %s", e)
+
         # ── 5. Generate Plain-Language Summary ──────────────────────────
         summary_parts = []
         if m_label in ("Critical", "High"):
@@ -234,6 +270,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             baseline_score=b_score,
             ml_score=m_score,
             ml_label=m_label,
+            neural_score=neural_score,
+            neural_label=neural_label,
+            neural_url_score=neural_url_score,
+            neural_explanations=neural_explanations,
             explanations=explanations,
             attack_paths=attack_paths,
             summary=summary_text,
@@ -274,7 +314,9 @@ async def get_history() -> list[ScanHistoryItem]:
             timestamp=res.timestamp,
             baseline_score=res.baseline_score,
             ml_score=res.ml_score,
-            ml_label=res.ml_label
+            ml_label=res.ml_label,
+            neural_score=res.neural_score,
+            neural_label=res.neural_label
         ))
     return history
 

@@ -1,0 +1,105 @@
+{
+  "model": "PayloadCNN (char-level TextCNN, multi-class)",
+  "framework": "pytorch",
+  "data_source": {
+    "source": "real HTTP request-parameter corpus (Morzeux HttpParamsDataset; CSIC-2010 + real attack payloads)",
+    "total": 31067,
+    "class_distribution": {
+      "benign": 19304,
+      "sqli": 10852,
+      "xss": 532,
+      "path-traversal": 290,
+      "cmdi": 89
+    },
+    "skipped_unknown_type": 0,
+    "dedup": "exact (payload, class) pairs"
+  },
+  "n_parameters": 40869,
+  "classes": [
+    "benign",
+    "sqli",
+    "xss",
+    "path-traversal",
+    "cmdi"
+  ],
+  "test_size": 6214,
+  "accuracy": 0.9993562922433216,
+  "macro_f1": 0.990936177053112,
+  "weighted_f1": 0.9993557084550082,
+  "per_class": {
+    "benign": {
+      "precision": 0.9992234015014237,
+      "recall": 0.9997409997409997,
+      "f1-score": 0.9994821336095288,
+      "support": 3861.0
+    },
+    "sqli": {
+      "precision": 1.0,
+      "recall": 0.9995393827729157,
+      "f1-score": 0.9997696383321816,
+      "support": 2171.0
+    },
+    "xss": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 106.0
+    },
+    "path-traversal": {
+      "precision": 1.0,
+      "recall": 0.9655172413793104,
+      "f1-score": 0.9824561403508771,
+      "support": 58.0
+    },
+    "cmdi": {
+      "precision": 0.9473684210526315,
+      "recall": 1.0,
+      "f1-score": 0.972972972972973,
+      "support": 18.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      3860,
+      0,
+      0,
+      0,
+      1
+    ],
+    [
+      1,
+      2170,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      106,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      56,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      18
+    ]
+  ],
+  "confusion_matrix_labels": [
+    "benign",
+    "sqli",
+    "xss",
+    "path-traversal",
+    "cmdi"
+  ]
+}

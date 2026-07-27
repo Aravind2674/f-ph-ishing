@@ -13,8 +13,14 @@ import {
   ArrowRight,
   CircleAlert,
   Radar,
+  BrainCircuit,
 } from "lucide-react";
-import type { ScanResult as IScanResult, RiskExplanation, AttackPath } from "@/api";
+import type {
+  ScanResult as IScanResult,
+  RiskExplanation,
+  AttackPath,
+  NeuralExplanation,
+} from "@/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -217,6 +223,129 @@ function DataRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * Neural URL analysis. Surfaces the character-level deep-learning model:
+ * the fused (lexical + reputation) risk, the URL-string-only "zero-day" risk,
+ * and the suspicious substrings the saliency map flagged — rendered inline so
+ * a viewer can see *which* characters looked like phishing.
+ * ──────────────────────────────────────────────────────────────────────── */
+function HighlightedUrl({
+  target,
+  spans,
+}: {
+  target: string;
+  spans: NeuralExplanation[];
+}) {
+  // Merge/sort the flagged ranges, then slice the string into alternating
+  // plain / highlighted segments. Indices are into the lower-cased string the
+  // model saw, which has the same length as the display target.
+  const ranges = [...spans]
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+
+  const segments: { text: string; hot: boolean }[] = [];
+  let cursor = 0;
+  for (const r of ranges) {
+    const start = Math.max(r.start, cursor);
+    if (start >= target.length) break;
+    if (start > cursor) segments.push({ text: target.slice(cursor, start), hot: false });
+    const end = Math.min(r.end, target.length);
+    if (end > start) segments.push({ text: target.slice(start, end), hot: true });
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < target.length) segments.push({ text: target.slice(cursor), hot: false });
+
+  return (
+    <div className="overflow-x-auto rounded-md border border-line bg-surface-2 px-3 py-2.5">
+      <code className="whitespace-pre font-mono text-xs text-subtle">
+        {segments.map((s, i) =>
+          s.hot ? (
+            <span
+              key={i}
+              className="rounded-sm bg-foreground px-0.5 font-semibold text-background"
+            >
+              {s.text}
+            </span>
+          ) : (
+            <span key={i}>{s.text}</span>
+          )
+        )}
+      </code>
+    </div>
+  );
+}
+
+function NeuralStat({ label, score }: { label: string; score: number }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-line bg-surface p-4">
+      <span className="tf-eyebrow">{label}</span>
+      <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+        {pct(score)}
+        <span className="text-base text-subtle">%</span>
+      </span>
+      <RiskMeter score={score} />
+    </div>
+  );
+}
+
+function NeuralPanel({ result }: { result: IScanResult }) {
+  const neural = result.neural_score;
+  if (neural == null) return null; // backend has no neural checkpoint loaded
+
+  const urlOnly = result.neural_url_score ?? neural;
+  const spans = result.neural_explanations ?? [];
+
+  return (
+    <Card className="p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <BrainCircuit className="size-4 text-muted" />
+        <span className="text-sm font-semibold text-foreground">
+          Neural URL Analysis
+        </span>
+        <span className="tf-eyebrow ml-1">Deep learning · char-CNN fusion</span>
+        <span className="ml-auto">
+          <SeverityTag score={neural} label={result.neural_label ?? undefined} />
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <NeuralStat label="Fused risk · lexical + reputation" score={neural} />
+        <NeuralStat label="URL-only risk · zero-day signal" score={urlOnly} />
+      </div>
+
+      <p className="mt-4 text-xs leading-relaxed text-subtle">
+        The URL-only score reads the raw string with a trained character-level
+        neural network — it flags phishing lexical patterns even when no external
+        source has ever seen the target.
+      </p>
+
+      {spans.length > 0 && (
+        <div className="mt-4 flex flex-col gap-3">
+          <span className="tf-eyebrow">Suspicious substrings · saliency</span>
+          <HighlightedUrl target={result.target} spans={spans} />
+          <div className="flex flex-col gap-1.5">
+            {spans.map((s, i) => (
+              <div
+                key={`${s.substring}-${i}`}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="truncate font-mono text-xs text-muted">
+                  <span className="rounded-sm bg-surface-2 px-1 text-foreground">
+                    {s.substring}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-subtle">
+                  {pct(s.importance)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
   const [copied, setCopied] = useState(false);
   const baseline = pct(result.baseline_score);
@@ -311,6 +440,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         severityLabel={result.ml_label}
         revealKey={result.scan_id}
       />
+
+      {/* ── Neural URL analysis (deep-learning model) ─────────────────── */}
+      <NeuralPanel result={result} />
 
       {/* ── SHAP explanation + data sources ───────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

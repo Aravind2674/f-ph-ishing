@@ -36,7 +36,7 @@ const NAV: {
   label: string;
   icon: typeof Crosshair;
 }[] = [
-  { id: "scan", label: "Scan", icon: Crosshair },
+  { id: "scan", label: "Console", icon: Crosshair },
   { id: "network", label: "Network", icon: NetworkIcon },
   { id: "history", label: "History", icon: HistoryIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },

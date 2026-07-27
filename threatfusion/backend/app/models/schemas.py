@@ -388,6 +388,32 @@ class RiskExplanation(BaseModel):
     )
 
 
+class NeuralExplanation(BaseModel):
+    """A suspicious substring surfaced by the character-level neural model.
+
+    Produced by :class:`~app.ml.neural_fusion.NeuralFusionModel.explain_url`
+    via per-character saliency. Unlike ``RiskExplanation`` (which attributes the
+    score to *tabular* features), this points at the exact span of the URL
+    *string* that drove the lexical phishing signal — e.g. a ``paypa1``
+    look-alike token or a suspicious ``-verify-account`` chain.
+    """
+
+    substring: str = Field(
+        ...,
+        description="The high-attention substring of the URL",
+    )
+    start: int = Field(..., description="Start character index within the URL")
+    end: int = Field(..., description="End character index (exclusive)")
+    importance: float = Field(
+        ...,
+        description="Normalised saliency in [0, 1]; higher = stronger phishing signal",
+    )
+    human_readable: str = Field(
+        ...,
+        description="Plain-English explanation of the substring's contribution",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Composite / orchestrator‑level models
 # ---------------------------------------------------------------------------
@@ -469,6 +495,28 @@ class ScanResult(BaseModel):
         description="Human‑readable risk label: low / medium / high / critical",
     )
 
+    # ── Neural fusion model (char-CNN + tabular) ─────────────────────
+    neural_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Neural fusion risk probability from URL string + tabular features",
+    )
+    neural_label: Optional[str] = Field(
+        None,
+        description="Human-readable neural risk label: Low / Medium / High / Critical",
+    )
+    neural_url_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="URL-string-only neural risk (no enrichment) — the zero-day signal",
+    )
+    neural_explanations: list[NeuralExplanation] = Field(
+        default_factory=list,
+        description="Suspicious URL substrings from character-level saliency",
+    )
+
     # ── Explanations ─────────────────────────────────────────────────
     explanations: list[RiskExplanation] = Field(
         default_factory=list,
@@ -522,6 +570,8 @@ class ScanHistoryItem(BaseModel):
     baseline_score: Optional[float] = None
     ml_score: Optional[float] = None
     ml_label: Optional[str] = None
+    neural_score: Optional[float] = None
+    neural_label: Optional[str] = None
 
 
 class AttackChainNode(BaseModel):
@@ -560,4 +610,193 @@ class HealthResponse(BaseModel):
         True,
         description="True when running with mock data (no live API keys configured)",
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — HTTP request / payload analysis (neural attack classifier)
+# ---------------------------------------------------------------------------
+
+class AnalyzeRequest(BaseModel):
+    """Request body for ``POST /analyze``.
+
+    ``text`` may be a single parameter value, a raw query string, or a full URL.
+    The endpoint classifies the value(s) with the neural HTTP attack classifier.
+    This is **passive** analysis of text the caller submits — it performs no
+    network requests against any target.
+    """
+
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=8192,
+        description="A payload, query string, or URL to analyse for injection patterns",
+        examples=["id=1' OR '1'='1", "q=<script>alert(1)</script>", "https://x.com/p?file=../../etc/passwd"],
+    )
+
+
+class PayloadFinding(BaseModel):
+    """One classifier verdict for a single analysed value."""
+
+    input: str = Field(..., description="The exact value that was classified")
+    location: str = Field(
+        ...,
+        description="Where the value came from: 'full' or 'param:<name>'",
+    )
+    label: str = Field(..., description="Predicted class: benign / sqli / xss / path-traversal / cmdi")
+    is_attack: bool = Field(..., description="True when the predicted class is not benign")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Softmax confidence of the predicted class")
+    suspicious_span: Optional[str] = Field(
+        None, description="Highest-saliency substring driving an attack verdict"
+    )
+    probs: dict[str, float] = Field(
+        default_factory=dict, description="Full per-class probability distribution"
+    )
+
+
+class AnalyzeResponse(BaseModel):
+    """Top-level response for ``POST /analyze``."""
+
+    success: bool = Field(True, description="Whether analysis completed")
+    model_loaded: bool = Field(
+        True, description="False when the classifier checkpoint is unavailable"
+    )
+    findings: list[PayloadFinding] = Field(
+        default_factory=list, description="Per-value classifier verdicts, most severe first"
+    )
+    summary: str = Field("", description="Plain-language summary of the worst finding")
+    error: Optional[str] = Field(None, description="Error message, if analysis failed")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — captured-traffic analysis
+# ---------------------------------------------------------------------------
+
+class CapturedRequestModel(BaseModel):
+    """One captured HTTP request submitted for analysis."""
+
+    method: str = Field("GET", description="HTTP method")
+    url: str = Field(..., min_length=1, description="Full request URL")
+    headers: dict[str, str] = Field(default_factory=dict, description="Request headers")
+    body: Optional[str] = Field(None, description="Raw request body, if any")
+
+
+class TrafficAnalyzeRequest(BaseModel):
+    """Batch of captured requests, or a HAR export, to analyse.
+
+    Supply ``requests`` (a normalised batch, e.g. from the mitmproxy addon) or
+    ``har`` (a HAR document exported by Burp / DevTools / ZAP). At least one is
+    required.
+    """
+
+    requests: list[CapturedRequestModel] = Field(
+        default_factory=list, description="Normalised captured requests"
+    )
+    har: Optional[dict] = Field(
+        None, description="A HAR document ({log:{entries:[...]}}) to parse"
+    )
+
+
+class ValueFindingModel(BaseModel):
+    """Classifier verdict for one attacker-controlled value within a request."""
+
+    location: str = Field(..., description="Where the value came from, e.g. 'query:id', 'body:user', 'path'")
+    value: str = Field(..., description="The exact value classified")
+    label: str = Field(..., description="benign / sqli / xss / path-traversal / cmdi")
+    is_attack: bool = Field(..., description="True when not benign")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    suspicious_span: Optional[str] = Field(None, description="Highest-saliency substring")
+
+
+class RequestFindingModel(BaseModel):
+    """Aggregated verdict for a whole captured request (its worst value)."""
+
+    method: str
+    url: str
+    is_attack: bool = Field(..., description="True if any value in the request is an attack")
+    worst_label: str = Field(..., description="Most severe class found in the request")
+    worst_location: str = Field("", description="Where the worst value was found")
+    worst_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    suspicious_span: Optional[str] = None
+    values_analyzed: int = Field(0, description="Number of values classified in this request")
+    attack_values: int = Field(0, description="How many of them were attacks")
+    details: list[ValueFindingModel] = Field(default_factory=list)
+
+
+class TrafficAnalyzeResponse(BaseModel):
+    """Top-level response for ``POST /traffic/analyze``."""
+
+    success: bool = True
+    model_loaded: bool = Field(True, description="False when the classifier is unavailable")
+    analyzed: int = Field(0, description="Number of requests analysed")
+    flagged: int = Field(0, description="Number of requests containing an attack")
+    findings: list[RequestFindingModel] = Field(
+        default_factory=list, description="Per-request verdicts, most severe first"
+    )
+    summary: str = Field("", description="Plain-language summary of the capture")
+    error: Optional[str] = Field(None, description="Error message, if analysis failed")
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — active verification (scope-gated, non-destructive)
+# ---------------------------------------------------------------------------
+
+class VerifyRequest(BaseModel):
+    """Request body for ``POST /verify``.
+
+    ``target`` is the URL (with query parameters) to actively confirm. Probing is
+    **default-deny**: it only runs against localhost, or a host listed in
+    ``authorized_hosts`` — by which the caller attests it is authorised to test
+    that host. Anything else is refused before any request is sent.
+    """
+
+    target: str = Field(
+        ...,
+        min_length=1,
+        max_length=2048,
+        description="Target URL (with query params) to verify — localhost/authorised only",
+        examples=["http://127.0.0.1:8099/search?q=test"],
+    )
+    authorized_hosts: list[str] = Field(
+        default_factory=list,
+        description="Hosts you attest you are authorised to actively test (adds to localhost)",
+    )
+
+
+class ProbeResultModel(BaseModel):
+    """Outcome of one non-destructive active check against one parameter."""
+
+    param: str = Field(..., description="The parameter probed")
+    technique: str = Field(..., description="reflected-xss / error-sqli / boolean-sqli")
+    confirmed: bool = Field(..., description="True if the vulnerability was confirmed")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    evidence: str = Field(..., description="Human-readable evidence for the verdict")
+    payload: str = Field(..., description="The non-destructive probe value used")
+
+
+class VerifyResponse(BaseModel):
+    """Top-level response for ``POST /verify``."""
+
+    success: bool = True
+    authorized: bool = Field(..., description="False when the target host was out of scope")
+    target: str = Field(..., description="The URL that was (or would have been) probed")
+    tested_params: list[str] = Field(default_factory=list)
+    confirmed_count: int = Field(0, description="Number of confirmed vulnerabilities")
+    probes: list[ProbeResultModel] = Field(default_factory=list)
+    summary: str = Field("", description="Plain-language summary")
+    error: Optional[str] = Field(None, description="Scope refusal or other error")
+
+
+# ---------------------------------------------------------------------------
+# Forward-reference resolution
+# ---------------------------------------------------------------------------
+# ``ScanResult`` references ``AttackPath`` / ``AttackChainNode`` and
+# ``NeuralExplanation`` which are declared later in / earlier in this module.
+# Combined with ``from __future__ import annotations`` (all annotations become
+# strings), some pydantic/FastAPI versions fail to resolve these lazily during
+# response-model schema generation ("name 'Optional' is not defined"). Rebuilding
+# the affected models now — once every symbol in this module exists — resolves
+# the references deterministically at import time.
+ScanResult.model_rebuild()
+ScanResponse.model_rebuild()
+ScanHistoryItem.model_rebuild()
 
