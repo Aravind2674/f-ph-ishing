@@ -64,15 +64,14 @@ export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
       <div className="relative p-6 md:p-8">
         <div className="mb-6 flex items-center gap-2">
           <Crosshair className="size-4 text-muted" />
-          <span className="tf-eyebrow">Target Acquisition</span>
+          <span className="tf-eyebrow">New Scan</span>
         </div>
 
         <h1 className="mb-1 text-2xl font-semibold tracking-tightest text-foreground md:text-3xl">
-          Map the attack surface.
+          Scan a target for vulnerabilities.
         </h1>
         <p className="mb-6 max-w-xl text-sm text-muted">
-          Enter a target to fuse VirusTotal, Shodan, CVE and technology signals
-          into a single explainable risk score.
+          Enter a domain, IP, URL, or hash to analyze its security risk.
         </p>
 
         {/* Target-type segmented selector. */}

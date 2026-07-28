@@ -45,8 +45,8 @@ function ShapWaterfall({ items }: { items: RiskExplanation[] }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wide2 text-subtle">
-        <span>← lowers risk</span>
-        <span>raises risk →</span>
+        <span>← Decreases Risk</span>
+        <span>Increases Risk →</span>
       </div>
       {items.map((exp, i) => {
         const raises = exp.shap_value > 0;
@@ -101,7 +101,7 @@ function FeatureVectorTable({ items }: { items: RiskExplanation[] }) {
         <div className="flex items-center gap-2">
           <Boxes className="size-4 text-muted" />
           <span className="text-sm font-semibold text-foreground">
-            Feature Vector
+            Raw Machine Learning Features
           </span>
           <Badge variant="subtle">{items.length} dims</Badge>
         </div>
@@ -172,12 +172,12 @@ function FeatureVectorTable({ items }: { items: RiskExplanation[] }) {
 /* Monochrome horizontal node-link attack chain. */
 function AttackChain({ path }: { path: AttackPath }) {
   const steps = [
-    { label: "Foothold", meta: "entry" },
+    { label: "Initial Access", meta: "entry" },
     ...path.nodes.map((n) => ({
       label: n.cve_id,
       meta: n.is_in_kev ? "KEV" : n.cvss_score ? `CVSS ${n.cvss_score}` : "",
     })),
-    { label: "Compromise", meta: "objective" },
+    { label: "System Compromise", meta: "objective" },
   ];
 
   return (
@@ -300,28 +300,26 @@ function NeuralPanel({ result }: { result: IScanResult }) {
       <div className="mb-4 flex items-center gap-2">
         <BrainCircuit className="size-4 text-muted" />
         <span className="text-sm font-semibold text-foreground">
-          Neural URL Analysis
+          AI Phishing Analysis
         </span>
-        <span className="tf-eyebrow ml-1">Deep learning · char-CNN fusion</span>
+        <span className="tf-eyebrow ml-1">Detects suspicious patterns in URLs</span>
         <span className="ml-auto">
           <SeverityTag score={neural} label={result.neural_label ?? undefined} />
         </span>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <NeuralStat label="Fused risk · lexical + reputation" score={neural} />
-        <NeuralStat label="URL-only risk · zero-day signal" score={urlOnly} />
+        <NeuralStat label="Combined Risk (AI + Reputation)" score={neural} />
+        <NeuralStat label="Raw AI Risk (URL string only)" score={urlOnly} />
       </div>
 
       <p className="mt-4 text-xs leading-relaxed text-subtle">
-        The URL-only score reads the raw string with a trained character-level
-        neural network — it flags phishing lexical patterns even when no external
-        source has ever seen the target.
+        This AI model flags suspicious phishing patterns directly in the URL text, even if the link has never been reported to security vendors before.
       </p>
 
       {spans.length > 0 && (
         <div className="mt-4 flex flex-col gap-3">
-          <span className="tf-eyebrow">Suspicious substrings · saliency</span>
+          <span className="tf-eyebrow">Suspicious URL Substrings</span>
           <HighlightedUrl target={result.target} spans={spans} />
           <div className="flex flex-col gap-1.5">
             {spans.map((s, i) => (
@@ -450,16 +448,16 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="flex items-center gap-2 p-5 pb-4">
             <Radar className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Decision Rationale
+              Why this score?
             </span>
-            <span className="tf-eyebrow ml-1">SHAP · top drivers</span>
+            <span className="tf-eyebrow ml-1">Top factors affecting the score</span>
           </div>
           <div className="px-5 pb-5">
             {topShap.length ? (
               <ShapWaterfall items={topShap} />
             ) : (
               <p className="py-6 text-center text-sm text-subtle">
-                No explanation data returned for this scan.
+                No specific factors found to explain this score.
               </p>
             )}
           </div>
@@ -469,11 +467,11 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="mb-4 flex items-center gap-2">
             <CircleAlert className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Data Sources
+              External Data Sources
             </span>
           </div>
           <div className="flex flex-col gap-4">
-            <DataRow label={`Succeeded · ${result.data_sources_succeeded?.length ?? 0}`}>
+            <DataRow label={`Successful Queries · ${result.data_sources_succeeded?.length ?? 0}`}>
               {result.data_sources_succeeded?.length ? (
                 result.data_sources_succeeded.map((s) => (
                   <Badge key={s} variant="outline">
@@ -484,7 +482,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                 <span className="text-xs text-subtle">None</span>
               )}
             </DataRow>
-            <DataRow label={`Failed · ${result.data_sources_failed?.length ?? 0}`}>
+            <DataRow label={`Failed Queries · ${result.data_sources_failed?.length ?? 0}`}>
               {result.data_sources_failed?.length ? (
                 result.data_sources_failed.map((s) => (
                   <Badge key={s} variant="ghost" className="line-through">
@@ -497,7 +495,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
             </DataRow>
             {vt && (
               <div className="border-t border-line pt-3">
-                <span className="tf-eyebrow">AV Detections</span>
+                <span className="tf-eyebrow">Antivirus Detections</span>
                 <p className="mt-1 font-mono text-lg tabular-nums text-foreground">
                   {vt.malicious_count ?? 0}
                   <span className="text-subtle">
@@ -520,9 +518,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="mb-4 flex items-center gap-2">
             <Network className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Network Exposure
+              Open Ports & Services
             </span>
-            <span className="tf-eyebrow ml-1">Shodan</span>
+            <span className="tf-eyebrow ml-1">(via Shodan)</span>
           </div>
           {shodan ? (
             <div className="flex flex-col gap-4">
@@ -553,7 +551,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                 </DataRow>
               )}
               {shodan.cpes?.length > 0 && (
-                <DataRow label="CPEs">
+                <DataRow label="Software Identifiers (CPEs)">
                   {shodan.cpes.slice(0, 6).map((c: string) => (
                     <span
                       key={c}
@@ -566,7 +564,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
               )}
             </div>
           ) : (
-            <EmptyPanel icon={Network} text="No network exposure data." />
+            <EmptyPanel icon={Network} text="No open ports or services detected." />
           )}
         </Card>
 
@@ -574,9 +572,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="mb-4 flex items-center gap-2">
             <Boxes className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Technology Stack
+              Software Technologies
             </span>
-            <span className="tf-eyebrow ml-1">Fingerprint</span>
+            <span className="tf-eyebrow ml-1">(via Wappalyzer)</span>
           </div>
           {techs.length ? (
             <div className="flex flex-col divide-y divide-line">
@@ -598,7 +596,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
               ))}
             </div>
           ) : (
-            <EmptyPanel icon={Boxes} text="No technologies detected." />
+            <EmptyPanel icon={Boxes} text="No specific software detected." />
           )}
         </Card>
       </div>
@@ -609,7 +607,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="mb-4 flex items-center gap-2">
             <Bug className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Vulnerabilities
+              Discovered Vulnerabilities (CVEs)
             </span>
             <Badge variant="subtle">{cves.length}</Badge>
           </div>
@@ -644,7 +642,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           <div className="mb-4 flex items-center gap-2">
             <GitBranch className="size-4 text-muted" />
             <span className="text-sm font-semibold text-foreground">
-              Predictive Attack Chains
+              Simulated Attack Paths
             </span>
             <Badge variant="subtle">{result.attack_paths.length}</Badge>
           </div>
@@ -656,7 +654,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
               >
                 <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
                   <span className="font-mono text-xs text-muted">
-                    Path {path.path_id} · {path.summary}
+                    Attack Path {path.path_id} · {path.summary}
                   </span>
                   <span className="flex items-center gap-2">
                     <RiskMeter score={path.total_risk_score} />
