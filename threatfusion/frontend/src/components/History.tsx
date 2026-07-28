@@ -152,10 +152,10 @@ export const History: React.FC = () => {
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            Scan History
+            Past Scans
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Previous engagements, newest first.
+            A record of your previous scans, sorted by most recent.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={loadHistory} disabled={loading}>
@@ -171,19 +171,19 @@ export const History: React.FC = () => {
             label="Total Scans"
             value={loading ? "—" : total}
             icon={Radar}
-            hint="Recorded engagements"
+            hint="Total targets scanned"
           />
           <Kpi
             label="High Risk"
             value={loading ? "—" : highRisk}
             icon={ShieldAlert}
-            hint="Score ≥ 60"
+            hint="Targets with a score of 60+"
           />
           <Kpi
             label="Unique Targets"
             value={loading ? "—" : uniqueTargets}
             icon={Fingerprint}
-            hint="Distinct assets"
+            hint="Distinct domains, IPs, or hashes"
           />
         </div>
       </Card>
@@ -218,8 +218,8 @@ export const History: React.FC = () => {
                 <TableCell colSpan={6}>
                   <EmptyState
                     icon={ShieldAlert}
-                    title="Couldn't reach the API"
-                    body="Ensure the ThreatFusion backend is running on 127.0.0.1:8000, then refresh."
+                    title="Backend Unreachable"
+                    body="Please ensure the FastAPI backend is running, then refresh."
                   />
                 </TableCell>
               </TableRow>
@@ -228,8 +228,8 @@ export const History: React.FC = () => {
                 <TableCell colSpan={6}>
                   <EmptyState
                     icon={Inbox}
-                    title="No scans yet"
-                    body="Run your first scan from the console to populate this table."
+                    title="No Scans Found"
+                    body="Your scan history will appear here once you run a scan."
                   />
                 </TableCell>
               </TableRow>
