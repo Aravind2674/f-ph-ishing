@@ -86,13 +86,21 @@ class BaselineStore:
     def __init__(self, db_path: str, min_observations: int = 15) -> None:
         self._db_path = db_path
         self._min_observations = min_observations
+        self._ready = False
 
     async def init(self) -> None:
         """Create tables if they don't yet exist."""
         async with aiosqlite.connect(self._db_path) as db:
             await db.executescript(CREATE_TABLES_SQL)
             await db.commit()
+        self._ready = True
         logger.info("BaselineStore initialised at %s", self._db_path)
+
+    async def _ensure(self) -> None:
+        """Create the schema on first use, so a request that arrives before startup init
+        (or a store used outside the app lifespan) cannot fail with 'no such table'."""
+        if not self._ready:
+            await self.init()
 
     # ------------------------------------------------------------------
     # Device identity
@@ -100,6 +108,7 @@ class BaselineStore:
 
     async def is_known_device(self, mac: str) -> bool:
         """Return True if we have ever seen this MAC before."""
+        await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT 1 FROM net_devices WHERE mac = ?", (mac,)
@@ -116,6 +125,7 @@ class BaselineStore:
         return value is authoritative because it reflects an actual INSERT
         vs UPDATE against persisted state.
         """
+        await self._ensure()
         now = _now_iso()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
@@ -151,6 +161,7 @@ class BaselineStore:
 
     async def record_dns(self, mac: str, domain: str, ip: Optional[str] = None) -> None:
         """Fold a real observed DNS query into the device's profile."""
+        await self._ensure()
         now = _now_iso()
         domain = domain.lower().rstrip(".")
         async with aiosqlite.connect(self._db_path) as db:
@@ -182,6 +193,7 @@ class BaselineStore:
 
     async def record_port(self, mac: str, port: int) -> None:
         """Fold a real observed destination port into the device's profile."""
+        await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 "INSERT INTO net_device_ports (mac, port, count) VALUES (?, ?, 1) "
@@ -215,6 +227,7 @@ class BaselineStore:
         was known *before* this observation (stored count >= 2 means it was
         seen at least once previously).
         """
+        await self._ensure()
         domain = domain.lower().rstrip(".")
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
@@ -269,6 +282,7 @@ class BaselineStore:
 
     async def get_profile(self, mac: str) -> Optional[DeviceProfile]:
         """Return the full persisted profile for a device, or None."""
+        await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT mac, ip, hostname, vendor, first_seen, last_seen, dns_observations "
@@ -312,6 +326,7 @@ class BaselineStore:
 
     async def list_devices(self) -> list[DeviceProfile]:
         """Return every profiled device, most recently seen first."""
+        await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT mac FROM net_devices ORDER BY last_seen DESC"
@@ -325,6 +340,7 @@ class BaselineStore:
         return profiles
 
     async def device_count(self) -> int:
+        await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM net_devices") as cur:
                 return int((await cur.fetchone())[0])

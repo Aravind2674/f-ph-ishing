@@ -16,6 +16,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openPorts = document.getElementById('open-ports');
 
   let targetUrl = '';
+  let apiToken = '';
+
+  // ── API token (A0-8) ────────────────────────────────────────────────────
+  // The backend needs `Authorization: Bearer <token>` on every request except /health. The user pastes
+  // it once; it is kept in chrome.storage.local (this browser profile only).
+  const tokenInput = document.getElementById('token-input');
+  const tokenSave = document.getElementById('token-save');
+  chrome.storage.local.get('tfApiToken', (v) => {
+    apiToken = v.tfApiToken || '';
+    if (apiToken) tokenInput.placeholder = '•••••••• (saved)';
+  });
+  tokenSave.addEventListener('click', () => {
+    const t = tokenInput.value.trim();
+    apiToken = t;
+    chrome.storage.local.set({ tfApiToken: t }, () => {
+      tokenInput.value = '';
+      tokenInput.placeholder = t ? '•••••••• (saved)' : 'Paste token';
+    });
+  });
 
   // ── Monochrome severity mapping ─────────────────────────────────────────
   // Mirrors the dashboard's lib/severity: risk is encoded via bar density and
@@ -73,14 +92,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const response = await fetch('http://127.0.0.1:8000/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiToken
+          ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiToken }
+          : { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target: targetUrl, target_type: 'url' })
       });
 
       const data = await response.json();
 
+      if (response.status === 401) {
+        throw new Error('API token missing or invalid — paste it under "API token" above (python -m app.core.auth).');
+      }
       if (!response.ok || !data.success) {
-        throw new Error(data.error || `Server error: ${response.status}`);
+        throw new Error(data.error || data.detail || data.message || `Server error: ${response.status}`);
       }
 
       const res = data.result;

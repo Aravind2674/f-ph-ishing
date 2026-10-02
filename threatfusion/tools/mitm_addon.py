@@ -26,7 +26,7 @@ Usage
 
    Point your browser/tool at the proxy (default http://127.0.0.1:8080) and
    install mitmproxy's CA to intercept HTTPS. Set TF_BACKEND to override the
-   backend URL.
+   backend URL and TF_API_TOKEN to the token printed by `python -m app.core.auth`.
 
 Scope & safety
 --------------
@@ -42,6 +42,8 @@ import json
 
 BACKEND = os.environ.get("TF_BACKEND", "http://127.0.0.1:8000").rstrip("/")
 ANALYZE_URL = f"{BACKEND}/traffic/analyze"
+# The backend requires a Bearer token (A0-8): `python -m app.core.auth` prints it.
+API_TOKEN = os.environ.get("TF_API_TOKEN", "")
 # Skip static asset noise — these rarely carry injection and flood the log.
 _SKIP_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff",
              ".woff2", ".ico", ".map", ".mp4", ".webp")
@@ -53,7 +55,9 @@ def _score(method: str, url: str, headers: dict, body: str | None) -> dict | Non
     }).encode("utf-8")
     req = urllib.request.Request(
         ANALYZE_URL, data=payload,
-        headers={"Content-Type": "application/json"}, method="POST",
+        headers={"Content-Type": "application/json",
+                 **({"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {})},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:

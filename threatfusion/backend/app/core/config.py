@@ -43,6 +43,7 @@ _PLACEHOLDER_RE = re.compile(
 # Settings fields that hold provider credentials (values are never logged or returned).
 _CREDENTIAL_FIELDS = (
     "VIRUSTOTAL_API_KEY", "SHODAN_API_KEY", "NVD_API_KEY", "WIGLE_API_NAME", "WIGLE_API_TOKEN",
+    "API_TOKEN",
 )
 
 
@@ -132,6 +133,15 @@ class Settings(BaseSettings):
     VERIFY_RATE_PER_MINUTE: int = 6          # verification runs per target host per minute (0 = off)
     VERIFY_TLS: bool = True                  # verify certificates when probing https targets
 
+    # ── Access control (A0-8) ───────────────────────────────────────────
+    # Every route except /health needs `Authorization: Bearer <token>`. API_TOKEN (env) wins;
+    # otherwise a random token is generated on first start and stored OUTSIDE the repo
+    # (see app/core/auth.py). Print it with:  python -m app.core.auth
+    API_TOKEN: str = ""
+    API_TOKEN_FILE: str = ""
+    # Host headers the API answers to (port ignored). Anything else is refused (anti-DNS-rebinding).
+    ALLOWED_HOSTS: str = "localhost,127.0.0.1,[::1]"
+
     # ── Outbound fetch policy (A0-4) ────────────────────────────────────
     # Ports the SSRF-safe fetcher may connect to when fetching a user-supplied target.
     # Comma-separated; "*" = any port (not recommended).
@@ -192,6 +202,13 @@ class Settings(BaseSettings):
                     data[key] = ""
         data["placeholder_fields"] = tuple(flagged)
         return data
+
+    @property
+    def allowed_hosts(self) -> frozenset[str]:
+        """Normalised ``ALLOWED_HOSTS`` (lowercase, no port, IPv6 without brackets)."""
+        from app.core.security import normalise_host
+
+        return frozenset(h for h in (normalise_host(x) for x in self.ALLOWED_HOSTS.split(",")) if h)
 
     @property
     def database_path(self) -> Path:

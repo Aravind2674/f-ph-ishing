@@ -24,9 +24,10 @@ import logging
 import math
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.audit import ensure_verify_audit_schema, record_verify_call
+from app.core.auth import require_token
 from app.core.config import get_settings
 from app.core.ratelimit import SlidingWindowLimiter
 from app.models.schemas import ProbeResultModel, VerifyRequest, VerifyResponse
@@ -34,7 +35,7 @@ from app.verify.active import ActiveVerifier
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/verify", tags=["verify"])
+router = APIRouter(prefix="/verify", tags=["verify"], dependencies=[Depends(require_token)])
 
 # Per-target-host run limiter (process-local).
 RATE_LIMITER = SlidingWindowLimiter(window_seconds=60.0)

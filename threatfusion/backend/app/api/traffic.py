@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
@@ -31,7 +31,9 @@ from app.recon.traffic import CapturedRequest, analyze_request, parse_har
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/traffic", tags=["traffic"])
+from app.core.auth import require_token  # noqa: E402
+
+router = APIRouter(prefix="/traffic", tags=["traffic"], dependencies=[Depends(require_token)])
 
 # Reuse the same classifier the /analyze endpoint uses (graceful if untrained).
 _clf = VulnClassifier()

@@ -30,7 +30,7 @@ export function NetworkSection() {
   const [selected, setSelected] = useState<NetworkAlert | null>(null);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<{ close: () => void } | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {

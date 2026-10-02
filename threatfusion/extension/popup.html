@@ -37,6 +37,16 @@
       <div id="target-url" class="target-url">Loading…</div>
     </section>
 
+    <!-- API token (A0-8): the backend requires it on every request except /health. -->
+    <details class="token">
+      <summary>API token</summary>
+      <div class="token-row">
+        <input id="token-input" type="password" autocomplete="off" placeholder="Paste token" />
+        <button id="token-save" type="button">Save</button>
+      </div>
+      <p class="token-hint">Print it with <code>python -m app.core.auth</code>. Stored in this browser profile only.</p>
+    </details>
+
     <button id="scan-btn" class="btn" disabled>
       <span id="btn-text">Scan This Page</span>
       <span id="btn-loader" class="loader hidden" aria-hidden="true"></span>

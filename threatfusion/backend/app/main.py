@@ -16,7 +16,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings, log_provider_table, startup_warnings
+from app.core.auth import get_api_token, log_token_location
 from app.core.db import init_db
+from app.core.security import SecurityMiddleware
 from app.core.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
@@ -43,6 +45,11 @@ async def lifespan(app: FastAPI):
     # Which providers can actually be called (configured / placeholder / missing) — never values.
     log_provider_table(settings)
     
+    # Step 2b: make sure an API token exists (generated once, stored outside the repo) and tell the
+    # operator WHERE it is — never what it is.
+    get_api_token()
+    log_token_location()
+
     # Step 3: Initialize the database — create/upgrade the schema with versioned, in-place
     # migrations (core/db.py). The path is absolute (see Settings.database_path).
     db_path = settings.database_path
@@ -88,6 +95,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request guards (Host allow-list, JSON-only mutations) — added BEFORE CORS so that CORS is the outermost
+# layer and its headers are present on 400/415 responses too.
+app.add_middleware(SecurityMiddleware)
+
 # CORS middleware — allow Vite/React dev origins.
 # Note: allow_origins=["*"] is incompatible with allow_credentials=True
 # in browsers, which surfaces as a CORS failure on fetch.
@@ -99,9 +110,10 @@ app.add_middleware(
         "http://localhost:4173",
         "http://127.0.0.1:4173",
     ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # No cookies/credentials are used: access is by Bearer token, so credentialed CORS is off.
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register route handlers
@@ -110,7 +122,7 @@ from app.api.scan import router as scan_router
 from app.api.analyze import router as analyze_router
 from app.api.traffic import router as traffic_router
 from app.api.verify import router as verify_router
-from app.api.network import router as network_router
+from app.api.network import router as network_router, stream_router
 
 app.include_router(health_router)
 app.include_router(scan_router)
@@ -118,3 +130,4 @@ app.include_router(analyze_router)
 app.include_router(traffic_router)
 app.include_router(verify_router)
 app.include_router(network_router)
+app.include_router(stream_router)

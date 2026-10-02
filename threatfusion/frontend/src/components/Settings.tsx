@@ -10,7 +10,7 @@ import {
   Info,
   type LucideIcon,
 } from "lucide-react";
-import { fetchHealth, type ProviderHealth } from "@/api";
+import { fetchHealth, getApiToken, setApiToken, type ProviderHealth } from "@/api";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,75 @@ const SOURCES: Source[] = [
     keyless: true,
   },
 ];
+
+function ApiTokenCard() {
+  const [value, setValue] = useState("");
+  const [saved, setSaved] = useState(() => getApiToken() !== "");
+  const [reveal, setReveal] = useState(false);
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">API token</span>
+            <Badge variant={saved ? "solid" : "outline"}>{saved ? "Set" : "Not set"}</Badge>
+          </div>
+          <p className="mt-1 max-w-md text-xs text-muted">
+            The backend requires a Bearer token on every request except /health. It is generated on first
+            start and stored outside the repository. Print it with{" "}
+            <code className="font-mono text-foreground">python -m app.core.auth</code> and paste it here. It
+            is kept in this browser only.
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 flex w-full items-center gap-2 sm:max-w-md">
+        <div className="relative flex-1">
+          <Input
+            type={reveal ? "text" : "password"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={saved ? "•••••••• (saved)" : "Paste token"}
+            className="pr-9 font-mono text-xs"
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            onClick={() => setReveal((r) => !r)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-foreground"
+            aria-label={reveal ? "Hide token" : "Reveal token"}
+          >
+            {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+        </div>
+        <Button
+          variant="subtle"
+          size="sm"
+          disabled={!value.trim()}
+          onClick={() => {
+            setApiToken(value);
+            setSaved(true);
+            setValue("");
+          }}
+        >
+          Save
+        </Button>
+        {saved && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setApiToken("");
+              setSaved(false);
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 function stateLabel(p?: ProviderHealth): { text: string; variant: "solid" | "subtle" | "outline" } | null {
   if (!p) return null;
@@ -217,6 +286,8 @@ export const Settings: React.FC = () => {
           </div>
         )}
       </Card>
+
+      <ApiTokenCard />
 
       {/* Ingestion sources, grouped. */}
       <Card>

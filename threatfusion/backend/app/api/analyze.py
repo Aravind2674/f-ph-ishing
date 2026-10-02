@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
@@ -27,7 +27,9 @@ from app.models.schemas import AnalyzeRequest, AnalyzeResponse, PayloadFinding
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analyze", tags=["analyze"])
+from app.core.auth import require_token  # noqa: E402
+
+router = APIRouter(prefix="/analyze", tags=["analyze"], dependencies=[Depends(require_token)])
 
 # ── Model init (graceful — endpoint still responds if checkpoint is missing) ──
 _clf = VulnClassifier()

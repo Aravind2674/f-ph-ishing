@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 
 from app.ingestion.cve import CVEClient
 from app.ingestion.shodan import ShodanClient
@@ -27,6 +27,7 @@ from app.ml.neural_fusion import NeuralFusionModel
 import app as _app_pkg
 from app.core import providers as prov
 from app.core.artifacts import model_path, model_version
+from app.core.auth import require_token
 from app.core.config import get_settings
 from app.core.scan_store import ScanStore
 from app.core.safe_http import FetchError, blocked_reason, resolve_host
@@ -42,7 +43,7 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/scan", tags=["scan"])
+router = APIRouter(prefix="/scan", tags=["scan"], dependencies=[Depends(require_token)])
 
 # ── Persistence ─────────────────────────────────────────────────────────
 # Scans are stored in SQLite (core/scan_store.py), so history survives restarts. This used to be a

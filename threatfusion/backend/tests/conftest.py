@@ -34,6 +34,23 @@ def _guard_real_database():
     yield
 
 
+# ── Access control (A0-8) ────────────────────────────────────────────────────
+# Tests run with a fixed token and the Starlette TestClient's "testserver" Host. TestClient is
+# patched to send the token by default; auth tests pass `headers={"Authorization": ""}` to opt out.
+os.environ["API_TOKEN"] = "test-token-0123456789abcdef0123456789abcdef"
+os.environ["ALLOWED_HOSTS"] = "localhost,127.0.0.1,[::1],testserver"
+
+_original_testclient_init = TestClient.__init__
+
+
+def _testclient_init(self, *args, **kwargs):
+    headers = dict(kwargs.pop("headers", None) or {})
+    headers.setdefault("Authorization", f"Bearer {os.environ['API_TOKEN']}")
+    _original_testclient_init(self, *args, headers=headers, **kwargs)
+
+
+TestClient.__init__ = _testclient_init
+
 # Force mock mode for all tests
 os.environ['USE_MOCK_DATA'] = 'true'
 os.environ['VIRUSTOTAL_API_KEY'] = 'test-key'
