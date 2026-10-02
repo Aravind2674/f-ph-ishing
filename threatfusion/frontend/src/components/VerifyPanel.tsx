@@ -62,11 +62,13 @@ export const VerifyPanel: React.FC = () => {
           <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-line bg-surface-2 p-3">
             <Ban className="mt-0.5 size-4 shrink-0 text-muted" />
             <p className="text-xs text-muted">
-              <span className="font-medium text-foreground">Localhost only.</span>{" "}
-              Probing runs against <code className="font-mono">127.0.0.1</code> /{" "}
-              <code className="font-mono">localhost</code> targets you control. Any
-              other host is refused before a request is sent. Start the bundled lab
-              with <code className="font-mono">python -m tools.vuln_lab</code>.
+              <span className="font-medium text-foreground">Scope is set by the server.</span>{" "}
+              Active verification is <strong>off by default</strong>. An operator enables it with{" "}
+              <code className="font-mono">VERIFY_ENABLED=true</code> and lists the hosts you may test in{" "}
+              <code className="font-mono">VERIFY_ALLOWED_HOSTS</code> (default: the bundled local lab on{" "}
+              <code className="font-mono">127.0.0.1:8099</code>). Anything else is refused before a
+              request is sent, and every attempt is audited. Start the lab with{" "}
+              <code className="font-mono">python -m tools.vuln_lab</code>.
             </p>
           </div>
 
@@ -123,8 +125,19 @@ export const VerifyPanel: React.FC = () => {
               <Card className="flex items-start gap-3 border-line-strong p-5">
                 <Ban className="size-4 shrink-0 text-foreground" />
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">Out of scope — refused</h3>
-                  <p className="mt-1 text-sm text-muted">{result.error || result.summary}</p>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {result.error === "verify_disabled"
+                      ? "Active verification is disabled"
+                      : "Out of scope — refused"}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted">
+                    {result.error === "verify_disabled"
+                      ? "This server has not enabled active verification. Set VERIFY_ENABLED=true and list the allowed hosts in VERIFY_ALLOWED_HOSTS (backend/.env), then restart the API."
+                      : result.error || result.summary}
+                  </p>
+                  {result.notice && (
+                    <p className="mt-2 font-mono text-[11px] text-subtle">{result.notice}</p>
+                  )}
                 </div>
               </Card>
             ) : (

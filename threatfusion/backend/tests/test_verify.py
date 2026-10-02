@@ -42,14 +42,18 @@ class _FakeClient:
 def _probe(mode: str):
     v = ActiveVerifier()
     return asyncio.run(
-        v._probe_param(_FakeClient(mode), "http://127.0.0.1/search?q=test", "q", "test")
+        v._probe_param(_FakeClient(mode), "http://lab.test/search?q=test", "q", "test")
     )
 
 
 # ── Scope gate (safety-critical) ─────────────────────────────────────────────
-def test_host_is_authorized_defaults_to_loopback_only():
-    assert host_is_authorized("127.0.0.1", set())
-    assert host_is_authorized("localhost", set())
+# The scope is server configuration (VERIFY_ENABLED / VERIFY_ALLOWED_HOSTS); the full
+# behaviour — body-supplied hosts ignored, audit rows, rate limit — is covered in
+# test_a0_3_verify_scope.py. Here: the pure allowlist logic and the default posture.
+def test_nothing_is_in_scope_by_default_not_even_loopback():
+    # (This used to assert that loopback was always authorised — removed in A0-3.)
+    assert not host_is_authorized("127.0.0.1", set())
+    assert not host_is_authorized("localhost", set())
     assert not host_is_authorized("example.com", set())
     assert not host_is_authorized("evil.test", set())
 
@@ -59,13 +63,13 @@ def test_host_is_authorized_respects_allowlist():
     assert not host_is_authorized("other.internal", {"staging.internal"})
 
 
-def test_verify_endpoint_refuses_out_of_scope(client):
+def test_verify_endpoint_refuses_when_disabled_by_default(client):
     resp = client.post("/verify", json={"target": "http://example.com/p?q=1"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["authorized"] is False
     assert data["confirmed_count"] == 0
-    assert "scope" in data["summary"].lower() or "not authorised" in (data["error"] or "").lower()
+    assert data["error"] == "verify_disabled" and "disabled" in data["summary"].lower()
 
 
 # ── Detection logic ──────────────────────────────────────────────────────────

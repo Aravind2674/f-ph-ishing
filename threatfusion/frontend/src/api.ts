@@ -205,6 +205,8 @@ export interface VerifyResponse {
   probes: ProbeResult[];
   summary: string;
   error: string | null;
+  // e.g. "authorized_hosts in the request is ignored" — scope is server configuration.
+  notice?: string | null;
 }
 
 // ── Network Layer types (mirror app/network/models.py) ──────────────────
@@ -378,19 +380,26 @@ export const analyzeTraffic = async (
   return res.json();
 };
 
-// Phase 4 — actively confirm injection points (scope-gated: localhost or
-// explicitly authorised hosts only).
-export const verifyTarget = async (
-  target: string,
-  authorized_hosts: string[] = []
-): Promise<VerifyResponse> => {
+// Phase 4 — actively confirm injection points (scope-gated by the SERVER: it is disabled
+// unless an operator enables it and lists the allowed hosts).
+// NOTE: the server decides the scope (VERIFY_ALLOWED_HOSTS); the UI no longer sends any
+// "authorised hosts" — a caller must not be able to authorise itself.
+export const verifyTarget = async (target: string): Promise<VerifyResponse> => {
   const res = await fetch(`${API_BASE}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, authorized_hosts }),
+    body: JSON.stringify({ target }),
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    // e.g. 429 {"detail": "Too many verification runs against …; retry in 42s."}
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body?.detail === "string" ? body.detail : "";
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail || `API error: ${res.status}`);
   }
   return res.json();
 };

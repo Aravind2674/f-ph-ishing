@@ -52,6 +52,8 @@ IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 DEFAULT_PORTS = frozenset({80, 443, 8080, 8443})
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Never reachable, even for operator-allowed hosts: metadata/link-local, unspecified, multicast, Teredo.
+_NEVER_ALLOWED = frozenset({"link_local", "unspecified", "multicast", "teredo"})
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 # Legacy IPv4 spellings that inet_aton() understands but ipaddress does not: 2130706433, 0x7f.1,
 # 127.1, 0177.0.0.1 …  A resolver may expand them to a loopback/private address, so normalise first.
@@ -233,6 +235,12 @@ class SafeFetcher:
         """Resolve ``host`` and refuse it if ANY address is internal (unless explicitly allowed)."""
         ips = await resolve_host(host, port)
         if self.policy.is_private_allowed(host, port):
+            # Operator opted this host in (e.g. a local lab) — but never into cloud metadata,
+            # link-local, unspecified or multicast space, whatever DNS says.
+            for ip in ips:
+                why = blocked_reason(ip)
+                if why in _NEVER_ALLOWED:
+                    raise UnsafeTargetError("blocked_address", f"{host} -> {ip} ({why})", hop=hop)
             return ips
         for ip in ips:
             why = blocked_reason(ip)

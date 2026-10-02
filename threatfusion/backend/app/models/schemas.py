@@ -901,6 +901,10 @@ class VerifyResponse(BaseModel):
     probes: list[ProbeResultModel] = Field(default_factory=list)
     summary: str = Field("", description="Plain-language summary")
     error: Optional[str] = Field(None, description="Scope refusal or other error")
+    notice: Optional[str] = Field(
+        None,
+        description="Informational note, e.g. that `authorized_hosts` in the request was ignored",
+    )
 
 
 # ---------------------------------------------------------------------------
