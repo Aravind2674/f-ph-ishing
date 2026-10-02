@@ -38,6 +38,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from app.core.artifacts import verify_artifact
+
 # ---------------------------------------------------------------------------
 # Vocabulary — printable ASCII covers SQL/HTML/shell metacharacters
 # ---------------------------------------------------------------------------
@@ -168,7 +170,8 @@ def load_checkpoint(weights_path: str | Path, map_location: str = "cpu"):
         weights_path.with_name(weights_path.stem + "_config.json")
     )
     model = PayloadCNN(config)
-    model.load_state_dict(torch.load(weights_path, map_location=map_location))
+    # weights_only=True: a .pt is a pickle container — never allow it to run arbitrary code.
+    model.load_state_dict(torch.load(weights_path, map_location=map_location, weights_only=True))
     model.eval()
     return model, config
 
@@ -187,6 +190,9 @@ class VulnClassifier:
         path = Path(weights_path)
         if not path.exists():
             raise FileNotFoundError(f"Vuln classifier not found at {path}")
+        # Integrity check of weights + config before deserialising (A0-7).
+        verify_artifact(path)
+        verify_artifact(path.with_name(path.stem + "_config.json"))
         self._model, self._config = load_checkpoint(path)
 
     @property

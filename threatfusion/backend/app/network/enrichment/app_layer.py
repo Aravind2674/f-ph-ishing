@@ -59,7 +59,10 @@ def _load_model() -> FusionModel:
     model = FusionModel()
     for p in (Path("ml/models/fusion_model.json"), Path("../ml/models/fusion_model.json")):
         if p.exists():
-            model.load(p)
+            try:
+                model.load(p)
+            except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
+                logger.error("XGBoost fusion model NOT loaded from %s: %s", p, e)
             break
     return model
 

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "algorithm": "sha256",
+  "files": {
+    "fusion_model.json": "5fc6f54ed8fb429196cd38d0fdb1b0995891ab526dea77655c12a8b1c69c6da2",
+    "fusion_model_v1_baseline.json": "711c0705e3378563a55a27b3e2dcd038132234c9b87ab09df0bba8aa60dbf320",
+    "neural_fusion.pt": "6149f5cc31ad8db951a01dfbc3433770536db00c283c13b8996ba944b49e7c10",
+    "neural_fusion_config.json": "96ff0b994d803eb562950d5e68c6a364cb172c7100ad80e6183d01a323c22d60",
+    "vuln_classifier.pt": "71dbbec5e17d06edbf747524e284efc4cbbf2368a321fee3d2fa6b122d8cf3c2",
+    "vuln_classifier_config.json": "f01c6fdc247c22fb674fc6b4595e38e97091c8ba2e92b36dfeb05f72bfd797d6"
+  }
+}

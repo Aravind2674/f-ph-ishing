@@ -306,7 +306,8 @@ def load_checkpoint(
     config_path = weights_path.with_name(weights_path.stem + "_config.json")
     config = UrlFusionConfig.from_json(config_path)
     model = UrlFusionNet(config)
-    state = torch.load(weights_path, map_location=map_location)
+    # weights_only=True: a .pt is a pickle container — never allow it to run arbitrary code.
+    state = torch.load(weights_path, map_location=map_location, weights_only=True)
     model.load_state_dict(state)
     model.eval()
     return model, config

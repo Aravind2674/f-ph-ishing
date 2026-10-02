@@ -3,7 +3,7 @@ import socket
 import asyncio
 import logging
 import ipaddress
-import aiohttp
+import httpx
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -98,25 +98,21 @@ async def _check_dns(hostname: str) -> list[str]:
 
 async def _check_reachability(hostname: str) -> bool:
     """Checks if the web server is reachable via HTTPS or HTTP."""
-    timeout = aiohttp.ClientTimeout(total=5)
     valid_statuses = {200, 201, 202, 204, 301, 302, 307, 308, 401, 403, 404, 405}
-    
-    async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-        # Attempt HTTPS
-        try:
-            async with session.get(f"https://{hostname}", allow_redirects=False) as resp:
-                if resp.status in valid_statuses:
+
+    # httpx is the project's single HTTP client (A0-7: the previous aiohttp import was
+    # never declared in requirements.txt, so a clean install could not run /scan).
+    # verify=False is deliberate *here only*: we are asking "does anything answer?",
+    # not trusting the response. This whole function is replaced by the SSRF-safe
+    # fetcher in A0-4.
+    async with httpx.AsyncClient(timeout=5.0, verify=False, follow_redirects=False) as client:
+        for scheme in ("https", "http"):  # HTTPS first, then fall back to HTTP
+            try:
+                resp = await client.get(f"{scheme}://{hostname}")
+                if resp.status_code in valid_statuses:
                     return True
-        except Exception:
-            pass
-            
-        # Attempt HTTP
-        try:
-            async with session.get(f"http://{hostname}", allow_redirects=False) as resp:
-                if resp.status in valid_statuses:
-                    return True
-        except Exception:
-            pass
+            except Exception:
+                continue
 
     return False
 

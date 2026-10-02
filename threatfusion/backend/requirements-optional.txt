@@ -1,0 +1,5 @@
+# Optional, NOT part of the locked environment.
+# Only needed for the screenshot scripts (capture*.py) at the project root:
+playwright
+# Only needed for tools/mitm_addon.py (install in *your* environment, not the backend's):
+# mitmproxy

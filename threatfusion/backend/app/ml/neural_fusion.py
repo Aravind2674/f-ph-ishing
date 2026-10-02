@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 import numpy as np
 import torch
 
+from app.core.artifacts import verify_artifact
 from app.models.schemas import FeatureVector, NeuralExplanation
 from app.ml.url_model import (
     UrlFusionConfig,
@@ -112,6 +113,10 @@ class NeuralFusionModel:
         path = Path(weights_path)
         if not path.exists():
             raise FileNotFoundError(f"Neural model file not found at {path}")
+        # Verify the weights *and* their config (vocab/normalisation constants) against the
+        # SHA-256 manifest before anything is deserialised (A0-7).
+        verify_artifact(path)
+        verify_artifact(path.with_name(path.stem + "_config.json"))
         self._model, self._config = load_checkpoint(path)
         self._model_path = path
         logger.info("Neural fusion model successfully loaded from %s", path)

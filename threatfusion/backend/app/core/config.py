@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     # production by overriding this env var.
     DATABASE_URL: str = "sqlite:///./threatfusion.db"
 
+    # ── Model integrity (A0-7) ──────────────────────────────────────────
+    # Every model artifact is checked against ml/models/manifest.json (SHA-256) before
+    # it is loaded. A *mismatch* always refuses; strict mode additionally refuses files
+    # the manifest does not list. Regenerate with `python -m ml.hash_models` after
+    # retraining. Set false only while experimenting with an unregistered model.
+    MODEL_HASH_STRICT: bool = True
+
     # ── Observability ───────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 

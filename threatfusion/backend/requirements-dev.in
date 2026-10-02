@@ -1,0 +1,7 @@
+# Everything needed to develop and test: runtime + ML tooling + test/audit tools.
+-r requirements-ml.in
+pytest
+pytest-asyncio
+# Mocks every httpx call so tests never touch a real provider (no live API calls).
+respx
+pip-audit

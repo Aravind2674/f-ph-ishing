@@ -1,0 +1,67 @@
+name: CI
+
+# A0-7: a fresh clone must install from the lockfiles and pass every check below.
+# Nothing here calls a real threat-intel provider — tests use mock mode / respx.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: threatfusion/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: threatfusion/backend/requirements-dev.txt
+      - name: Install (CPU torch first, then the exact lock)
+        run: |
+          python -m pip install --upgrade pip
+          # The lock pins torch but deliberately omits the Linux CUDA wheels; install the CPU build
+          # first so pip treats the pin as already satisfied.
+          TORCH_PIN=$(grep -E '^torch==' requirements.txt | head -1 | cut -d' ' -f1 | cut -d';' -f1)
+          pip install "$TORCH_PIN" --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+          pip check
+      - name: Model artifact manifest matches files
+        working-directory: threatfusion
+        run: python -m ml.hash_models --check
+      - name: Tests
+        run: pytest -q
+      - name: Dependency vulnerabilities (pip-audit)
+        # PYSEC-2026-3447 (setuptools < 83): affects building sdists with MANIFEST.in on macOS.
+        # We never build sdists; setuptools is only here as the pkg_resources provider that
+        # python-Wappalyzer imports at runtime, and that import breaks on setuptools >= 82.
+        # Re-evaluate when python-Wappalyzer drops pkg_resources (see requirements.in).
+        run: >
+          pip-audit -r requirements.txt --no-deps --disable-pip --progress-spinner off
+          --ignore-vuln PYSEC-2026-3447
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: threatfusion/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: threatfusion/frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc -p tsconfig.app.json --noEmit
+      - name: Lint
+        run: npx oxlint
+      - name: Dependency vulnerabilities (npm audit, high+)
+        run: npm audit --audit-level=high

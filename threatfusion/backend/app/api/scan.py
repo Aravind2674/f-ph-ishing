@@ -49,7 +49,10 @@ _possible_paths = [
 ]
 for p in _possible_paths:
     if p.exists():
-        _model.load(p)
+        try:
+            _model.load(p)
+        except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
+            logger.error("XGBoost fusion model NOT loaded from %s: %s", p, e)
         break
 
 # ── Neural Fusion Model (char-CNN + tabular) ────────────────────────────
