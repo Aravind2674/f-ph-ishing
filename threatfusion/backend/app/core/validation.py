@@ -3,6 +3,7 @@ import logging
 import ipaddress
 from urllib.parse import urlparse
 
+from app.core import safe_http
 from app.core.safe_http import (
     FetchError,
     FetchPolicy,
@@ -10,7 +11,6 @@ from app.core.safe_http import (
     UnsafeTargetError,
     blocked_reason,
     parse_host_ip,
-    resolve_host,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def _is_internal(hostname: str) -> bool:
 async def _check_dns(hostname: str) -> list[str]:
     """Resolve all A/AAAA records (async). Empty list = the name does not resolve."""
     try:
-        return [str(ip) for ip in await resolve_host(hostname, 443)]
+        return [str(ip) for ip in await safe_http.resolve_host(hostname, 443)]
     except FetchError:
         return []
 

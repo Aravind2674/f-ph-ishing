@@ -8,9 +8,12 @@ shared store would be needed only for multi-worker deployments.
 
 from __future__ import annotations
 
+import math
 import time
 from collections import defaultdict, deque
 from typing import Callable
+
+from fastapi import HTTPException, Request
 
 
 class SlidingWindowLimiter:
@@ -37,3 +40,26 @@ class SlidingWindowLimiter:
 
     def clear(self) -> None:
         self._hits.clear()
+
+
+# ── /scan: per-client limit (A0-9) ──────────────────────────────────────────
+SCAN_LIMITER = SlidingWindowLimiter(window_seconds=60.0)
+
+
+async def scan_rate_limit(request: Request) -> None:
+    """FastAPI dependency for ``POST /scan``: at most RATE_LIMIT_REQUESTS_PER_MINUTE per client.
+
+    Runs *before* the handler, so a refused request consumes no provider quota.
+    """
+    from app.core.config import get_settings
+
+    limit = get_settings().RATE_LIMIT_REQUESTS_PER_MINUTE
+    client = request.client.host if request.client else "unknown"
+    allowed, retry_after = SCAN_LIMITER.check(client, limit)
+    if not allowed:
+        wait = max(1, math.ceil(retry_after))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: at most {limit} scans per minute per client; retry in {wait}s.",
+            headers={"Retry-After": str(wait)},
+        )

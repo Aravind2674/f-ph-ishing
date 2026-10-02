@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 
 from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
@@ -88,20 +89,10 @@ def _candidates(text: str) -> list[tuple[str, str]]:
 _SEVERITY = {"cmdi": 4, "sqli": 3, "xss": 2, "path-traversal": 1, "benign": 0}
 
 
-@router.post("", response_model=AnalyzeResponse, summary="Classify request text for injection attacks")
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    """Classify a payload / query string / URL for injection patterns."""
-    if not _clf.is_loaded:
-        return AnalyzeResponse(
-            success=False,
-            model_loaded=False,
-            findings=[],
-            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
-            error="model_not_loaded",
-        )
-
+def _classify_all(text: str) -> list[PayloadFinding]:
+    """Classify every candidate value in ``text`` (blocking; call via ``run_in_threadpool``)."""
     findings: list[PayloadFinding] = []
-    for location, value in _candidates(request.text):
+    for location, value in _candidates(text):
         result = _clf.classify(value)
         is_attack = result["class_id"] != 0
         span = None
@@ -119,6 +110,24 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 probs={k: round(v, 4) for k, v in result["probs"].items()},
             )
         )
+    return findings
+
+
+@router.post("", response_model=AnalyzeResponse, summary="Classify request text for injection attacks")
+async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+    """Classify a payload / query string / URL for injection patterns."""
+    if not _clf.is_loaded:
+        return AnalyzeResponse(
+            success=False,
+            model_loaded=False,
+            findings=[],
+            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
+            error="model_not_loaded",
+        )
+
+    # CNN inference is CPU-bound and synchronous: run it in a worker thread so the event loop (and
+    # with it the SSE heartbeat and every other request) keeps running.
+    findings = await run_in_threadpool(_classify_all, request.text)
 
     # Most severe first, then by confidence.
     findings.sort(key=lambda f: (_SEVERITY.get(f.label, 0), f.confidence), reverse=True)

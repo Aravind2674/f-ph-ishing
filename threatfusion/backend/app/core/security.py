@@ -8,6 +8,9 @@ A pure-ASGI middleware that runs before routing:
   (``ALLOWED_HOSTS``, default ``localhost,127.0.0.1,[::1]``; the port is ignored) is refused with 400.
   This is the defence against DNS rebinding: after a rebind the browser still sends the *attacker's*
   hostname in ``Host``, so the page can no longer read our responses as "same origin".
+* **Body-size cap** (A0-9) — a request body larger than ``MAX_REQUEST_BODY_BYTES`` gets 413, whether it
+  announces its size (``Content-Length``) or streams chunked, so one client cannot make the process buffer
+  an unbounded upload.
 * **JSON-only mutations** — ``POST``/``PUT``/``PATCH``/``DELETE`` must carry
   ``Content-Type: application/json`` or get 415.  A cross-site HTML ``<form>`` or a ``no-cors``
   ``fetch`` can only send ``text/plain`` / form types without a CORS preflight, so it can no longer
@@ -19,12 +22,24 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import get_settings
 
 _MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class _BodyTooLarge(HTTPException):
+    """Raised from the wrapped ``receive`` when a streamed body exceeds the cap.
+
+    It must be an HTTPException: FastAPI re-raises those from body reading but converts every other
+    exception into a generic 400 ("error parsing the body"), which would hide the 413.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(status_code=413, detail=f"Request body too large (limit {limit} bytes)")
 
 
 def normalise_host(value: str) -> str:
@@ -60,7 +75,39 @@ class SecurityMiddleware:
                                    "Mutating requests must use Content-Type: application/json")
                 return
 
-        await self.app(scope, receive, send)
+        if scope["type"] == "websocket":
+            await self.app(scope, receive, send)
+            return
+
+        max_body = get_settings().MAX_REQUEST_BODY_BYTES
+        declared = headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > max_body:
+            await self._reject(scope, receive, send, 413, f"Request body too large (limit {max_body} bytes)")
+            return
+
+        received = 0
+        response_started = False
+
+        async def limited_receive() -> dict:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > max_body:
+                    raise _BodyTooLarge(max_body)
+            return message
+
+        async def tracking_send(message: dict) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _BodyTooLarge:
+            if not response_started:
+                await self._reject(scope, receive, send, 413, f"Request body too large (limit {max_body} bytes)")
 
     @staticmethod
     async def _reject(scope: Scope, receive: Receive, send: Send, status: int, detail: str) -> None:

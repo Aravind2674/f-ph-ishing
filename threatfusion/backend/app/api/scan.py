@@ -7,6 +7,7 @@ Handles IOC submission, fan-out enrichment, ML scoring, and history retrieval.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from datetime import datetime, timezone
@@ -29,8 +30,10 @@ from app.core import providers as prov
 from app.core.artifacts import model_path, model_version
 from app.core.auth import require_token
 from app.core.config import get_settings
+from app.core.ratelimit import scan_rate_limit
 from app.core.scan_store import ScanStore
-from app.core.safe_http import FetchError, blocked_reason, resolve_host
+from app.core import safe_http
+from app.core.safe_http import FetchError, blocked_reason
 from app.models.schemas import (
     ProviderResult,
     ProviderStatus,
@@ -181,7 +184,8 @@ def _build_summary(verdict_status: str, verdict_reason: str | None, ml_label: st
 
 # ── Endpoints ───────────────────────────────────────────────────────────
 
-@router.post("", response_model=ScanResponse, summary="Submit a new IOC scan")
+@router.post("", response_model=ScanResponse, summary="Submit a new IOC scan",
+             dependencies=[Depends(scan_rate_limit)])
 async def create_scan(request: ScanRequest) -> ScanResponse:
     """Accept an IOC and run the full enrichment and ML scoring pipeline.
     
@@ -216,11 +220,30 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     # whether it counts as a success, a gap, or a failure (A0-1).
     outcomes: list[ProviderResult] = []
 
+    # Time budget (A0-9): one overall deadline for the provider lookups plus a cap per lookup, so a slow
+    # or hung provider becomes `error/timeout` instead of holding the scan (and a worker) open.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + settings.SCAN_DEADLINE_SECONDS
+
+    def _budget() -> float:
+        return min(float(settings.PROVIDER_TIMEOUT_SECONDS), deadline - loop.time())
+
     async def _safe(call, source: str) -> ProviderResult:
-        """Clients return ProviderResults; this only guards against an unexpected exception."""
+        """Run a provider lookup within the time budget.
+
+        Clients return ProviderResults and normally never raise; this guards against an unexpected
+        exception (reported as an error, never as clean data) and enforces the deadline.
+        """
+        timeout = _budget()
+        if timeout <= 0:                       # the scan's budget is already spent
+            call.close()                       # (never awaited — avoid the "coroutine never awaited" warning)
+            return prov.error(source, "timeout")
         try:
-            return await call
-        except Exception as e:  # defensive: a bug must read as an error, never as clean data
+            return await asyncio.wait_for(call, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("%s lookup timed out after %.1fs", source, timeout)
+            return prov.error(source, "timeout")
+        except Exception as e:
             logger.exception("Unexpected error in %s lookup", source)
             return prov.error(source, f"unexpected:{type(e).__name__}")
 
@@ -256,10 +279,12 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 clean_target = clean_target.split('/')[0]
                 try:
                     # Async, all A/AAAA records (the old blocking, IPv4-only gethostbyname is gone).
-                    resolved = await resolve_host(clean_target, 443)
+                    resolved = await asyncio.wait_for(safe_http.resolve_host(clean_target, 443), timeout=max(0.1, min(10.0, _budget())))
                 except FetchError as e:
                     logger.warning("DNS resolution failed for %s: %s", clean_target, e)
                     dns_failure = prov.error("shodan_internetdb", e.reason)
+                except asyncio.TimeoutError:
+                    dns_failure = prov.error("shodan_internetdb", "timeout")
                 else:
                     # InternetDB is keyed by public IPv4. We never contact the target here, but an
                     # internal/reserved answer is meaningless to look up.
@@ -324,9 +349,11 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             ml_status = "insufficient_evidence"
         else:
             ml_status = "ok"
-            m_score = _model.predict_proba(features)
+            # XGBoost + SHAP are CPU-bound and synchronous: run them in worker threads so the event loop
+            # (SSE heartbeat, other requests) keeps ticking while they work.
+            m_score = await asyncio.to_thread(_model.predict_proba, features)
             m_label = _get_ml_label(m_score)
-            explanations = explain_prediction(_model, features)
+            explanations = await asyncio.to_thread(explain_prediction, _model, features)
 
         # ── 4b. Neural Fusion Model (char-CNN + tabular) ────────────────
         # Reads the raw URL string, so it can flag lexical phishing patterns
@@ -337,12 +364,12 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         neural_explanations = []
         if _neural_model.is_loaded:
             try:
-                neural_score = _neural_model.predict_proba(request.target, features)
+                neural_score = await asyncio.to_thread(_neural_model.predict_proba, request.target, features)
                 neural_label = _get_ml_label(neural_score)
-                neural_url_score = _neural_model.predict_url_only(request.target)
+                neural_url_score = await asyncio.to_thread(_neural_model.predict_url_only, request.target)
                 # String-lexical explanations only make sense for URL/domain targets.
                 if request.target_type in (TargetType.URL, TargetType.DOMAIN):
-                    neural_explanations = _neural_model.explain_url(request.target)
+                    neural_explanations = await asyncio.to_thread(_neural_model.explain_url, request.target)
             except Exception as e:
                 logger.warning("Neural fusion scoring failed: %s", e)
 

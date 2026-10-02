@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import string
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -185,6 +186,8 @@ class VulnClassifier:
     def __init__(self) -> None:
         self._model: Optional[PayloadCNN] = None
         self._config: Optional[PayloadCNNConfig] = None
+        # Saliency back-propagates through shared parameters; serialise it (inference runs in worker threads).
+        self._saliency_lock = threading.Lock()
 
     def load(self, weights_path: str | Path) -> None:
         path = Path(weights_path)
@@ -246,7 +249,8 @@ class VulnClassifier:
         n = min(len(clean), self._config.max_len)
         if n == 0:
             return []
-        sal = self._model.token_saliency(self._char_tensor(text), class_id)[:n].cpu().numpy()
+        with self._saliency_lock:
+            sal = self._model.token_saliency(self._char_tensor(text), class_id)[:n].cpu().numpy()
         s_max = float(sal.max()) if sal.size else 0.0
         if s_max <= 0:
             return []

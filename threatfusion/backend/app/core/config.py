@@ -133,6 +133,12 @@ class Settings(BaseSettings):
     VERIFY_RATE_PER_MINUTE: int = 6          # verification runs per target host per minute (0 = off)
     VERIFY_TLS: bool = True                  # verify certificates when probing https targets
 
+    # ── Resource limits (A0-9) ──────────────────────────────────────────
+    MAX_REQUEST_BODY_BYTES: int = 10 * 1024 * 1024   # any request body larger than this -> HTTP 413
+    MAX_TRAFFIC_REQUESTS: int = 500                  # requests (+ HAR entries) per /traffic/analyze call
+    SCAN_DEADLINE_SECONDS: int = 45                  # overall time budget for a scan's provider lookups
+    PROVIDER_TIMEOUT_SECONDS: int = 20               # cap for one provider lookup (also bounded by the deadline)
+
     # ── Access control (A0-8) ───────────────────────────────────────────
     # Every route except /health needs `Authorization: Bearer <token>`. API_TOKEN (env) wins;
     # otherwise a random token is generated on first start and stored OUTSIDE the repo
@@ -155,9 +161,10 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 3600  # 1 hour
 
     # ── Rate limiting ───────────────────────────────────────────────────
-    # VirusTotal free tier allows 4 requests per minute; we honour that
-    # globally to avoid HTTP 429 responses.
-    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 4
+    # Per-CLIENT cap on POST /scan (sliding 60 s window; 0 = off). This protects the process and the
+    # shared provider quota from one noisy client; honouring each provider's own limit (VirusTotal
+    # free tier: 4/min, 500/day) is the provider clients' job (A1-1).
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 30
 
     # ── Network Layer — capture & monitoring ────────────────────────────
     # Interface names are passed straight to scapy. Empty string means

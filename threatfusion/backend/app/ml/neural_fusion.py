@@ -22,6 +22,7 @@ The wrapper degrades gracefully: if the checkpoint is missing it simply reports
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -93,6 +94,9 @@ class NeuralFusionModel:
         self._config: Optional[UrlFusionConfig] = None
         self._model_path: Optional[Path] = None
         self._allowlist: frozenset = _load_allowlist()
+        # Saliency back-propagates through shared parameters; inference may run in worker threads
+        # (A0-9), so explanations are serialised. (Plain forward passes are safe to run concurrently.)
+        self._saliency_lock = threading.Lock()
         logger.info(
             "NeuralFusionModel instance created (model not yet loaded; "
             "%d allowlisted domains)",
@@ -223,7 +227,8 @@ class NeuralFusionModel:
             return []
 
         char_ids = self._char_tensor(url)
-        saliency = self._model.text_saliency(char_ids)[:n].cpu().numpy()
+        with self._saliency_lock:
+            saliency = self._model.text_saliency(char_ids)[:n].cpu().numpy()
 
         # Normalise to [0, 1] for a stable, comparable importance scale.
         s_max = float(saliency.max()) if saliency.size else 0.0
