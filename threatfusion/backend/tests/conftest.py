@@ -8,6 +8,32 @@ import pytest
 from fastapi.testclient import TestClient
 import os
 
+# ── Never touch the developer's real database ────────────────────────────────
+# Since A0-6 every /scan is persisted. The default DATABASE_URL resolves to backend/threatfusion.db —
+# the developer's actual database (scan history, network alerts). The whole test session therefore
+# runs against a throwaway file; individual tests may point DATABASE_URL at their own tmp path.
+import atexit
+import shutil
+import tempfile
+from pathlib import Path
+
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="tf_tests_")
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(_TEST_DB_DIR).as_posix()}/threatfusion_tests.db"
+atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
+
+_REAL_DB = (Path(__file__).resolve().parents[1] / "threatfusion.db").resolve()
+
+
+@pytest.fixture(autouse=True)
+def _guard_real_database():
+    """Fail fast if any test is configured to use the real dev database."""
+    from app.core.config import Settings
+
+    resolved = Settings(_env_file=None).database_path
+    assert resolved != _REAL_DB, f"test would use the real database {_REAL_DB}"
+    yield
+
+
 # Force mock mode for all tests
 os.environ['USE_MOCK_DATA'] = 'true'
 os.environ['VIRUSTOTAL_API_KEY'] = 'test-key'

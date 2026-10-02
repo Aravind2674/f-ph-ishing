@@ -66,7 +66,7 @@ class NetworkMonitorService:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+        self._db_path = str(settings.database_path)
         self._settings = settings
 
         self.store = BaselineStore(self._db_path, settings.BASELINE_MIN_OBSERVATIONS)

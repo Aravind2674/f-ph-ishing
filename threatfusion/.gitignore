@@ -43,3 +43,8 @@ extension/dist/
 # venvs (any name) — environments are rebuilt from requirements*.txt, never committed
 venv*/
 .venv*/
+
+# SQLite sidecar files
+*.db-wal
+*.db-shm
+*.db-journal

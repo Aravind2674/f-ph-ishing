@@ -64,6 +64,22 @@ def model_path(filename: str) -> Optional[Path]:
     return path if path.exists() else None
 
 
+def model_version(filename: str) -> str:
+    """Short (12 hex) SHA-256 of a model artifact as recorded in the manifest.
+
+    Stored with every scan so a result can be tied to the exact model that produced it.
+    ``"unregistered"`` if the file is not in the manifest.
+    """
+    from app.core.config import get_settings
+
+    try:
+        manifest = ArtifactManifest.load(get_settings().model_dir / MANIFEST_NAME)
+    except ArtifactIntegrityError:
+        return "unregistered"
+    digest = manifest.files.get(filename)
+    return digest[:12] if digest else "unregistered"
+
+
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
     """Hex SHA-256 of a file, read in chunks (model files can be large)."""
     h = hashlib.sha256()

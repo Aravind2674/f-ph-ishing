@@ -194,6 +194,21 @@ class Settings(BaseSettings):
         return data
 
     @property
+    def database_path(self) -> Path:
+        """Absolute SQLite file path for ``DATABASE_URL``.
+
+        A relative path is resolved against the ``backend/`` directory (where ``.env`` lives and
+        where the app is documented to run), **not** the current working directory — so every
+        component, whatever directory it was launched from, uses the same database file.
+        """
+        raw = self.DATABASE_URL.strip()
+        if raw.startswith("sqlite:///"):
+            raw = raw[len("sqlite:///"):]
+        path = Path(raw).expanduser()
+        backend_dir = Path(__file__).resolve().parents[2]
+        return (path if path.is_absolute() else backend_dir / path).resolve()
+
+    @property
     def verify_allowed_hosts(self) -> frozenset[tuple[str, Optional[int]]]:
         """Parsed ``VERIFY_ALLOWED_HOSTS`` as ``{(host, port-or-None), ...}``."""
         return frozenset(parse_host_port(e) for e in self.VERIFY_ALLOWED_HOSTS.split(",") if e.strip())

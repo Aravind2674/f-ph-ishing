@@ -561,6 +561,16 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                 </ul>
               </div>
             )}
+            {(result.model_versions || result.feature_schema_version) && (
+              <p className="border-t border-line pt-3 font-mono text-[10px] leading-relaxed text-subtle">
+                {result.mock_mode ? "MOCK DATA · " : ""}
+                {Object.entries(result.model_versions ?? {})
+                  .map(([k, v]) => `${k} ${v}`)
+                  .join(" · ")}
+                {result.feature_schema_version ? ` · features v${result.feature_schema_version}` : ""}
+                {result.app_version ? ` · app ${result.app_version}` : ""}
+              </p>
+            )}
             {vt && (
               <div className="border-t border-line pt-3">
                 <span className="tf-eyebrow">Antivirus Detections</span>

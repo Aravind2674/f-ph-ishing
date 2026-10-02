@@ -33,6 +33,11 @@ from app.models.schemas import (
     VirusTotalResult,
 )
 
+# Version of the feature *semantics* stored with every scan:
+#   1 = original floats with neutral constants (ssl=1.0, age=365) standing in for missing data
+#   2 = A0-1: unknown is None (XGBoost sees NaN); no fabricated constants
+FEATURE_SCHEMA_VERSION = 2
+
 # Common ports often targeted by automated scanners and ransomware
 HIGH_RISK_PORTS: Set[int] = {
     21,    # FTP

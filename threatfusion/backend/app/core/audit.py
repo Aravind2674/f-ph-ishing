@@ -48,8 +48,7 @@ BEGIN SELECT RAISE(ABORT, 'verify_audit is append-only'); END;
 
 
 def _db_path() -> str:
-    # NOTE: relative DATABASE_URL paths are resolved against the CWD until A0-6 makes them absolute.
-    return get_settings().DATABASE_URL.replace("sqlite:///", "")
+    return str(get_settings().database_path)
 
 
 async def ensure_verify_audit_schema() -> None:

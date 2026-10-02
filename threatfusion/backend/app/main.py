@@ -12,37 +12,14 @@ The app supports two modes controlled by USE_MOCK_DATA in .env:
 """
 
 from contextlib import asynccontextmanager
-import aiosqlite
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings, log_provider_table, startup_warnings
+from app.core.db import init_db
 from app.core.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
-
-# SQL schema for scan history persistence.
-# Using SQLite for development simplicity — PostgreSQL migration is a
-# documented TODO (see docs/ARCHITECTURE.md). The schema stores serialized
-# JSON for flexibility during rapid iteration; a normalized schema would
-# be appropriate for production.
-CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS scans (
-    scan_id TEXT PRIMARY KEY,
-    target TEXT NOT NULL,
-    target_type TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    baseline_score REAL,
-    ml_score REAL,
-    ml_label TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target);
-CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp);
-"""
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,13 +43,11 @@ async def lifespan(app: FastAPI):
     # Which providers can actually be called (configured / placeholder / missing) — never values.
     log_provider_table(settings)
     
-    # Step 3: Initialize the database — create tables if they don't exist.
-    # aiosqlite gives us async SQLite access without blocking the event loop.
-    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-    async with aiosqlite.connect(db_path) as db:
-        await db.executescript(CREATE_TABLES_SQL)
-        await db.commit()
-    logger.info("Database initialized: %s", db_path)
+    # Step 3: Initialize the database — create/upgrade the schema with versioned, in-place
+    # migrations (core/db.py). The path is absolute (see Settings.database_path).
+    db_path = settings.database_path
+    await init_db(db_path)
+    logger.info("Database ready: %s", db_path)
 
     # Step 4: Initialize the Network Layer (baseline store + alert tables).
     # This is always initialised so the API can serve status/history even

@@ -637,6 +637,15 @@ class ScanResult(BaseModel):
         None,
         description="Plain-language summary that never claims more than the evidence supports",
     )
+    model_versions: dict[str, str] = Field(
+        default_factory=dict,
+        description="Model artifact versions (sha256[:12] from the manifest) that produced this result; "
+                    "'not_loaded' for a model that was unavailable",
+    )
+    feature_schema_version: int = Field(
+        0, description="Version of the feature semantics used (see ml.features.FEATURE_SCHEMA_VERSION)",
+    )
+    app_version: Optional[str] = Field(None, description="Backend version that produced this result")
     provider_results: list[ProviderOutcome] = Field(
         default_factory=list,
         description="Per-provider provenance: status, HTTP status, reason, fetched_at, cached, latency",

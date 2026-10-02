@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.ingestion.cve import CVEClient
 from app.ingestion.shodan import ShodanClient
@@ -21,12 +21,14 @@ from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ingestion.virustotal import VirusTotalClient
 from app.ml.baseline import baseline_score
 from app.ml.explain import explain_prediction
-from app.ml.features import extract_features_with_coverage
+from app.ml.features import FEATURE_SCHEMA_VERSION, extract_features_with_coverage
 from app.ml.fusion_model import FusionModel
 from app.ml.neural_fusion import NeuralFusionModel
+import app as _app_pkg
 from app.core import providers as prov
-from app.core.artifacts import model_path
+from app.core.artifacts import model_path, model_version
 from app.core.config import get_settings
+from app.core.scan_store import ScanStore
 from app.core.safe_http import FetchError, blocked_reason, resolve_host
 from app.models.schemas import (
     ProviderResult,
@@ -42,10 +44,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scan", tags=["scan"])
 
-# ── In-Memory Database ──────────────────────────────────────────────────
-# For the scope of this university project demo, we use an in-memory dict
-# to persist scan results. In a real environment, this would be SQLite/Postgres.
-_db: dict[str, ScanResult] = {}
+# ── Persistence ─────────────────────────────────────────────────────────
+# Scans are stored in SQLite (core/scan_store.py), so history survives restarts. This used to be a
+# module-level dict (and the `scans` table was created but never written).
+_store = ScanStore()
 
 # ── ML Model Initialization ─────────────────────────────────────────────
 _model = FusionModel()
@@ -373,6 +375,12 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             attack_paths=attack_paths,
             summary=summary_text,
             provider_results=[o.outcome() for o in outcomes],
+            model_versions={
+                "xgboost_fusion": model_version("fusion_model.json") if _model.is_loaded else "not_loaded",
+                "neural_url": model_version("neural_fusion.pt") if _neural_model.is_loaded else "not_loaded",
+            },
+            feature_schema_version=FEATURE_SCHEMA_VERSION,
+            app_version=_app_pkg.APP_VERSION,
             verdict_status=verdict_status,
             verdict_reason=verdict_reason,
             data_sources_succeeded=buckets["succeeded"],
@@ -382,13 +390,21 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             mock_mode=use_mock
         )
 
-        # Persist to "database"
-        _db[scan_id] = result
+        # Persist (history, provenance). A storage failure must be loud but must not discard a
+        # result we already computed.
+        try:
+            await _store.save(result)
+        except Exception:
+            logger.exception("Scan %s was computed but could not be persisted", scan_id)
 
         return ScanResponse(success=True, result=result, error=None)
 
     except Exception as e:
         logger.exception("Critical error during scan processing.")
+        try:  # keep a record of the failure (status='error'); it is not listed in history
+            await _store.save_failure(scan_id, request.target, request.target_type.value, str(e))
+        except Exception:
+            logger.exception("Could not record failed scan %s", scan_id)
         return ScanResponse(success=False, result=None, error=str(e))
 
     finally:
@@ -400,34 +416,21 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
 
 @router.get("/history", response_model=list[ScanHistoryItem], summary="List scan history")
-async def get_history() -> list[ScanHistoryItem]:
-    """Retrieve all past scans, sorted by newest first."""
-    history = []
-    # Sort descending by timestamp
-    sorted_scans = sorted(_db.values(), key=lambda r: r.timestamp, reverse=True)
-    
-    for res in sorted_scans:
-        history.append(ScanHistoryItem(
-            scan_id=res.scan_id,
-            target=res.target,
-            target_type=res.target_type,
-            timestamp=res.timestamp,
-            baseline_score=res.baseline_score,
-            baseline_label=res.baseline_label,
-            ml_score=res.ml_score,
-            ml_label=res.ml_label,
-            neural_score=res.neural_score,
-            neural_label=res.neural_label
-        ))
-    return history
+async def get_history(
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of items"),
+    offset: int = Query(0, ge=0, description="Items to skip (newest first)"),
+) -> list[ScanHistoryItem]:
+    """Retrieve past scans from the database, newest first."""
+    return await _store.history(limit=limit, offset=offset)
 
 
 @router.get("/{scan_id}", response_model=ScanResponse, summary="Retrieve a specific scan")
 async def get_scan(scan_id: str) -> ScanResponse:
-    """Fetch the full enrichment payload and ML risk score for a single scan."""
-    if scan_id not in _db:
+    """Fetch the full stored result (evidence, provenance, summary) for a single scan."""
+    result = await _store.get(scan_id)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Scan '{scan_id}' not found."
         )
-    return ScanResponse(success=True, result=_db[scan_id], error=None)
+    return ScanResponse(success=True, result=result, error=None)

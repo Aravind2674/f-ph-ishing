@@ -78,6 +78,11 @@ export interface ScanResult {
   verdict_reason?: string | null;
   provider_results?: ProviderOutcome[];
   feature_coverage?: FeatureCoverage | null;
+  // Provenance stored with every scan (A0-6): which models/feature semantics produced it.
+  model_versions?: Record<string, string>; // sha256[:12] from the model manifest, or "not_loaded"
+  feature_schema_version?: number;
+  app_version?: string | null;
+  mock_mode?: boolean;
   // Neural fusion model (char-CNN + tabular). Optional — present only when the
   // trained checkpoint is available on the backend.
   neural_score?: number | null;
