@@ -7,7 +7,7 @@ Handles IOC submission, fan-out enrichment, ML scoring, and history retrieval.
 
 from __future__ import annotations
 
-import asyncio
+import ipaddress
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +27,7 @@ from app.ml.neural_fusion import NeuralFusionModel
 from app.core import providers as prov
 from app.core.artifacts import model_path
 from app.core.config import get_settings
+from app.core.safe_http import FetchError, blocked_reason, resolve_host
 from app.models.schemas import (
     ProviderResult,
     ProviderStatus,
@@ -243,7 +244,6 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             ip_target = request.target
             dns_failure: ProviderResult | None = None
             if request.target_type == TargetType.DOMAIN:
-                import socket
                 from urllib.parse import urlparse
 
                 clean_target = request.target.strip()
@@ -252,11 +252,20 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                     clean_target = parsed.netloc or parsed.path
                 clean_target = clean_target.split('/')[0]
                 try:
-                    # Off the event loop: gethostbyname is blocking (full async resolver: A0-4).
-                    ip_target = await asyncio.to_thread(socket.gethostbyname, clean_target)
-                except OSError as e:
+                    # Async, all A/AAAA records (the old blocking, IPv4-only gethostbyname is gone).
+                    resolved = await resolve_host(clean_target, 443)
+                except FetchError as e:
                     logger.warning("DNS resolution failed for %s: %s", clean_target, e)
-                    dns_failure = prov.error("shodan_internetdb", "dns_resolution_failed")
+                    dns_failure = prov.error("shodan_internetdb", e.reason)
+                else:
+                    # InternetDB is keyed by public IPv4. We never contact the target here, but an
+                    # internal/reserved answer is meaningless to look up.
+                    public_v4 = [i for i in resolved
+                                 if isinstance(i, ipaddress.IPv4Address) and blocked_reason(i) is None]
+                    if public_v4:
+                        ip_target = str(public_v4[0])
+                    else:
+                        dns_failure = prov.error("shodan_internetdb", "no_public_ipv4")
             shodan_res = dns_failure or await _safe(shodan_client.lookup_ip(ip_target), "shodan_internetdb")
             outcomes.append(shodan_res)
         shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None

@@ -53,7 +53,7 @@ def test_model_dir_defaults_to_the_repo_models_and_is_overridable(tmp_path: Path
 
 # ── No score is invented when the model cannot provide one ──────────────────
 @pytest.fixture
-def mock_scan_client(monkeypatch: pytest.MonkeyPatch):
+def mock_scan_client(monkeypatch: pytest.MonkeyPatch, fake_dns):
     import socket
     import app.core.validation as validation
     from app.core.config import get_settings
@@ -66,7 +66,6 @@ def mock_scan_client(monkeypatch: pytest.MonkeyPatch):
         return True, {"success": True}, target
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
     yield TestClient(app)
     get_settings.cache_clear()
 

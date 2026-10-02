@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # against the threatfusion/ directory.
     MODEL_DIR: str = ""
 
+    # ── Outbound fetch policy (A0-4) ────────────────────────────────────
+    # Ports the SSRF-safe fetcher may connect to when fetching a user-supplied target.
+    # Comma-separated; "*" = any port (not recommended).
+    SAFE_FETCH_PORTS: str = "80,443,8080,8443"
+
     # ── Observability ───────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 

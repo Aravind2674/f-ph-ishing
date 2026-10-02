@@ -23,6 +23,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, get_settings, is_placeholder_secret
+from tests.conftest import mock_site
 
 
 def _settings(**kw) -> Settings:
@@ -117,7 +118,7 @@ def test_health_exposes_provider_states_without_secrets(live_env: None) -> None:
     assert "vt-key-for-tests-123456" not in str(body) and "PASTE_YOUR" not in str(body)
 
 
-def test_scan_never_calls_an_unconfigured_provider(live_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scan_never_calls_an_unconfigured_provider(live_env: None, monkeypatch: pytest.MonkeyPatch, fake_dns) -> None:
     """The audit's NVD case: no real key => no request to NVD, listed as skipped."""
     import socket
     import app.core.validation as validation
@@ -127,14 +128,13 @@ def test_scan_never_calls_an_unconfigured_provider(live_env: None, monkeypatch: 
         return True, {"success": True}, target
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
 
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=r"https://www\.virustotal\.com/.*").respond(
             200, json={"data": {"attributes": {"last_analysis_stats": {"harmless": 60, "malicious": 0}}}})
         router.get(url__regex=r"https://internetdb\.shodan\.io/.*").respond(
             200, json={"ports": [443], "vulns": ["CVE-2021-44228"], "cpes": [], "hostnames": [], "tags": []})
-        router.get(url__regex=r"https://some-site\.example.*").respond(200, html="<html></html>")
+        mock_site(router, "some-site.example", text="<html></html>")
         nvd = router.get(url__regex=r"https://services\.nvd\.nist\.gov/.*").respond(404)
 
         resp = TestClient(app).post("/scan", json={"target": "some-site.example", "target_type": "domain"})
@@ -146,7 +146,7 @@ def test_scan_never_calls_an_unconfigured_provider(live_env: None, monkeypatch: 
 
 
 def test_scan_without_virustotal_key_skips_virustotal_instead_of_sending_a_placeholder(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fake_dns,
 ) -> None:
     import socket
     import app.core.validation as validation
@@ -160,12 +160,11 @@ def test_scan_without_virustotal_key_skips_virustotal_instead_of_sending_a_place
         return True, {"success": True}, target
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
     try:
         with respx.mock(assert_all_called=False) as router:
             vt = router.get(url__regex=r"https://www\.virustotal\.com/.*").respond(401)
             router.get(url__regex=r"https://internetdb\.shodan\.io/.*").respond(404)
-            router.get(url__regex=r"https://some-site\.example.*").respond(200, html="<html></html>")
+            mock_site(router, "some-site.example", text="<html></html>")
             resp = TestClient(app).post("/scan", json={"target": "some-site.example", "target_type": "domain"})
         assert not vt.called
         assert "VirusTotal" in resp.json()["result"]["data_sources_skipped"]
@@ -182,6 +181,6 @@ async def test_app_layer_scorer_reports_unavailable_without_a_virustotal_key(liv
     get_settings.cache_clear()
     with respx.mock(assert_all_called=False) as router:   # unmatched request would raise
         score = await AppLayerScorer().score("example.org", "domain")
+        assert len(router.calls) == 0          # asserted inside: respx clears .calls on exit
     assert score.available is False
     assert "not configured" in (score.reason or "").lower()
-    assert len(router.calls) == 0

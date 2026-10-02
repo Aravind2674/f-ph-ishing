@@ -1,10 +1,17 @@
 import re
-import socket
-import asyncio
 import logging
 import ipaddress
-import httpx
 from urllib.parse import urlparse
+
+from app.core.safe_http import (
+    FetchError,
+    FetchPolicy,
+    SafeFetcher,
+    UnsafeTargetError,
+    blocked_reason,
+    parse_host_ip,
+    resolve_host,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,64 +63,44 @@ def _is_valid_format(hostname: str) -> bool:
     
     return True
 
-# NAT64 well-known prefix (RFC 6052). Addresses in 64:ff9b::/96 embed an IPv4
-# address in their low 32 bits; networks using DNS64/NAT64 return these for
-# ordinary public sites. They are NOT internal, but ``is_reserved`` flags the
-# whole prefix — which wrongly blocked legitimate domains that resolve to a
-# NAT64 address (e.g. universities). We instead unwrap the embedded IPv4 and
-# judge that, so a crafted NAT64 address hiding an internal IPv4 (e.g.
-# 64:ff9b::7f00:1 → 127.0.0.1) is still correctly rejected.
-_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
-
-
 def _is_internal(hostname: str) -> bool:
-    """Checks if the hostname is an internal/loopback domain or IP."""
+    """True if the hostname is a local name or an IP literal that must not be fetched.
+
+    Classification lives in :mod:`app.core.safe_http` (``ipaddress``-based, incl. IPv4-mapped,
+    NAT64 and 6to4 unwrapping and legacy numeric spellings) so validation and fetching can never
+    disagree about what "internal" means.
+    """
     if hostname in ("localhost", "localhost.localdomain"):
         return True
-    try:
-        ip = ipaddress.ip_address(hostname)
-    except ValueError:
-        return False
+    ip = parse_host_ip(hostname)
+    return ip is not None and blocked_reason(ip) is not None
 
-    # Unwrap NAT64 addresses to the embedded IPv4 before judging.
-    if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64_PREFIX:
-        ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
 
 async def _check_dns(hostname: str) -> list[str]:
-    """Performs DNS lookup (A, AAAA, CNAME) to get IPs."""
-    loop = asyncio.get_running_loop()
+    """Resolve all A/AAAA records (async). Empty list = the name does not resolve."""
     try:
-        res = await loop.run_in_executor(None, socket.getaddrinfo, hostname, None)
-        return [r[4][0] for r in res]
-    except (socket.gaierror, Exception):
+        return [str(ip) for ip in await resolve_host(hostname, 443)]
+    except FetchError:
         return []
 
+
 async def _check_reachability(hostname: str) -> bool:
-    """Checks if the web server is reachable via HTTPS or HTTP."""
+    """Does anything answer on HTTPS or HTTP?  (Redirects are NOT followed: 3xx counts as alive.)
+
+    Goes through the SSRF-safe fetcher: the connection is pinned to a freshly validated public IP,
+    so the DNS answer checked by ``validate_domain_target`` cannot be swapped between check and use.
+    TLS verification is off *only* because the question is "does a server answer", not "trust it".
+    """
     valid_statuses = {200, 201, 202, 204, 301, 302, 307, 308, 401, 403, 404, 405}
-
-    # httpx is the project's single HTTP client (A0-7: the previous aiohttp import was
-    # never declared in requirements.txt, so a clean install could not run /scan).
-    # verify=False is deliberate *here only*: we are asking "does anything answer?",
-    # not trusting the response. This whole function is replaced by the SSRF-safe
-    # fetcher in A0-4.
-    async with httpx.AsyncClient(timeout=5.0, verify=False, follow_redirects=False) as client:
-        for scheme in ("https", "http"):  # HTTPS first, then fall back to HTTP
-            try:
-                resp = await client.get(f"{scheme}://{hostname}")
-                if resp.status_code in valid_statuses:
-                    return True
-            except Exception:
-                continue
-
+    fetcher = SafeFetcher(FetchPolicy.from_settings(
+        max_bytes=16 * 1024, total_timeout=10.0, request_timeout=5.0, verify_tls=False))
+    for scheme in ("https", "http"):  # HTTPS first, then fall back to HTTP
+        try:
+            res = await fetcher.fetch(f"{scheme}://{hostname}/", follow_redirects=False)
+        except (UnsafeTargetError, FetchError):
+            continue
+        if res.status_code in valid_statuses:
+            return True
     return False
 
 async def validate_domain_target(target: str) -> tuple[bool, dict, str]:

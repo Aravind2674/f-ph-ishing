@@ -32,6 +32,7 @@ from typing import Optional, TypeVar
 
 import httpx
 
+from app.core.safe_http import FetchError, UnsafeTargetError
 from app.models.schemas import ProviderResult, ProviderStatus
 
 T = TypeVar("T")
@@ -97,6 +98,10 @@ def from_http_status(source: str, status_code: int, *, started: Optional[float] 
 
 def from_exception(source: str, exc: BaseException, *, started: Optional[float] = None) -> ProviderResult:
     """Classify a transport-level failure (no HTTP response was received)."""
+    if isinstance(exc, UnsafeTargetError):          # SSRF policy refused the destination
+        return error(source, f"blocked:{exc.reason}", started=started)
+    if isinstance(exc, FetchError):                  # timeout / network / dns_failure from SafeFetcher
+        return error(source, exc.reason, started=started)
     if isinstance(exc, httpx.TimeoutException):
         return error(source, "timeout", started=started)
     if isinstance(exc, (httpx.ConnectError, httpx.NetworkError, httpx.ProxyError)):

@@ -33,6 +33,7 @@ from app.ingestion.virustotal import VirusTotalClient
 from app.ml.baseline import baseline_score
 from app.ml.features import extract_features, extract_features_with_coverage
 from app.ml.fusion_model import FusionModel
+from tests.conftest import mock_site
 from app.models.schemas import (
     CVEResult,
     DetectedTechnology,
@@ -259,22 +260,22 @@ async def test_nvd_timeout() -> None:
 # ── Tech fingerprinting ─────────────────────────────────────────────────────
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code,reason", [(500, "server_error"), (503, "server_error")])
-async def test_tech_server_errors_are_errors(code: int, reason: str) -> None:
+async def test_tech_server_errors_are_errors(fake_dns, code: int, reason: str) -> None:
     tf = TechFingerprintClient(use_mock=False)
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://site.example/").respond(code, text="boom")
+        mock_site(router, "site.example", status=code, text="boom")
         res = await tf.fingerprint_url("https://site.example/")
     await tf.close()
     assert res.status == ProviderStatus.ERROR and res.reason == reason and res.data is None
 
 
 @pytest.mark.asyncio
-async def test_tech_timeout_and_challenge_page() -> None:
+async def test_tech_timeout_and_challenge_page(fake_dns) -> None:
     tf = TechFingerprintClient(use_mock=False)
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://slow.example/").mock(side_effect=httpx.ReadTimeout("slow"))
+        mock_site(router, "slow.example", side_effect=httpx.ReadTimeout("slow"))
         slow = await tf.fingerprint_url("https://slow.example/")
-        router.get("https://cf.example/").respond(200, text="<html>Just a moment... cloudflare</html>")
+        mock_site(router, "cf.example", text="<html>Just a moment... cloudflare</html>")
         blocked = await tf.fingerprint_url("https://cf.example/")
     await tf.close()
     assert slow.status == ProviderStatus.ERROR and slow.reason == "timeout"
@@ -282,10 +283,10 @@ async def test_tech_timeout_and_challenge_page() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tech_success_with_nothing_detected_is_ok_not_error() -> None:
+async def test_tech_success_with_nothing_detected_is_ok_not_error(fake_dns) -> None:
     tf = TechFingerprintClient(use_mock=False)
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://plain.example/").respond(200, text="<html><body>hello</body></html>" + "x" * 25000)
+        mock_site(router, "plain.example", text="<html><body>hello</body></html>" + "x" * 25000)
         res = await tf.fingerprint_url("https://plain.example/")
     await tf.close()
     assert res.status == ProviderStatus.OK and isinstance(res.data, TechFingerprintResult)
@@ -326,7 +327,7 @@ def test_xgboost_input_encodes_unknown_as_nan() -> None:
 
 # ── /scan end-to-end behaviour ──────────────────────────────────────────────
 @pytest.fixture
-def scan_client(monkeypatch: pytest.MonkeyPatch):
+def scan_client(monkeypatch: pytest.MonkeyPatch, fake_dns):
     """Live-mode app with every provider *configured*; DNS + target validation stubbed."""
     import socket
     import app.core.validation as validation
@@ -342,7 +343,6 @@ def scan_client(monkeypatch: pytest.MonkeyPatch):
         return True, {"success": True}, target
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
     yield TestClient(app)
     get_settings.cache_clear()
 
@@ -357,7 +357,7 @@ def test_full_provider_outage_is_reported_as_unknown_never_low(scan_client: Test
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=r"https://www\.virustotal\.com/.*").respond(401)
         router.get(url__regex=IDB_URL).respond(503)
-        router.get(url__regex=r"https://some-site\.example.*").respond(500, text="boom")
+        mock_site(router, "some-site.example", status=500, text="boom")
         res = _scan(scan_client)
 
     assert res["data_sources_succeeded"] == []
@@ -377,7 +377,7 @@ def test_partial_outage_is_partial_and_names_the_failed_source(scan_client: Test
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=r"https://www\.virustotal\.com/.*").respond(200, json=VT_OK_JSON)
         router.get(url__regex=IDB_URL).respond(503)
-        router.get(url__regex=r"https://some-site\.example.*").respond(200, html="<html></html>" + "x" * 25000)
+        mock_site(router, "some-site.example", status=200, text="<html></html>" + "x" * 25000)
         res = _scan(scan_client)
 
     assert res["data_sources_succeeded"] == ["VirusTotal", "TechFingerprint"]
@@ -392,7 +392,7 @@ def test_not_found_is_distinct_from_failed_and_from_success(scan_client: TestCli
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=r"https://www\.virustotal\.com/.*").respond(404)
         router.get(url__regex=IDB_URL).respond(404)
-        router.get(url__regex=r"https://some-site\.example.*").respond(200, html="<html></html>" + "x" * 25000)
+        mock_site(router, "some-site.example", status=200, text="<html></html>" + "x" * 25000)
         res = _scan(scan_client)
     assert set(res["data_sources_not_found"]) == {"VirusTotal", "Shodan"}
     assert res["data_sources_failed"] == []
@@ -406,14 +406,14 @@ def test_nvd_failure_is_not_listed_as_success_and_cvss_is_unknown(scan_client: T
         router.get(url__regex=IDB_URL).respond(
             200, json={"ports": [22], "vulns": ["CVE-2021-44228"], "cpes": [], "hostnames": [], "tags": []})
         router.get(url__regex=NVD_URL).respond(403)
-        router.get(url__regex=r"https://some-site\.example.*").respond(200, html="<html></html>" + "x" * 25000)
+        mock_site(router, "some-site.example", status=200, text="<html></html>" + "x" * 25000)
         res = _scan(scan_client)
     assert "NVD" in res["data_sources_failed"] and "NVD" not in res["data_sources_succeeded"]
     assert res["features"]["shodan_cve_count"] == 1.0
     assert res["features"]["shodan_max_cvss_score"] is None   # was silently 0.0 before
 
 
-def test_mock_mode_scan_keeps_working_and_is_labelled(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mock_mode_scan_keeps_working_and_is_labelled(monkeypatch: pytest.MonkeyPatch, fake_dns) -> None:
     import socket
     import app.core.validation as validation
     from app.core.config import get_settings
@@ -426,7 +426,6 @@ def test_mock_mode_scan_keeps_working_and_is_labelled(monkeypatch: pytest.Monkey
         return True, {"success": True}, target
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
     res = _scan(TestClient(app), "google.com")
     get_settings.cache_clear()
     assert res["mock_mode"] is True and res["verdict_status"] == "ok"

@@ -83,22 +83,34 @@ def test_app_does_not_import_aiohttp_directly() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reachability_check_uses_httpx() -> None:
+async def test_reachability_check_uses_httpx(fake_dns) -> None:
     from app.core.validation import _check_reachability
+    from tests.conftest import mock_site
 
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://reachable.test").respond(200)
+        mock_site(router, "reachable.test", status=200, scheme="https")
         assert await _check_reachability("reachable.test") is True
 
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://down.test").respond(500)
-        router.get("http://down.test").respond(503)
+        mock_site(router, "down.test", status=500, scheme="https")
+        mock_site(router, "down.test", status=503, scheme="http")
         assert await _check_reachability("down.test") is False
 
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://flaky.test").mock(side_effect=httpx.ConnectError("boom"))
-        router.get("http://flaky.test").respond(301)
+        mock_site(router, "flaky.test", side_effect=httpx.ConnectError("boom"), scheme="https")
+        mock_site(router, "flaky.test", status=301, scheme="http")
         assert await _check_reachability("flaky.test") is True  # falls back to http
+
+
+@pytest.mark.asyncio
+async def test_reachability_check_refuses_a_host_that_rebinds_to_an_internal_address(fake_dns) -> None:
+    """Validation checked the public DNS answer; the fetch must not be steerable to localhost."""
+    from app.core.validation import _check_reachability
+
+    fake_dns.set("rebind.test", "127.0.0.1")
+    with respx.mock(assert_all_called=False) as router:
+        assert await _check_reachability("rebind.test") is False
+        assert len(router.calls) == 0   # no packet was sent to the internal address
 
 
 # ── Model artifact integrity ────────────────────────────────────────────────
