@@ -115,17 +115,25 @@ def app_with_db(tmp_path, monkeypatch, fake_dns):
 
     monkeypatch.setattr(validation, "validate_domain_target", _ok)
 
+    def _rebuild_scan_routes():
+        """Reload api.scan (fresh module state) and swap its router into the app — exactly one copy.
+
+        FastAPI wraps every ``include_router`` in an ``_IncludedRouter`` (attribute ``original_router``),
+        so the previous /scan router is found by identity, not by path.
+        """
+        import app.api.scan as scan_module
+        from app.main import app
+
+        old_router = scan_module.router
+        importlib.reload(scan_module)
+        app.router.routes[:] = [r for r in app.router.routes
+                                if getattr(r, "original_router", None) is not old_router]
+        app.include_router(scan_module.router)
+        return app
+
     def restart():
         """Simulate a process restart: all module-level state is rebuilt."""
-        import app.api.scan as scan_module
-        importlib.reload(scan_module)
-        from app.main import app
-        # routers hold references to the *old* module's functions, so rebuild the route table
-        for r in list(app.router.routes):
-            if getattr(r, "path", "").startswith("/scan"):
-                app.router.routes.remove(r)
-        app.include_router(scan_module.router)
-        return TestClient(app)
+        return TestClient(_rebuild_scan_routes())
 
     class Ctx:
         pass
@@ -133,10 +141,10 @@ def app_with_db(tmp_path, monkeypatch, fake_dns):
     c.db, c.restart = db, restart
     from app.main import app
     c.client = TestClient(app)
+    c.rebuild = _rebuild_scan_routes
     yield c
     get_settings.cache_clear()
-    import app.api.scan as scan_module
-    importlib.reload(scan_module)
+    _rebuild_scan_routes()          # leave the app with one clean, freshly loaded /scan router
 
 
 def _scan(client, target="evil-malicious.com", ttype="domain") -> dict:

@@ -180,7 +180,28 @@ SQLi, and a safe/escaped control) — the local equivalent of standing up Juice
 Shop/DVWA. Verified: the engine confirms the XSS and SQLi endpoints, correctly
 clears the escaped control, and refuses any non-loopback host.
 
+## Security & data-integrity architecture (Phase A0)
+
+The post-audit hardening added these cross-cutting components (all under `backend/app/core/` unless noted):
+
+| Concern | Component | Guarantee |
+|---|---|---|
+| Honest data | `providers.py`, `ProviderResult` / `ProviderStatus` (`models/schemas.py`) | Every provider call returns a status (ok / not_found / error / skipped / not_configured) with HTTP status, reason, timestamp, cache flag, latency. A failure is never turned into data and never cached. |
+| Missing evidence | `ml/features.py` | A provider that did not answer leaves its features `None` (XGBoost sees NaN); coverage flags (`FeatureCoverage`) are reported; verdict is `ok / partial / unknown`. |
+| Outbound safety | `safe_http.py` | User-supplied targets are fetched only through `SafeFetcher`: all A/AAAA checked, connection pinned to the validated IP, redirects re-validated per hop, size/time caps. |
+| Access control | `auth.py`, `security.py` | Bearer token on every route but `/health`; `Host` allow-list; JSON-only mutations; body-size cap; single-use SSE tickets. |
+| Active probing | `verify/active.py`, `audit.py` | Off by default; scope is server config; every call appended to `verify_audit` (append-only triggers). |
+| Privacy | `privacy.py` | Private/local/reverse-DNS/invalid names and private IPs never sent to third parties; URL scans strip userinfo/query/fragment unless opted in; sensitive headers redacted; network data retention + erase. |
+| Persistence | `db.py`, `scan_store.py` | `PRAGMA user_version` migrations; every scan stored with mock flag, provider provenance, model versions, feature-schema version. |
+| Model integrity | `artifacts.py`, `ml/models/manifest.json` | Model files verified by SHA-256 before loading; `weights_only=True`. |
+| Limits | `ratelimit.py`, `config.py` | Per-client `/scan` rate limit, request caps, per-scan deadline, inference in worker threads. |
+
 ## Evaluation Results
+
+> ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,
+> were measured on synthetic data with 15 % injected label noise, and the deployed XGBoost model uses only
+> three VirusTotal features. See `AUDIT_REPORT.md` §E. They are kept for history until the model is retrained
+> and evaluated on real, time-split data (roadmap A2-1).
 
 **Conclusion:** A learned ML fusion model modestly but consistently outperforms a calibrated rule-based baseline (ROC-AUC 0.86 vs 0.82, F1 0.84 vs 0.77) on multi-source security risk classification. Expanding the feature space from 13 to 19 dimensions by incorporating richer Shodan and technology-fingerprint signals did not measurably improve raw classification performance on this dataset, but substantially enriched the SHAP-based explainability output available to analysts.
 

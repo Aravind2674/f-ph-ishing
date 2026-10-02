@@ -1,5 +1,34 @@
 # ThreatFusion — Development Roadmap
 
+> **Status note.** The phase checklists further down were never ticked and lag reality (the code exists
+> for most of them). The authoritative status after the 2026-10-02 audit is the programme below; see
+> `AUDIT_REPORT.md` for the evidence.
+
+## Remediation programme (post-audit)
+
+### Phase A0 — correctness, security, data integrity ✅ (branch `a0-remediation`)
+- [x] A0-7 Reproducible environment: Python 3.12, exact lock files, CI, model SHA-256 manifest, `weights_only=True`
+- [x] A0-5 Config validation: placeholders are *unset*, unconfigured providers are never called, `/health` provider states
+- [x] A0-1 Three-state provider results; unknown stays unknown; verdict `ok | partial | unknown`
+- [x] A0-2 Models located independently of the CWD; baseline is the headline, XGBoost labelled experimental
+- [x] A0-4 One SSRF-safe fetcher (DNS pinning, per-hop redirect validation, size/time caps)
+- [x] A0-3 `/verify`: server-side scope, off by default, audited, rate-limited, TLS-verified
+- [x] A0-6 Scans persisted (versioned migrations, absolute DB path, provenance incl. model/feature-schema versions)
+- [x] A0-8 Local API token, Host allow-list, JSON-only mutations, no credentialed CORS, SSE tickets
+- [x] A0-9 Rate limit, body/batch caps, inference off the event loop, scan deadline + provider timeouts
+- [x] A0-10 Privacy defaults (private names never sent out, URL stripping, header redaction), retention + erase
+
+### Next
+- [ ] **A1** Make enrichment and scoring work: VirusTotal rate limiter/cache/IP endpoint, NVD key + backoff, real TLS/RDAP/DNS features, EOL data, concurrency, canonicaliser (`core/targets.py`), evidence-first UI
+- [ ] **A2** Validate the ML pipeline: retrain on real snapshot-enriched labels, model-health tests, neural URL canonicalisation, payload-classifier evaluation, model cards
+- [ ] **A3** Passive network monitoring: capture preflight, sensor lifecycle, DNS responses/SNI, reputation fan-out control, rogue-AP precision
+- [ ] **A4** Attack chains, reports, history UX, repo hygiene
+- [ ] **Part B** research-backed features (independent reputation channels, CT/RDAP, lookalike detection, calibrated fusion, …)
+
+---
+
+## Original phase checklists (historical — not maintained)
+
 ## Phase 1 — Repo Scaffold ✅
 - [x] Project directory structure
 - [x] Pydantic schemas for all data models

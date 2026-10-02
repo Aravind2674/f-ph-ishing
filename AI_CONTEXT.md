@@ -29,6 +29,8 @@ Does a learned fusion model produce more accurate attack-surface risk scores tha
 
 **Reported eval (approx.):** ML F1 ~0.84 / ROC-AUC ~0.85–0.86 vs baseline F1 ~0.70–0.77 / ROC-AUC ~0.80–0.82. Training data is largely **synthetic** (URLhaus / PhishTank / Tranco-inspired distributions) because labeled multi-source ground truth at scale is scarce.
 
+> ⚠ **Correction (post-audit, 2026-10-02).** These numbers are **not valid for the deployed model**: they predate it (git history), were measured on synthetic data with 15 % injected label noise, and the deployed `fusion_model.json` actually uses only 3 VirusTotal features (see `AUDIT_REPORT.md` §E). The XGBoost score is therefore labelled *experimental*; the baseline is the headline score until the model is retrained on real data (roadmap A2-1).
+
 ---
 
 ## 2. Repository layout
@@ -136,7 +138,7 @@ Base: `http://127.0.0.1:8000` · Swagger: `/docs`
 **Important inconsistencies an AI should know:**
 
 - Docs/schemas sometimes say `/api/v1/scan`; **live routes have no `/api/v1` prefix**.
-- `main.py` creates a SQLite `scans` table on startup, but the scan router often persists to an **in-memory** store — history may not survive restart.
+- (Fixed in Phase A0) Scans are now persisted to SQLite (`core/scan_store.py`, versioned migrations in `core/db.py`); history survives restarts.
 - Mock mode is the **default** (`USE_MOCK_DATA=true`) so demos work without API keys.
 
 ---
@@ -305,6 +307,22 @@ When giving this context to another AI, you can prepend:
 
 ---
 
-## 15. One-paragraph elevator pitch
+## 15. Phase A0 — what changed (2026-10, branch `a0-remediation`)
+
+Audit remediation (see `AUDIT_REPORT.md`). Facts a contributor/AI must know:
+
+- **Auth:** every route except `/health` needs `Authorization: Bearer <token>`. Token = `API_TOKEN` env, else generated on first start and stored **outside the repo** (`%APPDATA%\ThreatFusion\api_token` / `~/.config/threatfusion/api_token`); print with `python -m app.core.auth`. `Host` header must be local (`ALLOWED_HOSTS`); POST/PUT/PATCH/DELETE must be `application/json`. SSE uses single-use tickets (`POST /network/stream-ticket`).
+- **Provider results are three-state** (`ProviderResult`, `ProviderStatus`: ok / not_found / error / skipped / not_configured). A failed lookup is **never** data. Features that a provider could not supply are `None` (XGBoost sees NaN) — there are no neutral constants any more (`ssl_cert_valid` / `domain_age_days` stay `None` until A1-3).
+- **Verdict:** `verdict_status` ok | partial | unknown. With no VirusTotal answer: `ml_score=None`, `ml_label="Unknown"`, `baseline_score=None`. `baseline_label` is the headline; the XGBoost score is "experimental".
+- **Config:** placeholders (`PASTE_YOUR_*`) mean *unset*; unconfigured providers are never called (listed in `data_sources_skipped`). `/health` reports `providers` states. `MODEL_DIR` is absolute (no CWD dependence); every model file is checked against `ml/models/manifest.json` (SHA-256; regenerate with `python -m ml.hash_models`).
+- **Outbound HTTP to user-supplied targets goes only through `core/safe_http.SafeFetcher`** (DNS pinning, all A/AAAA checked, per-hop redirect validation, caps). Provider clients talk only to fixed provider hosts.
+- **`POST /verify`** is OFF by default (`VERIFY_ENABLED`); scope is server config (`VERIFY_ALLOWED_HOSTS`), the body's `authorized_hosts` is ignored; every call is written to the append-only `verify_audit` table.
+- **Privacy:** `core/privacy.py` — private/local/reverse-DNS/invalid names and private IPs never reach a third party; URL scans send only `scheme://host/path` unless `send_full_url`; sensitive headers redacted; network data purged after `NETWORK_RETENTION_DAYS` (30), `DELETE /network/data` erases it.
+- **Limits:** per-client `/scan` rate limit (429), body cap (413), `/traffic/analyze` request cap, model inference in worker threads, scan deadline + per-provider timeout.
+- **Environment:** Python **3.12**, exact lock files (`backend/requirements*.txt`, compiled with `uv`); run from `backend/`. Tests never touch the real dev DB (conftest forces a throwaway one) and never call real providers (respx / mock mode; `fake_dns` + `mock_site` fixtures for pinned-IP routing).
+
+---
+
+## 16. One-paragraph elevator pitch
 
 ThreatFusion fuses VirusTotal reputation, Shodan exposure, CVE severity, and web technology fingerprints into one explainable risk score, comparing a trained XGBoost fusion model against a rule-based baseline, with SHAP explanations and optional EPSS/KEV/Exploit-DB attack-path chaining — delivered via a FastAPI backend, React dashboard, and browser extension for a university research demo.
