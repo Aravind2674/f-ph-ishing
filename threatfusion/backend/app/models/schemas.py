@@ -567,6 +567,10 @@ class ScanResult(BaseModel):
         le=1.0,
         description="Rule‑based heuristic score (0 = safe, 1 = critical)",
     )
+    baseline_label: Optional[str] = Field(
+        None,
+        description="Low / Medium / High / Critical band of baseline_score; 'Unknown' if no evidence",
+    )
     ml_score: Optional[float] = Field(
         None,
         ge=0.0,
@@ -680,6 +684,7 @@ class ScanHistoryItem(BaseModel):
     target_type: TargetType
     timestamp: datetime
     baseline_score: Optional[float] = None
+    baseline_label: Optional[str] = None
     ml_score: Optional[float] = None
     ml_label: Optional[str] = None
     neural_score: Optional[float] = None

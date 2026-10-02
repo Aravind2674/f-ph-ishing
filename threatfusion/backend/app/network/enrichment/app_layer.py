@@ -38,6 +38,7 @@ import socket
 from pathlib import Path
 from typing import Optional
 
+from app.core.artifacts import model_path
 from app.core.config import get_settings
 from app.ingestion.virustotal import VirusTotalClient
 from app.ingestion.shodan import ShodanClient
@@ -57,13 +58,12 @@ def _load_model() -> FusionModel:
     layer scores with the identical model artefact.
     """
     model = FusionModel()
-    for p in (Path("ml/models/fusion_model.json"), Path("../ml/models/fusion_model.json")):
-        if p.exists():
-            try:
-                model.load(p)
-            except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
-                logger.error("XGBoost fusion model NOT loaded from %s: %s", p, e)
-            break
+    path = model_path("fusion_model.json")  # configured model dir (absolute), not the CWD
+    if path is not None:
+        try:
+            model.load(path)
+        except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
+            logger.error("XGBoost fusion model NOT loaded from %s: %s", path, e)
     return model
 
 

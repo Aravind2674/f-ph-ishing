@@ -86,8 +86,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const res = data.result;
       // A null score means "no evidence" (provider outage / model unavailable). Never show it as 0
       // or "MINIMAL": that would read as a clean target.
-      const hasScore = res.ml_score !== null && res.ml_score !== undefined;
-      const score01 = hasScore ? res.ml_score : 0;
+      // Headline = transparent baseline score. The XGBoost score is experimental (VirusTotal-only
+      // model) and is shown as the secondary stat.
+      const hasScore = res.baseline_score !== null && res.baseline_score !== undefined;
+      const score01 = hasScore ? res.baseline_score : 0;
       const sev = hasScore
         ? severity(score01)
         : { label: 'UNKNOWN', bars: 0, weight: 400 };
@@ -99,10 +101,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         hasScore && score01 >= 0.6 ? 'var(--foreground)' : 'var(--muted)';
       paintMeter(sev.bars);
 
+      // (element id kept as 'baseline-score'; it now shows the experimental ML score)
       baselineScore.textContent =
-        res.baseline_score === null || res.baseline_score === undefined
+        res.ml_score === null || res.ml_score === undefined
           ? '—'
-          : Math.round(res.baseline_score * 100);
+          : Math.round(res.ml_score * 100);
 
       avDetects.textContent = res.virustotal
         ? `${res.virustotal.malicious_count}/${res.virustotal.total_engines}`

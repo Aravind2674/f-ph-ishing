@@ -396,7 +396,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
       <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-3">
-            <SeverityTag score={ml == null ? null : ml / 100} label={result.ml_label} />
+            <SeverityTag score={baseline == null ? null : baseline / 100} label={result.baseline_label} />
             <span className="font-mono text-xs text-subtle">
               {result.scan_id.slice(0, 8).toUpperCase()}
             </span>
@@ -455,7 +455,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
       <RiskScorePanel
         baselineScore={baseline}
         mlScore={ml}
-        severityLabel={result.ml_label}
+        severityLabel={result.baseline_label}
         revealKey={result.scan_id}
       />
 

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
 from app.models.schemas import (
     RequestFindingModel,
@@ -34,14 +35,13 @@ router = APIRouter(prefix="/traffic", tags=["traffic"])
 
 # Reuse the same classifier the /analyze endpoint uses (graceful if untrained).
 _clf = VulnClassifier()
-for _p in (Path("ml/models/vuln_classifier.pt"), Path("../ml/models/vuln_classifier.pt")):
-    if _p.exists():
-        try:
-            _clf.load(_p)
-            logger.info("Traffic analyzer loaded classifier from %s", _p)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to load vuln classifier for traffic: %s", exc)
-        break
+_p = model_path("vuln_classifier.pt")  # configured model dir (absolute), not the CWD
+if _p is not None:
+    try:
+        _clf.load(_p)
+        logger.info("Traffic analyzer loaded classifier from %s", _p)
+    except Exception as exc:  # incl. ArtifactIntegrityError  # pragma: no cover - defensive
+        logger.warning("Failed to load vuln classifier: %s", exc)
 
 
 @router.post("/analyze", response_model=TrafficAnalyzeResponse,

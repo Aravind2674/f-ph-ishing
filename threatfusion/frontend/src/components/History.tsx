@@ -29,8 +29,9 @@ import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 type SortKey = "target" | "timestamp" | "baseline_score" | "ml_score";
 type SortDir = "asc" | "desc";
 
-// No silent fallback to the baseline: a missing ML score stays missing (shown as "—").
-const finalScore = (s: ScanHistoryItem): number | null => s.ml_score;
+// Headline = the transparent baseline. The ML score is experimental (VirusTotal-only model) and
+// is shown in its own column; a missing score stays missing ("—") — no silent substitution.
+const finalScore = (s: ScanHistoryItem): number | null => s.baseline_score;
 const fmt100 = (n: number | null | undefined) => (n == null ? "—" : (n * 100).toFixed(0));
 
 /** A single monochrome KPI tile. */
@@ -198,8 +199,8 @@ export const History: React.FC = () => {
               <SortHead label="Target" col="target" />
               <TableHead>Type</TableHead>
               <SortHead label="Timestamp" col="timestamp" />
+              <SortHead label="Experimental ML" col="ml_score" align="right" />
               <SortHead label="Baseline" col="baseline_score" align="right" />
-              <SortHead label="ML Score" col="ml_score" align="right" />
               <TableHead className="text-right">Severity</TableHead>
             </TableRow>
           </TableHeader>
@@ -237,7 +238,7 @@ export const History: React.FC = () => {
               </TableRow>
             ) : (
               sorted.map((scan) => {
-                const sev = resolveSeverity(finalScore(scan), scan.ml_label);
+                const sev = resolveSeverity(finalScore(scan), scan.baseline_label);
                 return (
                   <TableRow key={scan.scan_id}>
                     <TableCell className="max-w-[240px] truncate font-mono text-xs text-foreground">
@@ -258,17 +259,17 @@ export const History: React.FC = () => {
                       })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs tabular-nums text-muted">
-                      {fmt100(scan.baseline_score)}
+                      {fmt100(scan.ml_score)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
                       {fmt100(finalScore(scan))}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-2.5">
-                        <RiskMeter score={finalScore(scan)} label={scan.ml_label} />
+                        <RiskMeter score={finalScore(scan)} label={scan.baseline_label} />
                         <SeverityTag
                           score={finalScore(scan)}
-                          label={scan.ml_label}
+                          label={scan.baseline_label}
                           showIcon={false}
                           className={cn("w-[62px] justify-end", sev.weight)}
                         />

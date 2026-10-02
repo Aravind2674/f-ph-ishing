@@ -56,6 +56,14 @@ def is_runtime_artifact(name: str) -> bool:
     return name.endswith(_ARTIFACT_SUFFIXES) or any(f in name for f in _ARTIFACT_NAME_FRAGMENTS)
 
 
+def model_path(filename: str) -> Optional[Path]:
+    """Absolute path of a model artifact in the configured model directory, or None if absent."""
+    from app.core.config import get_settings
+
+    path = get_settings().model_dir / filename
+    return path if path.exists() else None
+
+
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
     """Hex SHA-256 of a file, read in chunks (model files can be large)."""
     h = hashlib.sha256()

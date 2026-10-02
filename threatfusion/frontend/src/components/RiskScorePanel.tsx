@@ -2,7 +2,7 @@
  * RiskScorePanel — quiet side-by-side score comparison for the scan verdict.
  *
  * Replaces the radar/HUD scope experiment with two equal cards (Baseline vs
- * ML Fusion), each with a large count-up numeral and a thin linear progress
+ * experimental ML), each with a large count-up numeral and a thin linear progress
  * bar. A single verdict row underneath carries severity + Δ vs baseline.
  * Strictly monochrome; prefers-reduced-motion snaps to final values.
  */
@@ -54,7 +54,7 @@ export interface RiskScorePanelProps {
   baselineScore: number | null;
   /** ML fusion score, 0..100; null = not computed (no evidence / model unavailable). */
   mlScore: number | null;
-  /** Optional backend severity label (preferred over numeric band). */
+  /** Backend label of the BASELINE score (preferred over the numeric band). */
   severityLabel?: string | null;
   /** Remount / re-key to replay the reveal (e.g. scan_id). */
   revealKey?: string | number;
@@ -69,7 +69,8 @@ export function RiskScorePanel({
   className,
 }: RiskScorePanelProps) {
   const reduced = useReducedMotion();
-  const sev = resolveSeverity(mlScore == null ? null : mlScore / 100, severityLabel);
+  // Severity follows the baseline (the headline), not the experimental model.
+  const sev = resolveSeverity(baselineScore == null ? null : baselineScore / 100, severityLabel);
   const delta = mlScore != null && baselineScore != null ? Math.round(mlScore - baselineScore) : null;
 
   const baselineAnim = useSyncedReveal(
@@ -83,17 +84,20 @@ export function RiskScorePanel({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* The transparent baseline is the headline. The XGBoost model is experimental: it
+            currently reads VirusTotal features only (audit §E), so it is labelled as such. */}
         <ScoreCard
           label="Baseline Heuristic"
-          subtitle="Weighted-sum rule score"
+          subtitle="Transparent weighted-sum rules — evidence below"
           value={baselineScore == null ? null : baselineAnim}
-          primary={false}
+          primary
         />
         <ScoreCard
-          label="ML Fusion (XGBoost)"
-          subtitle="Learned multi-source score"
+          label="Experimental model"
+          subtitle="XGBoost · VirusTotal signals only · not yet validated"
           value={mlScore == null ? null : mlAnim}
-          primary
+          primary={false}
+          experimental
         />
       </div>
 
@@ -124,11 +128,13 @@ function ScoreCard({
   subtitle,
   value,
   primary,
+  experimental = false,
 }: {
   label: string;
   subtitle: string;
   value: number | null;
   primary: boolean;
+  experimental?: boolean;
 }) {
   const unavailable = value == null;
   const display = unavailable ? null : Math.round(value);
@@ -154,7 +160,8 @@ function ScoreCard({
             >
               {label}
             </span>
-            {primary && <Badge variant="solid">Primary</Badge>}
+            {primary && <Badge variant="solid">Headline</Badge>}
+            {experimental && <Badge variant="outline">Experimental</Badge>}
           </div>
           <p className="mt-0.5 text-xs text-subtle">{subtitle}</p>
         </div>

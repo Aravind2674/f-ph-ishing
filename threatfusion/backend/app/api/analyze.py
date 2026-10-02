@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import APIRouter
 
+from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
 from app.models.schemas import AnalyzeRequest, AnalyzeResponse, PayloadFinding
 
@@ -30,14 +31,13 @@ router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 # ── Model init (graceful — endpoint still responds if checkpoint is missing) ──
 _clf = VulnClassifier()
-for _p in (Path("ml/models/vuln_classifier.pt"), Path("../ml/models/vuln_classifier.pt")):
-    if _p.exists():
-        try:
-            _clf.load(_p)
-            logger.info("Vuln classifier loaded from %s", _p)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to load vuln classifier: %s", exc)
-        break
+_p = model_path("vuln_classifier.pt")  # configured model dir (absolute), not the CWD
+if _p is not None:
+    try:
+        _clf.load(_p)
+        logger.info("Vuln classifier loaded from %s", _p)
+    except Exception as exc:  # incl. ArtifactIntegrityError  # pragma: no cover - defensive
+        logger.warning("Failed to load vuln classifier: %s", exc)
 
 
 # A query string looks like ``key=value(&key=value)*`` with well-formed keys.

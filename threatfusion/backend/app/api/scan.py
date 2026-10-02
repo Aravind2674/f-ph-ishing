@@ -25,6 +25,8 @@ from app.ml.features import extract_features_with_coverage
 from app.ml.fusion_model import FusionModel
 from app.ml.neural_fusion import NeuralFusionModel
 from app.core import providers as prov
+from app.core.artifacts import model_path
+from app.core.config import get_settings
 from app.models.schemas import (
     ProviderResult,
     ProviderStatus,
@@ -46,35 +48,35 @@ _db: dict[str, ScanResult] = {}
 
 # ── ML Model Initialization ─────────────────────────────────────────────
 _model = FusionModel()
-# Attempt to load model (handles being run from project root or backend dir)
-_possible_paths = [
-    Path("ml/models/fusion_model.json"),
-    Path("../ml/models/fusion_model.json")
-]
-for p in _possible_paths:
-    if p.exists():
-        try:
-            _model.load(p)
-        except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
-            logger.error("XGBoost fusion model NOT loaded from %s: %s", p, e)
-        break
+# Located via the configured model directory (absolute; independent of the working directory).
+# If it cannot be loaded the API reports ml_score=None / ml_status="model_not_loaded" — it never
+# substitutes the baseline score for it.
+_fusion_path = model_path("fusion_model.json")
+if _fusion_path is None:
+    logger.error("fusion_model.json not found in %s — no ML score will be produced",
+                 get_settings().model_dir)
+else:
+    try:
+        _model.load(_fusion_path)
+    except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
+        logger.error("XGBoost fusion model NOT loaded from %s: %s", _fusion_path, e)
 
 # ── Neural Fusion Model (char-CNN + tabular) ────────────────────────────
 # Optional deep-learning model that also reads the raw URL string. Loaded
 # best-effort: if the checkpoint is absent the pipeline silently falls back to
 # the XGBoost/baseline scores, so this never breaks an existing deployment.
 _neural_model = NeuralFusionModel()
-_neural_paths = [
-    Path("ml/models/neural_fusion.pt"),
-    Path("../ml/models/neural_fusion.pt"),
-]
-for p in _neural_paths:
-    if p.exists():
-        try:
-            _neural_model.load(p)
-        except Exception as e:  # pragma: no cover - defensive load guard
-            logger.warning("Neural fusion model failed to load: %s", e)
-        break
+_neural_path = model_path("neural_fusion.pt")
+if _neural_path is not None:
+    try:
+        _neural_model.load(_neural_path)
+    except Exception as e:  # pragma: no cover - defensive load guard
+        logger.warning("Neural fusion model failed to load: %s", e)
+
+
+def _baseline_label(score: float | None) -> str:
+    """Severity band of the baseline heuristic; "Unknown" when there was no evidence at all."""
+    return "Unknown" if score is None else _get_ml_label(score)
 
 
 def _get_ml_label(score: float) -> str:
@@ -350,6 +352,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             features=features,
             feature_coverage=coverage,
             baseline_score=b_score,
+            baseline_label=_baseline_label(b_score),
             ml_score=m_score,
             ml_label=m_label,
             ml_status=ml_status,
@@ -401,6 +404,7 @@ async def get_history() -> list[ScanHistoryItem]:
             target_type=res.target_type,
             timestamp=res.timestamp,
             baseline_score=res.baseline_score,
+            baseline_label=res.baseline_label,
             ml_score=res.ml_score,
             ml_label=res.ml_label,
             neural_score=res.neural_score,

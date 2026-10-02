@@ -67,6 +67,9 @@ export interface ScanResult {
   timestamp: string;
   // null = not computed (no evidence / model not loaded) — never shown as 0.
   baseline_score: number | null;
+  // Band of baseline_score ("Unknown" if no evidence). The baseline is the headline score:
+  // the XGBoost model is experimental (VirusTotal features only) until retrained (A2-1).
+  baseline_label?: string | null;
   ml_score: number | null;
   ml_label: string; // "Unknown" when ml_score is null
   ml_status?: "ok" | "model_not_loaded" | "insufficient_evidence" | null;
@@ -109,6 +112,7 @@ export interface ScanHistoryItem {
   target_type: string;
   timestamp: string;
   baseline_score: number | null;
+  baseline_label?: string | null;
   ml_score: number | null;
   ml_label: string | null;
   neural_score?: number | null;

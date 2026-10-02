@@ -19,6 +19,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, ClassVar
 
 from pydantic import Field, model_validator
@@ -102,6 +103,13 @@ class Settings(BaseSettings):
     # retraining. Set false only while experimenting with an unregistered model.
     MODEL_HASH_STRICT: bool = True
 
+    # Directory holding model artifacts. Empty = <threatfusion>/ml/models, resolved from THIS
+    # file's location — never from the current working directory (the old CWD-relative lookup
+    # silently left models unloaded when uvicorn was started from another folder, and the API
+    # then substituted the baseline score for the ML score). A relative value is resolved
+    # against the threatfusion/ directory.
+    MODEL_DIR: str = ""
+
     # ── Observability ───────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 
@@ -157,6 +165,15 @@ class Settings(BaseSettings):
                     data[key] = ""
         data["placeholder_fields"] = tuple(flagged)
         return data
+
+    @property
+    def model_dir(self) -> Path:
+        """Absolute directory that holds the model artifacts (see ``MODEL_DIR``)."""
+        project_root = Path(__file__).resolve().parents[3]  # .../threatfusion
+        if not self.MODEL_DIR.strip():
+            return project_root / "ml" / "models"
+        configured = Path(self.MODEL_DIR.strip()).expanduser()
+        return (configured if configured.is_absolute() else project_root / configured).resolve()
 
     def _credential_state(self, *fields: str) -> tuple[bool, str]:
         """(configured?, state-label) for a provider that needs all of ``fields``."""
