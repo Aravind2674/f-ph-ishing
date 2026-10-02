@@ -7,6 +7,7 @@ Handles IOC submission, fan-out enrichment, ML scoring, and history retrieval.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,10 +21,13 @@ from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ingestion.virustotal import VirusTotalClient
 from app.ml.baseline import baseline_score
 from app.ml.explain import explain_prediction
-from app.ml.features import extract_features
+from app.ml.features import extract_features_with_coverage
 from app.ml.fusion_model import FusionModel
 from app.ml.neural_fusion import NeuralFusionModel
+from app.core import providers as prov
 from app.models.schemas import (
+    ProviderResult,
+    ProviderStatus,
     ScanHistoryItem,
     ScanRequest,
     ScanResponse,
@@ -84,6 +88,91 @@ def _get_ml_label(score: float) -> str:
     return "Critical"
 
 
+
+# Display names used in the data_sources_* lists (kept for the existing UI).
+_LABEL = {
+    "virustotal": "VirusTotal",
+    "shodan_internetdb": "Shodan",
+    "nvd": "NVD",
+    "tech_fingerprint": "TechFingerprint",
+}
+
+
+def _bucket_sources(outcomes: list[ProviderResult]) -> dict[str, list[str]]:
+    """Group provider outcomes by *status* — and only by status (A0-1).
+
+    ok → succeeded · not_found → not_found · error → failed · not_configured → skipped.
+    A provider that was not applicable to the target type (status ``skipped``) is kept in
+    ``provider_results`` for provenance but not listed: it is neither a success nor a gap.
+    """
+    out: dict[str, list[str]] = {"succeeded": [], "not_found": [], "failed": [], "skipped": []}
+    for o in outcomes:
+        label = _LABEL.get(o.source, o.source)
+        if o.status == ProviderStatus.OK:
+            out["succeeded"].append(label)
+        elif o.status == ProviderStatus.NOT_FOUND:
+            out["not_found"].append(label)
+        elif o.status == ProviderStatus.ERROR:
+            out["failed"].append(label)
+        elif o.status == ProviderStatus.NOT_CONFIGURED:
+            out["skipped"].append(label)
+    return out
+
+
+def _reason_text(res: ProviderResult | None) -> str:
+    if res is None:
+        return "not queried"
+    if res.status == ProviderStatus.NOT_FOUND:
+        return "no record of this target"
+    if res.status == ProviderStatus.NOT_CONFIGURED:
+        return "not configured"
+    http = f", HTTP {res.http_status}" if res.http_status else ""
+    return f"{res.reason or res.status.value}{http}"
+
+
+def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | None) -> tuple[str, str | None]:
+    """Is the evidence complete, partial, or missing entirely?
+
+    VirusTotal is today's only *reputation* source, so without it there is no maliciousness
+    evidence: the verdict is **unknown** — never "Low".  (The URL-lexical neural score is shown
+    separately and is not enough on its own to call a target low-risk.)
+    """
+    if vt_res is None or not vt_res.ok:
+        return "unknown", (
+            "No reputation source answered (VirusTotal: " + _reason_text(vt_res) + "). "
+            "Absence of evidence is not evidence of safety."
+        )
+    applicable = [o for o in outcomes if o.status in (
+        ProviderStatus.OK, ProviderStatus.NOT_FOUND, ProviderStatus.ERROR, ProviderStatus.NOT_CONFIGURED)]
+    missing = [(_LABEL.get(o.source, o.source), o) for o in applicable if o.status != ProviderStatus.OK]
+    if missing:
+        names = ", ".join(f"{n} ({_reason_text(o)})" for n, o in missing)
+        return "partial", f"{len(applicable) - len(missing)} of {len(applicable)} sources answered; missing: {names}."
+    return "ok", None
+
+
+def _build_summary(verdict_status: str, verdict_reason: str | None, ml_label: str | None,
+                   vt, shodan, cve) -> str:
+    """Plain-language summary that never claims more than the evidence supports."""
+    if verdict_status == "unknown":
+        return f"Risk could not be assessed. {verdict_reason}"
+    parts = []
+    if ml_label and ml_label != "Unknown":
+        parts.append(f"This target presents a {ml_label.lower()} risk profile.")
+    if vt is not None:
+        if vt.malicious_count > 0:
+            parts.append(f"It is flagged by {vt.malicious_count} AV engines.")
+        else:
+            parts.append("No AV engine flagged it at the time of the last VirusTotal analysis.")
+    if shodan is not None and shodan.open_ports:
+        parts.append(f"There are {len(shodan.open_ports)} exposed ports"
+                     + (f", with {len(cve.cves)} known CVEs detected." if cve is not None and cve.cves
+                        else "."))
+    if verdict_status == "partial" and verdict_reason:
+        parts.append(f"Partial evidence: {verdict_reason}")
+    return " ".join(parts)
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 @router.post("", response_model=ScanResponse, summary="Submit a new IOC scan")
@@ -103,104 +192,94 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
     scan_id = str(uuid4())
     logger.info("Starting scan %s for %s (%s)", scan_id, request.target, request.target_type)
-    
-    # Data source placeholders
-    vt = None
-    shodan = None
-    cve = None
-    tech = None
-    
-    sources_succeeded = []
-    sources_failed = []
-    # Providers we did not call because they are not configured (A0-5). "Skipped" is not
-    # "failed": nothing was attempted, so it must not look like an outage or a clean result.
-    sources_skipped: list[str] = []
 
     from app.core.config import get_settings
     settings = get_settings()
     use_mock = settings.USE_MOCK_DATA
     providers = settings.provider_statuses()
-    
+
     vt_client = VirusTotalClient(api_key=settings.VIRUSTOTAL_API_KEY, use_mock=use_mock)
     shodan_client = ShodanClient(api_key=settings.SHODAN_API_KEY, use_mock=use_mock)
     cve_client = CVEClient(api_key=settings.NVD_API_KEY, use_mock=use_mock)
     tech_client = TechFingerprintClient(use_mock=use_mock)
-    
+
     from app.ml.chaining import VulnerabilityChainer
     chainer = VulnerabilityChainer()
-    
+
+    # Every provider call yields a ProviderResult; its *status* — not truthiness — decides
+    # whether it counts as a success, a gap, or a failure (A0-1).
+    outcomes: list[ProviderResult] = []
+
+    async def _safe(call, source: str) -> ProviderResult:
+        """Clients return ProviderResults; this only guards against an unexpected exception."""
+        try:
+            return await call
+        except Exception as e:  # defensive: a bug must read as an error, never as clean data
+            logger.exception("Unexpected error in %s lookup", source)
+            return prov.error(source, f"unexpected:{type(e).__name__}")
+
     try:
         # ── 1. Data Enrichment (Sequential for rate-limit safety) ───────
-        
+
         # VirusTotal (needs a real key in live mode; never send a placeholder upstream)
+        vt_res: ProviderResult | None = None
         if not providers["virustotal"].configured:
-            sources_skipped.append("VirusTotal")
-        else:
-            try:
-                if request.target_type == TargetType.DOMAIN:
-                    vt = await vt_client.lookup_domain(request.target)
-                elif request.target_type == TargetType.IP:
-                    vt = await vt_client.lookup_domain(request.target) # Mock VT handles IP as domain
-                elif request.target_type == TargetType.URL:
-                    vt = await vt_client.lookup_url(request.target)
-                elif request.target_type == TargetType.FILE_HASH:
-                    vt = await vt_client.lookup_file_hash(request.target)
-            
-                if vt:
-                    sources_succeeded.append("VirusTotal")
-            except Exception as e:
-                logger.warning("VirusTotal lookup failed: %s", e)
-                sources_failed.append("VirusTotal")
+            vt_res = prov.not_configured("virustotal")
+        elif request.target_type in (TargetType.DOMAIN, TargetType.IP):
+            # NOTE: IPs still go through the domain endpoint; the /ip_addresses call is A1-1/A1-6.
+            vt_res = await _safe(vt_client.lookup_domain(request.target), "virustotal")
+        elif request.target_type == TargetType.URL:
+            vt_res = await _safe(vt_client.lookup_url(request.target), "virustotal")
+        elif request.target_type == TargetType.FILE_HASH:
+            vt_res = await _safe(vt_client.lookup_file_hash(request.target), "virustotal")
+        if vt_res is not None:
+            outcomes.append(vt_res)
 
-        # Shodan (Only relevant for IPs and Domains)
+        # Shodan InternetDB (only relevant for IPs and Domains)
+        shodan_res: ProviderResult | None = None
         if request.target_type in (TargetType.IP, TargetType.DOMAIN):
-            try:
-                ip_target = request.target
-                if request.target_type == TargetType.DOMAIN:
-                    import socket
-                    from urllib.parse import urlparse
-                    
-                    clean_target = request.target.strip()
-                    if clean_target.startswith("http://") or clean_target.startswith("https://"):
-                        parsed = urlparse(clean_target)
-                        clean_target = parsed.netloc or parsed.path
-                    clean_target = clean_target.split('/')[0]
-                    
-                    ip_target = socket.gethostbyname(clean_target)
-                
-                # In mock mode, lookup_ip handles both
-                shodan = await shodan_client.lookup_ip(ip_target)
-                if shodan:
-                    sources_succeeded.append("Shodan")
-            except Exception as e:
-                logger.warning("Shodan lookup failed: %s", e)
-                sources_failed.append("Shodan")
+            ip_target = request.target
+            dns_failure: ProviderResult | None = None
+            if request.target_type == TargetType.DOMAIN:
+                import socket
+                from urllib.parse import urlparse
 
-        # NVD / CVE (Triggers if Shodan found vulnerabilities; needs a real key)
-        if shodan and shodan.vulns:
-            if not providers["nvd"].configured:
-                sources_skipped.append("NVD")
-            else:
+                clean_target = request.target.strip()
+                if clean_target.startswith("http://") or clean_target.startswith("https://"):
+                    parsed = urlparse(clean_target)
+                    clean_target = parsed.netloc or parsed.path
+                clean_target = clean_target.split('/')[0]
                 try:
-                    cve = await cve_client.lookup_cves(shodan.vulns)
-                    if cve:
-                        sources_succeeded.append("NVD")
-                except Exception as e:
-                    logger.warning("CVE lookup failed: %s", e)
-                    sources_failed.append("NVD")
+                    # Off the event loop: gethostbyname is blocking (full async resolver: A0-4).
+                    ip_target = await asyncio.to_thread(socket.gethostbyname, clean_target)
+                except OSError as e:
+                    logger.warning("DNS resolution failed for %s: %s", clean_target, e)
+                    dns_failure = prov.error("shodan_internetdb", "dns_resolution_failed")
+            shodan_res = dns_failure or await _safe(shodan_client.lookup_ip(ip_target), "shodan_internetdb")
+            outcomes.append(shodan_res)
+        shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None
 
-        # Technology Fingerprinting (Only relevant for URLs/Domains)
+        # NVD / CVE (only if Shodan listed vulnerabilities; needs a real key)
+        cve_res: ProviderResult | None = None
+        if shodan is not None and shodan.vulns:
+            if not providers["nvd"].configured:
+                cve_res = prov.not_configured("nvd")
+            else:
+                cve_res = await _safe(cve_client.lookup_cves(shodan.vulns), "nvd")
+            outcomes.append(cve_res)
+        cve = cve_res.data if cve_res is not None and cve_res.ok else None
+
+        # Technology Fingerprinting (only relevant for URLs/Domains)
+        tech_res: ProviderResult | None = None
         if request.target_type in (TargetType.URL, TargetType.DOMAIN):
-            try:
-                target_url = request.target
-                if not target_url.startswith("http"):
-                    target_url = f"https://{target_url}"
-                tech = await tech_client.fingerprint_url(target_url)
-                if tech:
-                    sources_succeeded.append("TechFingerprint")
-            except Exception as e:
-                logger.warning("Tech fingerprinting failed: %s", e)
-                sources_failed.append("TechFingerprint")
+            target_url = request.target
+            if not target_url.startswith("http"):
+                target_url = f"https://{target_url}"
+            tech_res = await _safe(tech_client.fingerprint_url(target_url), "tech_fingerprint")
+            outcomes.append(tech_res)
+        tech = tech_res.data if tech_res is not None and tech_res.ok else None
+
+        vt = vt_res.data if vt_res is not None and vt_res.ok else None
 
         # ── 1b. Predictive Vulnerability Chaining ───────────────────────
         attack_paths = []
@@ -210,25 +289,30 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             except Exception as e:
                 logger.warning("Vulnerability chaining failed: %s", e)
 
-        # ── 2. Feature Engineering ──────────────────────────────────────
-        features = extract_features(vt, shodan, cve, tech)
-        
+        # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
+        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech)
+
         # ── 3. Rule-Based Baseline ──────────────────────────────────────
-        b_score = baseline_score(features)
-        
+        # With no evidence at all there is nothing to score: None, not a reassuring 0.0.
+        any_ok = any(o.ok for o in outcomes)
+        b_score = baseline_score(features) if any_ok else None
+
         # ── 4. ML Fusion Model & SHAP ───────────────────────────────────
+        # The deployed XGBoost model reads VirusTotal features only (audit §E), so without a
+        # VirusTotal answer it has nothing to score: report that instead of a made-up "Low".
         m_score = None
-        m_label = None
+        m_label = "Unknown"
         explanations = []
-        
-        if _model.is_loaded:
+        if not _model.is_loaded:
+            ml_status = "model_not_loaded"
+            logger.warning("ML model not loaded: reporting no ML score (baseline is NOT substituted).")
+        elif not coverage.has_virustotal:
+            ml_status = "insufficient_evidence"
+        else:
+            ml_status = "ok"
             m_score = _model.predict_proba(features)
             m_label = _get_ml_label(m_score)
             explanations = explain_prediction(_model, features)
-        else:
-            logger.warning("ML Model not loaded. Using baseline score only.")
-            m_score = b_score
-            m_label = _get_ml_label(b_score)
 
         # ── 4b. Neural Fusion Model (char-CNN + tabular) ────────────────
         # Reads the raw URL string, so it can flag lexical phishing patterns
@@ -248,26 +332,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             except Exception as e:
                 logger.warning("Neural fusion scoring failed: %s", e)
 
-        # ── 5. Generate Plain-Language Summary ──────────────────────────
-        summary_parts = []
-        if m_label in ("Critical", "High"):
-            summary_parts.append(f"This target presents a {m_label.lower()} risk profile.")
-        else:
-            summary_parts.append(f"This target presents a {m_label.lower()} risk profile.")
-            
-        if vt and vt.malicious_count > 0:
-            summary_parts.append(f"It is flagged by {vt.malicious_count} AV engines.")
-        elif vt:
-            summary_parts.append("It is generally trusted by security vendors.")
-            
-        if shodan and shodan.open_ports:
-            summary_parts.append(f"There are {len(shodan.open_ports)} exposed ports, ")
-            if cve and cve.cves:
-                summary_parts.append(f"with {len(cve.cves)} known CVEs detected.")
-            else:
-                summary_parts.append("with no critical CVEs immediately apparent.")
-                
-        summary_text = " ".join(summary_parts)
+        # ── 5. Verdict status + plain-language summary ──────────────────
+        verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
+        summary_text = _build_summary(verdict_status, verdict_reason, m_label, vt, shodan, cve)
+        buckets = _bucket_sources(outcomes)
 
         # Assemble the final payload
         result = ScanResult(
@@ -280,9 +348,11 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             cve=cve,
             tech_fingerprint=tech,
             features=features,
+            feature_coverage=coverage,
             baseline_score=b_score,
             ml_score=m_score,
             ml_label=m_label,
+            ml_status=ml_status,
             neural_score=neural_score,
             neural_label=neural_label,
             neural_url_score=neural_url_score,
@@ -290,21 +360,25 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             explanations=explanations,
             attack_paths=attack_paths,
             summary=summary_text,
-            data_sources_succeeded=sources_succeeded,
-            data_sources_failed=sources_failed,
-            data_sources_skipped=sources_skipped,
+            provider_results=[o.outcome() for o in outcomes],
+            verdict_status=verdict_status,
+            verdict_reason=verdict_reason,
+            data_sources_succeeded=buckets["succeeded"],
+            data_sources_failed=buckets["failed"],
+            data_sources_not_found=buckets["not_found"],
+            data_sources_skipped=buckets["skipped"],
             mock_mode=use_mock
         )
-        
+
         # Persist to "database"
         _db[scan_id] = result
-        
+
         return ScanResponse(success=True, result=result, error=None)
-        
+
     except Exception as e:
         logger.exception("Critical error during scan processing.")
         return ScanResponse(success=False, result=None, error=str(e))
-        
+
     finally:
         # Ensure all async clients are closed
         await vt_client.close()

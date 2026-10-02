@@ -33,7 +33,9 @@ interface ScanResultProps {
   onRescan?: () => void;
 }
 
-const pct = (n: number) => Math.round((n ?? 0) * 100);
+// null/undefined stay null: an unavailable score is shown as unavailable, never as 0.
+const pct = (n: number | null | undefined): number | null =>
+  n == null ? null : Math.round(n * 100);
 
 /* ────────────────────────────────────────────────────────────────────────
  * SHAP waterfall. Sign is drawn with DIRECTION (right = raises risk, left =
@@ -151,7 +153,7 @@ function FeatureVectorTable({ items }: { items: RiskExplanation[] }) {
                         </div>
                       </td>
                       <td className="px-5 py-2 text-right font-mono text-xs tabular-nums text-muted">
-                        {Number(f.feature_value).toFixed(3)}
+                        {f.feature_value == null ? "unknown" : Number(f.feature_value).toFixed(3)}
                       </td>
                       <td className="px-5 py-2 text-right font-mono text-xs tabular-nums text-foreground">
                         {f.shap_value > 0 ? "+" : "−"}
@@ -347,7 +349,8 @@ function NeuralPanel({ result }: { result: IScanResult }) {
 export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
   const [copied, setCopied] = useState(false);
   const baseline = pct(result.baseline_score);
-  const ml = pct(result.ml_score ?? result.baseline_score);
+  // No fallback to the baseline score: the backend returns null when the model has no evidence.
+  const ml = pct(result.ml_score);
 
   const explanations = result.explanations ?? [];
   const topShap = [...explanations]
@@ -393,7 +396,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
       <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-3">
-            <SeverityTag score={ml / 100} label={result.ml_label} />
+            <SeverityTag score={ml == null ? null : ml / 100} label={result.ml_label} />
             <span className="font-mono text-xs text-subtle">
               {result.scan_id.slice(0, 8).toUpperCase()}
             </span>
@@ -426,6 +429,23 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           </Button>
         </div>
       </div>
+
+      {/* Evidence banner: shown whenever the verdict rests on incomplete evidence. */}
+      {result.verdict_status && result.verdict_status !== "ok" && (
+        <Card className="flex items-start gap-3 border-line-strong p-4">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-foreground" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              {result.verdict_status === "unknown"
+                ? "Risk unknown — no reputation evidence"
+                : "Partial evidence"}
+            </p>
+            {result.verdict_reason && (
+              <p className="mt-1 text-xs text-muted">{result.verdict_reason}</p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {result.summary && (
         <p className="text-sm leading-relaxed text-muted">{result.summary}</p>
@@ -493,6 +513,18 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                 <span className="text-xs text-subtle">None</span>
               )}
             </DataRow>
+            {!!result.data_sources_not_found?.length && (
+              <DataRow label={`No record · ${result.data_sources_not_found.length}`}>
+                {result.data_sources_not_found.map((s) => (
+                  <Badge key={s} variant="subtle">
+                    {s}
+                  </Badge>
+                ))}
+                <span className="text-xs text-subtle">
+                  The source answered but has no data on this target — missing evidence, not a clean result.
+                </span>
+              </DataRow>
+            )}
             {!!result.data_sources_skipped?.length && (
               <DataRow label={`Not configured · ${result.data_sources_skipped.length}`}>
                 {result.data_sources_skipped.map((s) => (
@@ -504,6 +536,30 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                   Not queried — no usable credential. This is missing evidence, not a clean result.
                 </span>
               </DataRow>
+            )}
+            {!!result.provider_results?.length && (
+              <div className="border-t border-line pt-3">
+                <span className="tf-eyebrow">Provider provenance</span>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {result.provider_results.map((o) => (
+                    <li
+                      key={o.source}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted"
+                    >
+                      <Badge variant={o.status === "ok" ? "solid" : "outline"}>
+                        {o.status.replace("_", " ")}
+                      </Badge>
+                      <span className="text-foreground">{o.source}</span>
+                      {o.reason && <span>· {o.reason}</span>}
+                      {o.http_status ? <span>· HTTP {o.http_status}</span> : null}
+                      {o.cached && <span>· cached</span>}
+                      {o.mock && <span>· mock</span>}
+                      {o.latency_ms != null && <span>· {Math.round(o.latency_ms)} ms</span>}
+                      <span className="text-subtle">· {new Date(o.fetched_at).toLocaleTimeString()}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {vt && (
               <div className="border-t border-line pt-3">

@@ -15,9 +15,12 @@ from typing import Optional
 import httpx
 from Wappalyzer import Wappalyzer, WebPage
 
-from app.models.schemas import TechFingerprintResult, DetectedTechnology
+from app.core import providers as prov
+from app.models.schemas import DetectedTechnology, ProviderResult, TechFingerprintResult
 
 logger = logging.getLogger(__name__)
+
+SOURCE = "tech_fingerprint"
 
 # Initialize Wappalyzer globally
 try:
@@ -101,34 +104,49 @@ class TechFingerprintClient:
             scripts_analyzed=rng.randint(3, 12)
         )
 
-    async def fingerprint_url(self, url: str) -> TechFingerprintResult:
-        """Detect web technologies used by the page at ``url``."""
+    async def fingerprint_url(self, url: str) -> ProviderResult[TechFingerprintResult]:
+        """Detect web technologies used by the page at ``url``.
+
+        Returns a ``ProviderResult`` (A0-1).  "Nothing detected" on a page we *did* fetch is a
+        genuine ``ok`` answer; but a 5xx, a timeout, a Cloudflare/bot challenge page or a missing
+        Wappalyzer are ``error`` — they used to come back as an empty result and were counted as
+        a successful fingerprint.
+        """
         if self._use_mock:
-            return self._generate_mock(url)
-            
+            return prov.ok(SOURCE, self._generate_mock(url), http_status=None, mock=True)
+
         if not _WAPPALYZER:
-            return TechFingerprintResult()
+            return prov.error(SOURCE, "wappalyzer_unavailable")
 
         client = await self._get_client()
+        started = prov.start_timer()
         try:
             response = await client.get(url)
-            html = response.text
-            
-            # Check for bot-block / challenge pages
-            is_short = len(html) < 20000
-            lower_html = html.lower()
-            is_challenge = is_short and any(marker in lower_html for marker in ["just a moment", "attention required", "cloudflare"])
-            if is_challenge:
-                logger.warning("Response from %s appears to be a Cloudflare/bot challenge page. Skipping tech fingerprinting.", url)
-                return TechFingerprintResult()
-            
+        except Exception as e:
+            logger.warning("Tech fingerprinting request failed for %s: %s", url, e)
+            return prov.from_exception(SOURCE, e, started=started)
+
+        if response.status_code >= 500:
+            return prov.error(SOURCE, "server_error", http_status=response.status_code, started=started)
+
+        html = response.text
+
+        # Check for bot-block / challenge pages
+        is_short = len(html) < 20000
+        lower_html = html.lower()
+        is_challenge = is_short and any(marker in lower_html for marker in ["just a moment", "attention required", "cloudflare"])
+        if is_challenge:
+            logger.warning("Response from %s appears to be a Cloudflare/bot challenge page. Skipping tech fingerprinting.", url)
+            return prov.error(SOURCE, "bot_challenge", http_status=response.status_code, started=started)
+
+        try:
             # Prepare headers for Wappalyzer
             headers = {k: v for k, v in response.headers.items()}
-            
+
             # Create WebPage object and analyze
             page = WebPage(url=url, html=html, headers=headers)
             analysis = _WAPPALYZER.analyze_with_versions_and_categories(page)
-            
+
             # Convert analysis to DetectedTechnology objects
             detected = []
             for tech_name, tech_data in analysis.items():
@@ -139,14 +157,14 @@ class TechFingerprintClient:
                     categories=tech_data.get('categories', []),
                     confidence=100
                 ))
-            
+
             scripts_count = len(re.findall(r'<script', html, re.IGNORECASE))
-            
-            return TechFingerprintResult(
-                technologies=detected,
-                headers_analyzed=len(headers),
-                scripts_analyzed=scripts_count
-            )
-        except httpx.HTTPError as e:
-            logger.warning("Tech fingerprinting failed for %s: %s", url, e)
-            return TechFingerprintResult()
+        except Exception as e:  # Wappalyzer rule/regex failures must not look like "no tech"
+            logger.warning("Tech fingerprint analysis failed for %s: %s", url, e)
+            return prov.error(SOURCE, "analysis_failed", http_status=response.status_code, started=started)
+
+        return prov.ok(SOURCE, TechFingerprintResult(
+            technologies=detected,
+            headers_analyzed=len(headers),
+            scripts_analyzed=scripts_count,
+        ), http_status=response.status_code, started=started)

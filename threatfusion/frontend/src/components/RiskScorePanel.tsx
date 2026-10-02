@@ -50,10 +50,10 @@ function useSyncedReveal(
 }
 
 export interface RiskScorePanelProps {
-  /** Baseline heuristic score, 0..100. */
-  baselineScore: number;
-  /** ML fusion score, 0..100. */
-  mlScore: number;
+  /** Baseline heuristic score, 0..100; null = not computed (no evidence). */
+  baselineScore: number | null;
+  /** ML fusion score, 0..100; null = not computed (no evidence / model unavailable). */
+  mlScore: number | null;
   /** Optional backend severity label (preferred over numeric band). */
   severityLabel?: string | null;
   /** Remount / re-key to replay the reveal (e.g. scan_id). */
@@ -69,16 +69,16 @@ export function RiskScorePanel({
   className,
 }: RiskScorePanelProps) {
   const reduced = useReducedMotion();
-  const sev = resolveSeverity(mlScore / 100, severityLabel);
-  const delta = Math.round(mlScore - baselineScore);
+  const sev = resolveSeverity(mlScore == null ? null : mlScore / 100, severityLabel);
+  const delta = mlScore != null && baselineScore != null ? Math.round(mlScore - baselineScore) : null;
 
   const baselineAnim = useSyncedReveal(
-    baselineScore,
+    baselineScore ?? 0,
     FILL_MS,
     reduced,
     revealKey
   );
-  const mlAnim = useSyncedReveal(mlScore, FILL_MS, reduced, revealKey);
+  const mlAnim = useSyncedReveal(mlScore ?? 0, FILL_MS, reduced, revealKey);
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -86,13 +86,13 @@ export function RiskScorePanel({
         <ScoreCard
           label="Baseline Heuristic"
           subtitle="Weighted-sum rule score"
-          value={baselineAnim}
+          value={baselineScore == null ? null : baselineAnim}
           primary={false}
         />
         <ScoreCard
           label="ML Fusion (XGBoost)"
           subtitle="Learned multi-source score"
-          value={mlAnim}
+          value={mlScore == null ? null : mlAnim}
           primary
         />
       </div>
@@ -111,8 +111,7 @@ export function RiskScorePanel({
         <span className="font-mono text-[11px] uppercase tracking-wide2 text-subtle">
           Δ vs baseline{" "}
           <span className="text-foreground">
-            {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
-            {Math.abs(delta)}
+            {delta == null ? "n/a" : `${delta > 0 ? "+" : delta < 0 ? "−" : "±"}${Math.abs(delta)}`}
           </span>
         </span>
       </div>
@@ -128,11 +127,12 @@ function ScoreCard({
 }: {
   label: string;
   subtitle: string;
-  value: number;
+  value: number | null;
   primary: boolean;
 }) {
-  const display = Math.round(value);
-  const fill = Math.max(0, Math.min(100, value));
+  const unavailable = value == null;
+  const display = unavailable ? null : Math.round(value);
+  const fill = unavailable ? 0 : Math.max(0, Math.min(100, value));
 
   return (
     <Card
@@ -163,10 +163,10 @@ function ScoreCard({
       <div>
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-4xl font-semibold tabular-nums leading-none text-foreground">
-            {display}
+            {unavailable ? "—" : display}
           </span>
           <span className="font-mono text-xs uppercase tracking-wide2 text-subtle">
-            / 100
+            {unavailable ? "unavailable" : "/ 100"}
           </span>
         </div>
         <Progress value={fill} className="mt-4" aria-label={`${label} score`} />

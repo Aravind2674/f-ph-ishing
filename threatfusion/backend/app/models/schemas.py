@@ -24,11 +24,13 @@ Conventions
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, Field
+
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +49,84 @@ class TargetType(str, Enum):
     IP = "ip"
     URL = "url"
     FILE_HASH = "file_hash"
+
+
+class ProviderStatus(str, Enum):
+    """Outcome of one provider lookup — five *distinct* states (A0-1).
+
+    The original code collapsed all of these into "an empty result object", which then
+    flowed into the feature vector as zeros and was reported as a *successful* query.
+    An outage therefore looked exactly like a clean target.  Keeping the states apart is
+    what lets the UI say "unavailable" and the verdict say "unknown".
+    """
+
+    OK = "ok"                          # the provider answered with usable data
+    NOT_FOUND = "not_found"            # the provider answered: it has no record of this target
+    ERROR = "error"                    # the lookup failed (auth, rate limit, timeout, 5xx, bad payload…)
+    SKIPPED = "skipped"                # deliberately not run (not applicable to this target type)
+    NOT_CONFIGURED = "not_configured"  # needs a credential that is missing / still a placeholder
+
+
+class ProviderOutcome(BaseModel):
+    """Provenance of one provider call, *without* its payload (stored with every scan)."""
+
+    source: str = Field(..., description="Provider id, e.g. 'virustotal'")
+    status: ProviderStatus
+    http_status: Optional[int] = Field(None, description="HTTP status if a response was received")
+    reason: Optional[str] = Field(
+        None,
+        description="Short machine-readable code: auth | rate_limited | timeout | network | "
+                    "server_error | bad_request | parse_error | bot_challenge | partial:n/m …",
+    )
+    fetched_at: datetime = Field(..., description="When the data was fetched (UTC; original time if cached)")
+    cached: bool = Field(False, description="True if served from the local cache")
+    latency_ms: Optional[float] = Field(None, description="Network latency of the call, if one was made")
+    mock: bool = Field(False, description="True if produced by the mock layer, not a real provider")
+
+
+class ProviderResult(BaseModel, Generic[T]):
+    """What every ingestion client returns: data *plus* how we got (or failed to get) it.
+
+    ``data`` is populated only for ``ok`` (and never as a stand-in for a failure).  Note
+    that Pydantic models are always truthy, so callers must test ``status``/``ok`` — never
+    ``if result:`` (the audit's ``if vt:`` counted a failed lookup as a success).
+    """
+
+    source: str
+    status: ProviderStatus
+    data: Optional[T] = None
+    http_status: Optional[int] = None
+    reason: Optional[str] = None
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    cached: bool = False
+    latency_ms: Optional[float] = None
+    mock: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.status == ProviderStatus.OK
+
+    def outcome(self) -> ProviderOutcome:
+        """Provenance-only view (no payload) for the scan record / API response."""
+        return ProviderOutcome(
+            source=self.source, status=self.status, http_status=self.http_status,
+            reason=self.reason, fetched_at=self.fetched_at, cached=self.cached,
+            latency_ms=self.latency_ms, mock=self.mock,
+        )
+
+
+class FeatureCoverage(BaseModel):
+    """Which providers actually contributed features (the missingness flags of A0-1).
+
+    These are deliberately *not* part of ``FeatureVector``: the deployed XGBoost artifact
+    expects exactly 19 columns in a fixed order.  They are reported next to it and are
+    inputs for the retrained model (A2-1).
+    """
+
+    has_virustotal: bool = False
+    has_shodan: bool = False
+    has_cve: bool = False
+    has_tech: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -272,88 +352,91 @@ class FeatureVector(BaseModel):
     map back to meaningful labels.
 
     Each field carries a short security rationale in its ``description``.
+
+    **``None`` means "unknown"** (the provider that would supply it did not answer, or no
+    real signal exists yet) — never a neutral constant.  XGBoost receives NaN for it.
     """
 
     # ── VirusTotal features ──────────────────────────────────────────
-    vt_malicious_ratio: float = Field(
+    vt_malicious_ratio: Optional[float] = Field(
         0.0,
         description="Fraction of VT engines flagging as malicious (0.0–1.0)",
     )
-    vt_suspicious_ratio: float = Field(
+    vt_suspicious_ratio: Optional[float] = Field(
         0.0,
         description="Fraction of VT engines flagging as suspicious (0.0–1.0)",
     )
-    vt_reputation_score: float = Field(
+    vt_reputation_score: Optional[float] = Field(
         0.0,
         description="Normalised VT community reputation (−100…+100 mapped to 0–1)",
     )
-    vt_last_seen_days_ago: float = Field(
+    vt_last_seen_days_ago: Optional[float] = Field(
         0.0,
         description="Days since last VT analysis – stale data is riskier",
     )
 
     # ── Shodan features ─────────────────────────────────────────────
-    shodan_open_port_count: float = Field(
+    shodan_open_port_count: Optional[float] = Field(
         0.0,
         description="Number of open ports – larger attack surface means higher risk",
     )
-    shodan_has_high_risk_port: float = Field(
+    shodan_has_high_risk_port: Optional[float] = Field(
         0.0,
         description="1.0 if high‑risk ports (RDP 3389, Telnet 23, SMB 445, …) are open",
     )
-    shodan_cve_count: float = Field(
+    shodan_cve_count: Optional[float] = Field(
         0.0,
         description="Number of known CVEs on exposed services",
     )
-    shodan_max_cvss_score: float = Field(
+    shodan_max_cvss_score: Optional[float] = Field(
         0.0,
         description="Highest CVSS score among known CVEs (0.0–10.0)",
     )
-    shodan_has_iot_tag: float = Field(
+    shodan_has_iot_tag: Optional[float] = Field(
         0.0,
         description="1.0 if host is tagged as IoT",
     )
-    shodan_has_compromised_tag: float = Field(
+    shodan_has_compromised_tag: Optional[float] = Field(
         0.0,
         description="1.0 if host is tagged as compromised",
     )
-    shodan_service_diversity_score: float = Field(
+    shodan_service_diversity_score: Optional[float] = Field(
         0.0,
         description="Count of distinct product types exposed",
     )
-    shodan_high_risk_cpe_count: float = Field(
+    shodan_high_risk_cpe_count: Optional[float] = Field(
         0.0,
         description="Number of CPEs matching high-risk software (e.g., outdated servers)",
     )
 
     # ── Technology fingerprint features ──────────────────────────────
-    tech_count: float = Field(
+    tech_count: Optional[float] = Field(
         0.0,
         description="Number of detected technologies",
     )
-    tech_has_known_eol_component: float = Field(
+    tech_has_known_eol_component: Optional[float] = Field(
         0.0,
         description="1.0 if any end‑of‑life technology is detected",
     )
-    tech_avg_confidence: float = Field(
+    tech_avg_confidence: Optional[float] = Field(
         0.0,
         description="Average detection confidence across technologies (0.0–1.0)",
     )
-    tech_stack_diversity_count: float = Field(
+    tech_stack_diversity_count: Optional[float] = Field(
         0.0,
         description="Count of distinct tech categories (e.g. CMS + DB + Server = 3)",
     )
-    tech_has_eol_cms_version: float = Field(
+    tech_has_eol_cms_version: Optional[float] = Field(
         0.0,
         description="1.0 if an outdated/EOL CMS is specifically detected",
     )
 
     # ── Supplementary features ───────────────────────────────────────
-    ssl_cert_valid: float = Field(
+    ssl_cert_valid: Optional[float] = Field(
         1.0,
         description="1.0 if the SSL/TLS certificate is valid, 0.0 otherwise",
     )
-    domain_age_days: float = Field(
+    domain_age_days: Optional[float] = Field(
         0.0,
         description="Age of the domain in days – newly registered domains are riskier",
     )
@@ -374,9 +457,9 @@ class RiskExplanation(BaseModel):
         ...,
         description="Machine‑readable feature name matching FeatureVector field",
     )
-    feature_value: float = Field(
-        ...,
-        description="The actual numeric value of the feature for this scan",
+    feature_value: Optional[float] = Field(
+        None,
+        description="The actual numeric value of the feature for this scan (None = unknown)",
     )
     shap_value: float = Field(
         ...,
@@ -537,10 +620,34 @@ class ScanResult(BaseModel):
         default_factory=list,
         description="Names of data sources that timed out or errored",
     )
+    data_sources_not_found: list[str] = Field(
+        default_factory=list,
+        description="Sources that answered 'no record of this target' (a real answer, but no evidence)",
+    )
     data_sources_skipped: list[str] = Field(
         default_factory=list,
         description="Data sources that were not called because they are not configured "
                     "(missing/placeholder credential). Distinct from failed: nothing was attempted.",
+    )
+    summary: Optional[str] = Field(
+        None,
+        description="Plain-language summary that never claims more than the evidence supports",
+    )
+    provider_results: list[ProviderOutcome] = Field(
+        default_factory=list,
+        description="Per-provider provenance: status, HTTP status, reason, fetched_at, cached, latency",
+    )
+    feature_coverage: Optional[FeatureCoverage] = Field(
+        None, description="Which providers contributed features (missingness flags)",
+    )
+    verdict_status: str = Field(
+        "ok",
+        description="ok = every applicable source answered | partial = some did not | "
+                    "unknown = no reputation evidence at all (never shown as 'Low')",
+    )
+    verdict_reason: Optional[str] = Field(None, description="Human-readable reason for partial/unknown")
+    ml_status: Optional[str] = Field(
+        None, description="ok | model_not_loaded | insufficient_evidence",
     )
     mock_mode: bool = Field(
         False,

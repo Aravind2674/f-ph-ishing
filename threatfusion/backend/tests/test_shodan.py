@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.ingestion.shodan import ShodanClient
-from app.models.schemas import ShodanResult
+from app.models.schemas import ShodanResult, ProviderStatus
 
 
 @pytest.fixture
@@ -17,7 +17,9 @@ def shodan_client() -> ShodanClient:
 @pytest.mark.asyncio
 async def test_lookup_ip_internetdb(shodan_client: ShodanClient) -> None:
     """Test InternetDB (free) mock lookup."""
-    result = await shodan_client.lookup_ip("8.8.8.8")
+    res = await shodan_client.lookup_ip("8.8.8.8")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, ShodanResult)
     assert 53 in result.open_ports
     assert "dns.google" in result.hostnames
@@ -26,7 +28,9 @@ async def test_lookup_ip_internetdb(shodan_client: ShodanClient) -> None:
 @pytest.mark.asyncio
 async def test_lookup_ip_private(shodan_client: ShodanClient) -> None:
     """Test that private IPs return empty results."""
-    result = await shodan_client.lookup_ip("192.168.1.1")
+    res = await shodan_client.lookup_ip("192.168.1.1")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, ShodanResult)
     assert not result.open_ports
     assert not result.hostnames
@@ -35,7 +39,9 @@ async def test_lookup_ip_private(shodan_client: ShodanClient) -> None:
 @pytest.mark.asyncio
 async def test_lookup_ip_full(shodan_client: ShodanClient) -> None:
     """Test full API mock lookup."""
-    result = await shodan_client.lookup_ip_full("1.2.3.4")
+    res = await shodan_client.lookup_ip_full("1.2.3.4")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, ShodanResult)
     assert "vpn" in result.tags
     assert result.cpes

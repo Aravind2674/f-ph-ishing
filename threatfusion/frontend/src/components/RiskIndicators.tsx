@@ -10,8 +10,8 @@ import { MAX_BARS, resolveSeverity } from "@/lib/severity";
  */
 
 interface RiskProps {
-  /** 0..1 model probability. */
-  score: number;
+  /** 0..1 model probability; null/undefined = unknown. */
+  score: number | null | undefined;
   /** Optional backend label (preferred over the numeric band when recognised). */
   label?: string | null;
   className?: string;

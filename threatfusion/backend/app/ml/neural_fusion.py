@@ -140,12 +140,19 @@ class NeuralFusionModel:
         so inference reproduces training pre-processing exactly.
         """
         assert self._config is not None
-        names = self._config.feature_names or list(features.model_fields)
+        names = self._config.feature_names or list(type(features).model_fields)
+        raw = [getattr(features, n) for n in names]
         values = np.array(
-            [float(getattr(features, n)) for n in names], dtype=np.float64
+            [np.nan if v is None else float(v) for v in raw], dtype=np.float64
         )
         mean = np.array(self._config.tab_mean, dtype=np.float64)
         std = np.array(self._config.tab_std, dtype=np.float64)
+        # Unknown (None) features take the training mean, i.e. a standardised value of 0 —
+        # "no information", the neutral input the branch was trained on. (A0-1)
+        if mean.size == values.size:
+            values = np.where(np.isnan(values), mean, values)
+        else:
+            values = np.nan_to_num(values, nan=0.0)
         if mean.size == values.size and std.size == values.size:
             # Guard against divide-by-zero for constant columns.
             std = np.where(std < 1e-8, 1.0, std)

@@ -5,7 +5,7 @@ export interface ScanRequest {
 
 export interface RiskExplanation {
   feature_name: string;
-  feature_value: number;
+  feature_value: number | null; // null = unknown (provider did not answer)
   shap_value: number;
   human_readable: string;
 }
@@ -38,14 +38,43 @@ export interface AttackPath {
   summary: string;
 }
 
+// Provenance of one provider call (A0-1). `status` is the truth about the lookup:
+// "no record" (not_found) and "lookup failed" (error) are different things.
+export type ProviderStatus = "ok" | "not_found" | "error" | "skipped" | "not_configured";
+
+export interface ProviderOutcome {
+  source: string;
+  status: ProviderStatus;
+  http_status?: number | null;
+  reason?: string | null; // auth | rate_limited | timeout | network | server_error | parse_error | …
+  fetched_at: string;
+  cached: boolean;
+  latency_ms?: number | null;
+  mock: boolean;
+}
+
+export interface FeatureCoverage {
+  has_virustotal: boolean;
+  has_shodan: boolean;
+  has_cve: boolean;
+  has_tech: boolean;
+}
+
 export interface ScanResult {
   scan_id: string;
   target: string;
   target_type: string;
   timestamp: string;
-  baseline_score: number;
-  ml_score: number;
-  ml_label: string;
+  // null = not computed (no evidence / model not loaded) — never shown as 0.
+  baseline_score: number | null;
+  ml_score: number | null;
+  ml_label: string; // "Unknown" when ml_score is null
+  ml_status?: "ok" | "model_not_loaded" | "insufficient_evidence" | null;
+  // ok = every applicable source answered | partial | unknown = no reputation evidence
+  verdict_status?: "ok" | "partial" | "unknown";
+  verdict_reason?: string | null;
+  provider_results?: ProviderOutcome[];
+  feature_coverage?: FeatureCoverage | null;
   // Neural fusion model (char-CNN + tabular). Optional — present only when the
   // trained checkpoint is available on the backend.
   neural_score?: number | null;
@@ -61,6 +90,8 @@ export interface ScanResult {
   cve: any;
   data_sources_succeeded: string[];
   data_sources_failed: string[];
+  // Sources that answered "no record of this target" (an answer, but no evidence).
+  data_sources_not_found?: string[];
   // Providers that were NOT called because they are not configured (missing or
   // placeholder credential). Different from "failed": nothing was attempted.
   data_sources_skipped?: string[];
@@ -77,9 +108,9 @@ export interface ScanHistoryItem {
   target: string;
   target_type: string;
   timestamp: string;
-  baseline_score: number;
-  ml_score: number;
-  ml_label: string;
+  baseline_score: number | null;
+  ml_score: number | null;
+  ml_label: string | null;
   neural_score?: number | null;
   neural_label?: string | null;
 }

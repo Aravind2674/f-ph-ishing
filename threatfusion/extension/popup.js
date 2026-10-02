@@ -84,17 +84,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const res = data.result;
-      const score01 = res.ml_score || 0;
-      const sev = severity(score01);
+      // A null score means "no evidence" (provider outage / model unavailable). Never show it as 0
+      // or "MINIMAL": that would read as a clean target.
+      const hasScore = res.ml_score !== null && res.ml_score !== undefined;
+      const score01 = hasScore ? res.ml_score : 0;
+      const sev = hasScore
+        ? severity(score01)
+        : { label: 'UNKNOWN', bars: 0, weight: 400 };
 
-      mlScore.textContent = Math.round(score01 * 100);
+      mlScore.textContent = hasScore ? Math.round(score01 * 100) : '—';
       riskLabel.textContent = sev.label;
       riskLabel.style.fontWeight = String(sev.weight);
       riskLabel.style.color =
-        score01 >= 0.6 ? 'var(--foreground)' : 'var(--muted)';
+        hasScore && score01 >= 0.6 ? 'var(--foreground)' : 'var(--muted)';
       paintMeter(sev.bars);
 
-      baselineScore.textContent = Math.round((res.baseline_score || 0) * 100);
+      baselineScore.textContent =
+        res.baseline_score === null || res.baseline_score === undefined
+          ? '—'
+          : Math.round(res.baseline_score * 100);
 
       avDetects.textContent = res.virustotal
         ? `${res.virustotal.malicious_count}/${res.virustotal.total_engines}`

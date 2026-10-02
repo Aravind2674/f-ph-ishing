@@ -29,7 +29,9 @@ import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 type SortKey = "target" | "timestamp" | "baseline_score" | "ml_score";
 type SortDir = "asc" | "desc";
 
-const finalScore = (s: ScanHistoryItem) => s.ml_score ?? s.baseline_score;
+// No silent fallback to the baseline: a missing ML score stays missing (shown as "—").
+const finalScore = (s: ScanHistoryItem): number | null => s.ml_score;
+const fmt100 = (n: number | null | undefined) => (n == null ? "—" : (n * 100).toFixed(0));
 
 /** A single monochrome KPI tile. */
 function Kpi({
@@ -84,7 +86,7 @@ export const History: React.FC = () => {
 
   // ── Derived summary metrics (all monochrome) ──────────────────────────
   const total = history.length;
-  const highRisk = history.filter((s) => finalScore(s) >= 0.6).length;
+  const highRisk = history.filter((s) => (finalScore(s) ?? 0) >= 0.6).length;
   const uniqueTargets = new Set(history.map((s) => s.target)).size;
 
   // ── Client-side sort ──────────────────────────────────────────────────
@@ -256,10 +258,10 @@ export const History: React.FC = () => {
                       })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs tabular-nums text-muted">
-                      {(scan.baseline_score * 100).toFixed(0)}
+                      {fmt100(scan.baseline_score)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
-                      {(finalScore(scan) * 100).toFixed(0)}
+                      {fmt100(finalScore(scan))}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-2.5">

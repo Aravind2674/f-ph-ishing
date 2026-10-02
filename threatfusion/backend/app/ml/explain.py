@@ -83,11 +83,11 @@ def explain_prediction(
     local_shap = shap_vals[0]
     
     explanations = []
-    for name, shap_val in zip(features.model_fields.keys(), local_shap):
+    for name, shap_val in zip(type(features).model_fields.keys(), local_shap):
         feat_val = getattr(features, name)
         explanations.append(RiskExplanation(
             feature_name=name,
-            feature_value=float(feat_val),
+            feature_value=None if feat_val is None else float(feat_val),
             shap_value=float(shap_val),
             human_readable=_format_explanation(name, feat_val, shap_val),
         ))
@@ -119,6 +119,10 @@ def _format_explanation(
         "domain_age_days": "Domain age is {val:.0f} days",
     }
     
+    if feature_value is None:  # provider did not answer / no real signal: say so, don't invent
+        sign = "+" if shap_value > 0 else ""
+        return f"{feature_name.replace('_', ' ')} is unavailable (unknown) ({sign}{shap_value:.2f} risk)"
+
     # For binary flags, we can make the language more natural if they are false (0.0)
     if feature_value == 0.0:
         if feature_name == "shodan_has_high_risk_port":

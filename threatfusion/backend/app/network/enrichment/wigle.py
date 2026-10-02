@@ -34,9 +34,43 @@ from typing import Optional
 
 import httpx
 
+from app.core import providers as prov
+from app.models.schemas import ProviderResult, ProviderStatus
 from app.network.models import WigleResult
 
 logger = logging.getLogger(__name__)
+
+SOURCE = "wigle"
+
+_HUMAN = {
+    "not_configured": "WiGLE credentials not configured (set WIGLE_API_NAME / WIGLE_API_TOKEN)",
+    "auth": "WiGLE authentication failed (HTTP 401/403) — check credentials",
+    "rate_limited": "WiGLE rate limit reached (429) — daily quota exhausted",
+    "parse_error": "WiGLE response was not usable JSON",
+}
+
+
+def to_evidence(res: ProviderResult[WigleResult], bssid: str) -> WigleResult:
+    """Bridge a ``ProviderResult`` to the alert-evidence model the engine and UI already use.
+
+    ``ok`` → the parsed result; ``not_found`` → a real answer "WiGLE has never seen this BSSID"
+    (a *signal*); anything else → ``available=False`` with the reason, so the AP is scored on
+    its other signals and the alert says why.
+    """
+    if res.status == ProviderStatus.OK and res.data is not None:
+        return res.data
+    if res.status == ProviderStatus.NOT_FOUND:
+        return WigleResult(available=True, bssid=bssid, found=False, total_observations=0)
+    code = res.reason or res.status.value
+    if code in _HUMAN:
+        reason = _HUMAN[code]
+    elif code.startswith("http_"):
+        reason = f"WiGLE returned HTTP {code[5:]}"
+    elif code.startswith("api_error"):
+        reason = f"WiGLE error: {code.partition(':')[2] or 'unknown'}"
+    else:
+        reason = f"WiGLE request failed: {code}"
+    return WigleResult(available=False, reason=reason, bssid=bssid)
 
 
 class WigleClient:
@@ -75,67 +109,50 @@ class WigleClient:
             await self._client.aclose()
             self._client = None
 
-    async def lookup_bssid(self, bssid: str) -> WigleResult:
+    async def lookup_bssid(self, bssid: str) -> ProviderResult[WigleResult]:
         """Query WiGLE for the public history of a single BSSID.
 
-        Returns a fully-populated :class:`WigleResult` on success, or an
-        ``available=False`` result carrying the concrete failure reason.
+        Returns a ``ProviderResult`` (A0-1): ``ok`` (found), ``not_found`` (WiGLE has never
+        seen it — meaningful for rogue-AP scoring), ``not_configured`` or ``error`` with a
+        reason code.  Use :func:`to_evidence` for the alert-evidence view.
         """
         if not self.configured:
-            return WigleResult(
-                available=False,
-                reason="WiGLE credentials not configured (set WIGLE_API_NAME / WIGLE_API_TOKEN)",
-                bssid=bssid,
-            )
+            return prov.not_configured(SOURCE)
 
         client = await self._get_client()
+        started = prov.start_timer()
         try:
             resp = await client.get(
                 f"{self._base_url}/network/search",
                 params={"netid": bssid},
             )
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.warning("WiGLE request error for %s: %s", bssid, e)
-            return WigleResult(available=False, reason=f"WiGLE request failed: {e}", bssid=bssid)
+            return prov.from_exception(SOURCE, e, started=started)
 
-        if resp.status_code == 401:
-            return WigleResult(
-                available=False, reason="WiGLE authentication failed (401) — check credentials",
-                bssid=bssid,
-            )
-        if resp.status_code == 429:
-            return WigleResult(
-                available=False, reason="WiGLE rate limit reached (429) — daily quota exhausted",
-                bssid=bssid,
-            )
-        if resp.status_code != 200:
-            return WigleResult(
-                available=False,
-                reason=f"WiGLE returned HTTP {resp.status_code}",
-                bssid=bssid,
-            )
+        # WiGLE: 404 is not used for "no results" (that is a 200 with totalResults=0).
+        failure = prov.from_http_status(SOURCE, resp.status_code, started=started)
+        if failure is not None:
+            if failure.status == ProviderStatus.NOT_FOUND:  # unexpected 404 → treat as an error
+                return prov.error(SOURCE, "http_404", http_status=404, started=started)
+            return failure
 
         try:
             data = resp.json()
-        except ValueError as e:
-            return WigleResult(available=False, reason=f"WiGLE response not JSON: {e}", bssid=bssid)
+        except ValueError:
+            return prov.error(SOURCE, "parse_error", http_status=resp.status_code, started=started)
 
-        if not data.get("success", False):
+        if not isinstance(data, dict) or not data.get("success", False):
             # WiGLE reports auth/quota problems in-band with success=false.
-            msg = data.get("message", "unknown error")
-            return WigleResult(available=False, reason=f"WiGLE error: {msg}", bssid=bssid)
+            msg = str((data or {}).get("message", "unknown error"))[:80] if isinstance(data, dict) else "bad payload"
+            return prov.error(SOURCE, f"api_error:{msg}", http_status=resp.status_code, started=started)
 
         results = data.get("results", []) or []
         total = int(data.get("totalResults", len(results)) or 0)
 
         if total == 0 or not results:
             # A real, meaningful answer: WiGLE has never publicly seen this AP.
-            return WigleResult(
-                available=True,
-                bssid=bssid,
-                found=False,
-                total_observations=0,
-            )
+            return prov.not_found(SOURCE, http_status=resp.status_code, started=started)
 
         top = results[0]
         ssids = []
@@ -144,7 +161,7 @@ class WigleClient:
             if s and s not in ssids:
                 ssids.append(s)
 
-        return WigleResult(
+        return prov.ok(SOURCE, WigleResult(
             available=True,
             bssid=bssid,
             found=True,
@@ -152,4 +169,4 @@ class WigleClient:
             first_seen=top.get("firsttime"),
             last_seen=top.get("lasttime"),
             known_ssids=ssids[:5],
-        )
+        ), http_status=resp.status_code, started=started)

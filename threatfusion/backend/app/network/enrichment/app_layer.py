@@ -82,6 +82,15 @@ def _ml_label(score: float) -> str:
     return "Critical"
 
 
+def _unavailable_reason(name: str, res) -> str:
+    """Human-readable 'why there is no score' from a non-ok ProviderResult."""
+    if res.status.value == "not_found":
+        return f"{name} has no record of this target"
+    detail = res.reason or res.status.value
+    http = f" (HTTP {res.http_status})" if res.http_status else ""
+    return f"{name} lookup unavailable: {detail}{http}"
+
+
 def _looks_like_ip(target: str) -> bool:
     try:
         socket.inet_aton(target)
@@ -127,40 +136,28 @@ class AppLayerScorer:
         )
 
         try:
-            vt = None
             shodan = None
-            try:
-                # Domains and IPs both go through lookup_domain in the
-                # existing client contract (mock handles IP-as-domain, and
-                # live VT resolves domains directly).
-                vt = await vt_client.lookup_domain(target)
-            except Exception as e:  # real error → honest degradation
-                logger.warning("App-Layer VT lookup failed for %s: %s", target, e)
+            # Domains and IPs both go through lookup_domain in the existing client contract
+            # (mock handles IP-as-domain, and live VT resolves domains directly).
+            # The client never raises: it returns a ProviderResult whose status says what
+            # happened. Only an `ok` answer is scored — a failed lookup used to arrive here as
+            # an empty result and was reported as "0/0 engines (live)".
+            vt_res = await vt_client.lookup_domain(target)
+            if not vt_res.ok:
                 return AppLayerSubScore(
                     available=False,
-                    reason=f"VirusTotal lookup failed: {e}",
+                    reason=_unavailable_reason("VirusTotal", vt_res),
                     target=target,
                     target_type=target_type,
                     live=not use_mock,
                 )
-
-            if vt is None:
-                return AppLayerSubScore(
-                    available=False,
-                    reason="VirusTotal returned no data",
-                    target=target,
-                    target_type=target_type,
-                    live=not use_mock,
-                )
+            vt = vt_res.data
 
             # For IPs we can additionally consult Shodan/InternetDB for real
             # exposure context (free, no key needed).
             if target_type == "ip":
-                try:
-                    shodan = await shodan_client.lookup_ip(target)
-                except Exception as e:
-                    logger.warning("App-Layer Shodan lookup failed for %s: %s", target, e)
-                    shodan = None
+                sh_res = await shodan_client.lookup_ip(target)
+                shodan = sh_res.data if sh_res.ok else None
 
             features = extract_features(vt, shodan, None, None)
             b_score = baseline_score(features)

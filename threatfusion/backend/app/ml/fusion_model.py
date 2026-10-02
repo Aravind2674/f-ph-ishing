@@ -161,5 +161,8 @@ class FusionModel:
             Shape ``(1, 13)`` float64 array.
         """
         # Ensure ordering matches exactly what XGBoost expects based on schemas.py
-        values = [getattr(features, name) for name in features.model_fields]
+        # Unknown (None) -> NaN: XGBoost treats NaN as 'missing' and routes it down the learned
+        # default branch, instead of being fed a made-up 0.0 / neutral constant (A0-1).
+        values = [np.nan if getattr(features, name) is None else getattr(features, name)
+                  for name in type(features).model_fields]
         return np.array([values], dtype=np.float64)
