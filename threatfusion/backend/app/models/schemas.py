@@ -537,6 +537,11 @@ class ScanResult(BaseModel):
         default_factory=list,
         description="Names of data sources that timed out or errored",
     )
+    data_sources_skipped: list[str] = Field(
+        default_factory=list,
+        description="Data sources that were not called because they are not configured "
+                    "(missing/placeholder credential). Distinct from failed: nothing was attempted.",
+    )
     mock_mode: bool = Field(
         False,
         description="True when the scan used mock/synthetic data instead of live APIs",

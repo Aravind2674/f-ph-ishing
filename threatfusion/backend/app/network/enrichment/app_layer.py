@@ -108,6 +108,17 @@ class AppLayerScorer:
         if target_type is None:
             target_type = "ip" if _looks_like_ip(target) else "domain"
 
+        # A0-5: without a real VirusTotal credential there is nothing honest to score.
+        # Report "unavailable" with the reason instead of calling VT with a placeholder.
+        if not settings.provider_statuses()["virustotal"].configured:
+            return AppLayerSubScore(
+                available=False,
+                reason="VirusTotal is not configured (set VIRUSTOTAL_API_KEY)",
+                target=target,
+                target_type=target_type,
+                live=not use_mock,
+            )
+
         vt_client = VirusTotalClient(
             api_key=settings.VIRUSTOTAL_API_KEY, use_mock=use_mock
         )

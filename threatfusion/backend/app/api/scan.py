@@ -112,10 +112,14 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     
     sources_succeeded = []
     sources_failed = []
-    
+    # Providers we did not call because they are not configured (A0-5). "Skipped" is not
+    # "failed": nothing was attempted, so it must not look like an outage or a clean result.
+    sources_skipped: list[str] = []
+
     from app.core.config import get_settings
     settings = get_settings()
     use_mock = settings.USE_MOCK_DATA
+    providers = settings.provider_statuses()
     
     vt_client = VirusTotalClient(api_key=settings.VIRUSTOTAL_API_KEY, use_mock=use_mock)
     shodan_client = ShodanClient(api_key=settings.SHODAN_API_KEY, use_mock=use_mock)
@@ -128,22 +132,25 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     try:
         # ── 1. Data Enrichment (Sequential for rate-limit safety) ───────
         
-        # VirusTotal
-        try:
-            if request.target_type == TargetType.DOMAIN:
-                vt = await vt_client.lookup_domain(request.target)
-            elif request.target_type == TargetType.IP:
-                vt = await vt_client.lookup_domain(request.target) # Mock VT handles IP as domain
-            elif request.target_type == TargetType.URL:
-                vt = await vt_client.lookup_url(request.target)
-            elif request.target_type == TargetType.FILE_HASH:
-                vt = await vt_client.lookup_file_hash(request.target)
+        # VirusTotal (needs a real key in live mode; never send a placeholder upstream)
+        if not providers["virustotal"].configured:
+            sources_skipped.append("VirusTotal")
+        else:
+            try:
+                if request.target_type == TargetType.DOMAIN:
+                    vt = await vt_client.lookup_domain(request.target)
+                elif request.target_type == TargetType.IP:
+                    vt = await vt_client.lookup_domain(request.target) # Mock VT handles IP as domain
+                elif request.target_type == TargetType.URL:
+                    vt = await vt_client.lookup_url(request.target)
+                elif request.target_type == TargetType.FILE_HASH:
+                    vt = await vt_client.lookup_file_hash(request.target)
             
-            if vt:
-                sources_succeeded.append("VirusTotal")
-        except Exception as e:
-            logger.warning("VirusTotal lookup failed: %s", e)
-            sources_failed.append("VirusTotal")
+                if vt:
+                    sources_succeeded.append("VirusTotal")
+            except Exception as e:
+                logger.warning("VirusTotal lookup failed: %s", e)
+                sources_failed.append("VirusTotal")
 
         # Shodan (Only relevant for IPs and Domains)
         if request.target_type in (TargetType.IP, TargetType.DOMAIN):
@@ -169,15 +176,18 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 logger.warning("Shodan lookup failed: %s", e)
                 sources_failed.append("Shodan")
 
-        # NVD / CVE (Triggers if Shodan found vulnerabilities)
+        # NVD / CVE (Triggers if Shodan found vulnerabilities; needs a real key)
         if shodan and shodan.vulns:
-            try:
-                cve = await cve_client.lookup_cves(shodan.vulns)
-                if cve:
-                    sources_succeeded.append("NVD")
-            except Exception as e:
-                logger.warning("CVE lookup failed: %s", e)
-                sources_failed.append("NVD")
+            if not providers["nvd"].configured:
+                sources_skipped.append("NVD")
+            else:
+                try:
+                    cve = await cve_client.lookup_cves(shodan.vulns)
+                    if cve:
+                        sources_succeeded.append("NVD")
+                except Exception as e:
+                    logger.warning("CVE lookup failed: %s", e)
+                    sources_failed.append("NVD")
 
         # Technology Fingerprinting (Only relevant for URLs/Domains)
         if request.target_type in (TargetType.URL, TargetType.DOMAIN):
@@ -282,6 +292,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             summary=summary_text,
             data_sources_succeeded=sources_succeeded,
             data_sources_failed=sources_failed,
+            data_sources_skipped=sources_skipped,
             mock_mode=use_mock
         )
         

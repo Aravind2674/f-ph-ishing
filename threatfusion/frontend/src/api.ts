@@ -61,6 +61,9 @@ export interface ScanResult {
   cve: any;
   data_sources_succeeded: string[];
   data_sources_failed: string[];
+  // Providers that were NOT called because they are not configured (missing or
+  // placeholder credential). Different from "failed": nothing was attempted.
+  data_sources_skipped?: string[];
 }
 
 export interface ScanResponse {
@@ -83,10 +86,18 @@ export interface ScanHistoryItem {
 
 // Mirrors backend HealthResponse (GET /health). `mock_mode` lets the UI show a
 // clear mock/live indicator so a viewer always knows whether data is synthetic.
+export interface ProviderHealth {
+  configured: boolean;
+  mock: boolean;
+  // configured | placeholder | missing | keyless | local | mock  (never a credential value)
+  state: string;
+}
+
 export interface HealthResponse {
   status: string;
   version: string;
   mock_mode: boolean;
+  providers?: Record<string, ProviderHealth>;
 }
 
 // ── Phase 2/3 — neural HTTP attack classifier ────────────────────────────────

@@ -16,10 +16,50 @@ Design decisions
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import dataclass
 from functools import lru_cache
-from typing import ClassVar
+from typing import Any, ClassVar
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# ── Placeholder detection (A0-5) ────────────────────────────────────────────
+# `.env.example` ships values like PASTE_YOUR_NVD_KEY_HERE. If a key is simply absent from
+# `.env`, the old code fell back to such a sentinel — a *truthy* string that clients then
+# sent to the provider as if it were a credential (audit §F.2: NVD). Anything that looks
+# like a template value is now treated as "unset", and unset means "never call".
+_PLACEHOLDER_RE = re.compile(
+    r"^(paste[_\-\s]?your.*"
+    r"|your[_\-\s].*(here|key|token|secret).*"
+    r"|<.*>"
+    r"|change[_\-]?me"
+    r"|todo|tbd|none|null"
+    r"|x{3,}|\*{3,})$",
+    re.IGNORECASE,
+)
+
+# Settings fields that hold provider credentials (values are never logged or returned).
+_CREDENTIAL_FIELDS = (
+    "VIRUSTOTAL_API_KEY", "SHODAN_API_KEY", "NVD_API_KEY", "WIGLE_API_NAME", "WIGLE_API_TOKEN",
+)
+
+
+def is_placeholder_secret(value: str | None) -> bool:
+    """True for empty values and template/sentinel strings (never a usable credential)."""
+    v = (value or "").strip()
+    return not v or bool(_PLACEHOLDER_RE.match(v))
+
+
+@dataclass(frozen=True)
+class ProviderConfigStatus:
+    """Whether one provider can be called. Carries labels only — never credential values."""
+
+    name: str
+    configured: bool
+    mock: bool
+    # 'configured' | 'placeholder' | 'missing' | 'keyless' | 'local' | 'mock'
+    state: str
 
 
 class Settings(BaseSettings):
@@ -30,11 +70,12 @@ class Settings(BaseSettings):
     """
 
     # ── External API keys ───────────────────────────────────────────────
-    # Default values are sentinel placeholders so the app never crashes
-    # on startup; the mock layer intercepts calls when keys are missing.
-    VIRUSTOTAL_API_KEY: str = "PASTE_YOUR_VIRUSTOTAL_KEY_HERE"
-    SHODAN_API_KEY: str = "PASTE_YOUR_SHODAN_KEY_HERE"
-    NVD_API_KEY: str = "PASTE_YOUR_NVD_KEY_HERE"
+    # Unset ("") by default — never a sentinel string. A provider whose credential is
+    # unset (or still a template placeholder, see `is_placeholder_secret`) is *not
+    # configured*: live mode skips it and says so, instead of sending junk upstream.
+    VIRUSTOTAL_API_KEY: str = ""
+    SHODAN_API_KEY: str = ""
+    NVD_API_KEY: str = ""
 
     # ── WiGLE (Network Layer, rogue-AP signal) ──────────────────────────
     # WiGLE uses HTTP Basic auth with an API *name* + *token* (not a single
@@ -95,6 +136,60 @@ class Settings(BaseSettings):
     DEAUTH_FLOOD_THRESHOLD: int = 20
     DEAUTH_WINDOW_SECONDS: int = 10
 
+    # Names of credential fields that were present but still template placeholders
+    # (recorded by the validator below so startup can say "placeholder" vs "missing").
+    placeholder_fields: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_placeholder_credentials(cls, data: Any) -> Any:
+        """Turn template values into "" and remember which fields were templates."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        flagged: list[str] = []
+        for key in list(data):
+            if key.upper() in _CREDENTIAL_FIELDS:
+                raw = data[key]
+                if isinstance(raw, str) and raw.strip() and is_placeholder_secret(raw):
+                    flagged.append(key.upper())
+                if isinstance(raw, str) and is_placeholder_secret(raw):
+                    data[key] = ""
+        data["placeholder_fields"] = tuple(flagged)
+        return data
+
+    def _credential_state(self, *fields: str) -> tuple[bool, str]:
+        """(configured?, state-label) for a provider that needs all of ``fields``."""
+        if all(getattr(self, f) for f in fields):
+            return True, "configured"
+        if any(f in self.placeholder_fields for f in fields):
+            return False, "placeholder"
+        return False, "missing"
+
+    def provider_statuses(self) -> dict[str, ProviderConfigStatus]:
+        """Per-provider readiness, used by /health, the startup log and /scan gating.
+
+        In mock mode every provider is served by the mock layer, so all are usable.
+        In live mode a provider that needs a credential is usable only if it has one.
+        """
+        mock = self.USE_MOCK_DATA
+
+        def status(name: str, configured: bool, state: str) -> ProviderConfigStatus:
+            if mock:
+                return ProviderConfigStatus(name, True, True, "mock")
+            return ProviderConfigStatus(name, configured, False, state)
+
+        vt_ok, vt_state = self._credential_state("VIRUSTOTAL_API_KEY")
+        nvd_ok, nvd_state = self._credential_state("NVD_API_KEY")
+        wigle_ok, wigle_state = self._credential_state("WIGLE_API_NAME", "WIGLE_API_TOKEN")
+        return {
+            "virustotal": status("virustotal", vt_ok, vt_state),
+            "shodan_internetdb": status("shodan_internetdb", True, "keyless"),
+            "nvd": status("nvd", nvd_ok, nvd_state),
+            "tech_fingerprint": status("tech_fingerprint", True, "local"),
+            "wigle": status("wigle", wigle_ok, wigle_state),
+        }
+
     # ── Pydantic-settings configuration ─────────────────────────────────
     # ``env_file`` tells pydantic-settings to read a `.env` next to the
     # working directory.  ``extra="ignore"`` means unknown env vars won't
@@ -137,3 +232,18 @@ def startup_warnings() -> None:
         logger.warning(banner)
     else:
         logger.info("Live mode active — using real API keys for enrichment.")
+
+
+def log_provider_table(settings: Settings | None = None) -> None:
+    """Log one line per provider: configured / placeholder / missing / mock. Never values."""
+    settings = settings or get_settings()
+    logger = logging.getLogger("threatfusion.config")
+    rows = settings.provider_statuses()
+    width = max(len(n) for n in rows)
+    lines = [f"  {name:<{width}}  {'usable' if st.configured else 'NOT usable':<10} ({st.state})"
+             for name, st in rows.items()]
+    mode = "MOCK" if settings.USE_MOCK_DATA else "LIVE"
+    logger.info("Provider configuration (%s mode):\n%s", mode, "\n".join(lines))
+    unusable = [n for n, st in rows.items() if not st.configured]
+    if unusable:
+        logger.warning("Providers that will be skipped (not configured): %s", ", ".join(unusable))

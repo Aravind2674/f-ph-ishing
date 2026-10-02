@@ -493,6 +493,18 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                 <span className="text-xs text-subtle">None</span>
               )}
             </DataRow>
+            {!!result.data_sources_skipped?.length && (
+              <DataRow label={`Not configured · ${result.data_sources_skipped.length}`}>
+                {result.data_sources_skipped.map((s) => (
+                  <Badge key={s} variant="subtle">
+                    {s}
+                  </Badge>
+                ))}
+                <span className="text-xs text-subtle">
+                  Not queried — no usable credential. This is missing evidence, not a clean result.
+                </span>
+              </DataRow>
+            )}
             {vt && (
               <div className="border-t border-line pt-3">
                 <span className="tf-eyebrow">Antivirus Detections</span>

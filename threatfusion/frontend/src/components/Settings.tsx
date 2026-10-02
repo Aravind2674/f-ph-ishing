@@ -10,7 +10,7 @@ import {
   Info,
   type LucideIcon,
 } from "lucide-react";
-import { fetchHealth } from "@/api";
+import { fetchHealth, type ProviderHealth } from "@/api";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,8 @@ interface Source {
   env: string;
   desc: string;
   keyless?: boolean;
+  // Name of this source in GET /health -> providers
+  provider: string;
 }
 
 const SOURCES: Source[] = [
@@ -41,13 +43,15 @@ const SOURCES: Source[] = [
     name: "VirusTotal",
     icon: ShieldCheck,
     env: "VIRUSTOTAL_API_KEY",
-    desc: "File & URL reputation, AV engine detections.",
+    provider: "virustotal",
+    desc: "File & URL reputation, AV engine detections. Needs a key; without one it is skipped.",
   },
   {
     id: "shodan",
     name: "Shodan",
     icon: Radar,
     env: "SHODAN_API_KEY",
+    provider: "shodan_internetdb",
     desc: "Host exposure, open ports, service CPEs. InternetDB works without a key.",
   },
   {
@@ -55,19 +59,28 @@ const SOURCES: Source[] = [
     name: "CVE / NVD",
     icon: Bug,
     env: "NVD_API_KEY",
-    desc: "Vulnerability severity enrichment. Key is optional (raises rate limits).",
+    provider: "nvd",
+    desc: "Vulnerability severity enrichment. Needs a key; without one CVE enrichment is skipped (and reported as not configured).",
   },
   {
     id: "tech",
     name: "Tech Fingerprint",
     icon: Boxes,
     env: "—",
+    provider: "tech_fingerprint",
     desc: "Local Wappalyzer-style detection. Runs entirely on the backend.",
     keyless: true,
   },
 ];
 
-function SourceRow({ source }: { source: Source }) {
+function stateLabel(p?: ProviderHealth): { text: string; variant: "solid" | "subtle" | "outline" } | null {
+  if (!p) return null;
+  if (p.mock) return { text: "Mock", variant: "subtle" };
+  if (p.configured) return { text: p.state === "keyless" ? "Keyless" : "Configured", variant: "solid" };
+  return { text: p.state === "placeholder" ? "Not configured · placeholder" : "Not configured", variant: "outline" };
+}
+
+function SourceRow({ source, provider }: { source: Source; provider?: ProviderHealth }) {
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
   const Icon = source.icon;
@@ -89,6 +102,9 @@ function SourceRow({ source }: { source: Source }) {
               <span className="font-mono text-[10px] text-subtle">
                 {source.env}
               </span>
+            )}
+            {!source.keyless && stateLabel(provider) && (
+              <Badge variant={stateLabel(provider)!.variant}>{stateLabel(provider)!.text}</Badge>
             )}
           </div>
           <p className="mt-0.5 max-w-sm text-xs text-subtle">{source.desc}</p>
@@ -127,12 +143,14 @@ export const Settings: React.FC = () => {
   const [mock, setMock] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [known, setKnown] = useState(false);
+  const [providers, setProviders] = useState<Record<string, ProviderHealth>>({});
 
-  // Seed the toggle from the backend's reported mode.
+  // Seed the toggle (and per-provider readiness) from the backend's reported state.
   useEffect(() => {
     fetchHealth()
       .then((h) => {
         setMock(h.mock_mode);
+        setProviders(h.providers ?? {});
         setKnown(true);
       })
       .catch(() => setKnown(false));
@@ -213,7 +231,7 @@ export const Settings: React.FC = () => {
         </div>
         <div className="divide-y divide-line">
           {SOURCES.map((s) => (
-            <SourceRow key={s.id} source={s} />
+            <SourceRow key={s.id} source={s} provider={providers[s.provider]} />
           ))}
         </div>
       </Card>

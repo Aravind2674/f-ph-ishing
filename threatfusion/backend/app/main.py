@@ -16,7 +16,7 @@ import aiosqlite
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings, startup_warnings
+from app.core.config import get_settings, log_provider_table, startup_warnings
 from app.core.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI):
     # Step 2: Make it loud and clear which mode we're running in —
     # this prevents confusion during demos and development
     startup_warnings()
+    # Which providers can actually be called (configured / placeholder / missing) — never values.
+    log_provider_table(settings)
     
     # Step 3: Initialize the database — create tables if they don't exist.
     # aiosqlite gives us async SQLite access without blocking the event loop.
