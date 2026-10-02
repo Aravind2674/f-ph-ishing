@@ -339,6 +339,35 @@ class BaselineStore:
                 profiles.append(p)
         return profiles
 
+    async def purge_older_than(self, cutoff_iso: str) -> dict[str, int]:
+        """Delete behaviour data last seen before ``cutoff_iso`` (retention, A0-10).
+
+        Removes stale (device, domain) rows, then devices whose ``last_seen`` is older than the cutoff
+        together with their remaining domain/port rows. Returns the number of rows deleted per table.
+        """
+        await self._ensure()
+        async with aiosqlite.connect(self._db_path) as db:
+            c1 = await db.execute("DELETE FROM net_device_domains WHERE last_seen < ?", (cutoff_iso,))
+            domains = c1.rowcount
+            stale = "(SELECT mac FROM net_devices WHERE last_seen < ?)"
+            c2 = await db.execute(f"DELETE FROM net_device_domains WHERE mac IN {stale}", (cutoff_iso,))
+            domains += c2.rowcount
+            c3 = await db.execute(f"DELETE FROM net_device_ports WHERE mac IN {stale}", (cutoff_iso,))
+            ports = c3.rowcount
+            c4 = await db.execute("DELETE FROM net_devices WHERE last_seen < ?", (cutoff_iso,))
+            await db.commit()
+            return {"devices": c4.rowcount, "domains": domains, "ports": ports}
+
+    async def delete_all(self) -> dict[str, int]:
+        """Erase every device, domain and port row (``DELETE /network/data``)."""
+        await self._ensure()
+        async with aiosqlite.connect(self._db_path) as db:
+            c1 = await db.execute("DELETE FROM net_device_domains")
+            c2 = await db.execute("DELETE FROM net_device_ports")
+            c3 = await db.execute("DELETE FROM net_devices")
+            await db.commit()
+            return {"devices": c3.rowcount, "domains": c1.rowcount, "ports": c2.rowcount}
+
     async def device_count(self) -> int:
         await self._ensure()
         async with aiosqlite.connect(self._db_path) as db:

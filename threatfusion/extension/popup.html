@@ -47,6 +47,12 @@
       <p class="token-hint">Print it with <code>python -m app.core.auth</code>. Stored in this browser profile only.</p>
     </details>
 
+    <!-- Privacy (A0-10): by default only the hostname leaves the browser. -->
+    <label class="privacy">
+      <input id="full-url" type="checkbox" />
+      <span>Send full URL (path &amp; query) to analysers. Off by default: only the <b>hostname</b> is sent.</span>
+    </label>
+
     <button id="scan-btn" class="btn" disabled>
       <span id="btn-text">Scan This Page</span>
       <span id="btn-loader" class="loader hidden" aria-hidden="true"></span>

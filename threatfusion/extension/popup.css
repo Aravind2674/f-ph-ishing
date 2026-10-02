@@ -293,3 +293,8 @@ body {
 .token-row button { padding: 6px 10px; font: 11px 'Inter', sans-serif; color: var(--foreground); background: transparent; border: 1px solid var(--line, #333); border-radius: 6px; cursor: pointer; }
 .token-hint { margin: 6px 0 0; line-height: 1.4; }
 .token-hint code { font-family: 'JetBrains Mono', monospace; color: var(--foreground); }
+
+/* Privacy opt-in (A0-10) */
+.privacy { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 10px; font-size: 11px; line-height: 1.4; color: var(--muted); cursor: pointer; }
+.privacy input { margin-top: 2px; accent-color: var(--foreground); }
+.privacy b { color: var(--foreground); font-weight: 600; }

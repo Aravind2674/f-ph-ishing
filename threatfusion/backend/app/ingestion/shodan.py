@@ -25,6 +25,7 @@ from typing import Optional, Dict, Tuple, Any
 
 import httpx
 
+from app.core import privacy
 from app.core import providers as prov
 from app.models.schemas import ProviderResult, ProviderStatus, ShodanResult
 
@@ -182,6 +183,10 @@ class ShodanClient:
         """
         if self._use_mock:
             return prov.ok(SOURCE, self._generate_mock(ip, is_full=False), http_status=None, mock=True)
+
+        blocked = privacy.provider_block_reason(ip)   # private addresses are never sent out (A0-10)
+        if blocked:
+            return prov.skipped(SOURCE, blocked)
 
         cache_key = f"internetdb:{ip}"
         cached = self._check_cache(cache_key)

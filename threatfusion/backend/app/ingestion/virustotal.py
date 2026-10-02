@@ -32,6 +32,7 @@ from typing import Optional, Dict, Tuple, Any
 
 import httpx
 
+from app.core import privacy
 from app.core import providers as prov
 from app.models.schemas import ProviderResult, ProviderStatus, VirusTotalResult
 
@@ -232,6 +233,12 @@ class VirusTotalClient:
     async def _lookup(self, kind: str, target: str, url: str) -> ProviderResult[VirusTotalResult]:
         if self._use_mock:
             return prov.ok(SOURCE, self._generate_mock(target), http_status=None, mock=True)
+        # Never send private/local/malformed names (or private IPs) to VirusTotal (A0-10).
+        subject = target if kind == "domain" else privacy.hostname_of(target) if kind == "url" else None
+        if subject is not None:
+            blocked = privacy.provider_block_reason(subject)
+            if blocked:
+                return prov.skipped(SOURCE, blocked)
         cached = self._check_cache(kind, target)
         if cached is not None:
             return cached

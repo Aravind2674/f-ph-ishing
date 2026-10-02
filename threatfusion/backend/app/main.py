@@ -11,6 +11,7 @@ The app supports two modes controlled by USE_MOCK_DATA in .env:
 - false: Makes real HTTP calls to external threat intelligence APIs
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,24 @@ from app.core.security import SecurityMiddleware
 from app.core.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
+
+_RETENTION_INTERVAL_SECONDS = 6 * 3600
+
+
+async def _retention_loop(service) -> None:
+    """Purge network data older than NETWORK_RETENTION_DAYS (at startup, then periodically)."""
+    while True:
+        try:
+            days = get_settings().NETWORK_RETENTION_DAYS
+            counts = await service.purge(days)
+            if any(counts.values()):
+                logger.info("Retention purge (%d days): removed %s", days, counts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Retention purge failed")
+        await asyncio.sleep(_RETENTION_INTERVAL_SECONDS)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,6 +83,9 @@ async def lifespan(app: FastAPI):
     from app.network.service import get_service
     net_service = get_service()
     await net_service.init()
+    # Retention (A0-10): purge old per-device browsing history now and every few hours.
+    retention_task = asyncio.create_task(_retention_loop(net_service), name="net-retention")
+
     if settings.NETWORK_AUTO_START:
         logger.info("NETWORK_AUTO_START=true — starting capture")
         await net_service.start()
@@ -73,6 +95,7 @@ async def lifespan(app: FastAPI):
     yield  # Application runs here
 
     # Shutdown cleanup — stop capture threads if running.
+    retention_task.cancel()
     try:
         await net_service.stop()
     except Exception:

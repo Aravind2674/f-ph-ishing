@@ -133,6 +133,12 @@ class Settings(BaseSettings):
     VERIFY_RATE_PER_MINUTE: int = 6          # verification runs per target host per minute (0 = off)
     VERIFY_TLS: bool = True                  # verify certificates when probing https targets
 
+    # ── Data retention (A0-10) ──────────────────────────────────────────
+    # The network layer stores which domains each device asked for — a browsing history. Rows older than
+    # this many days are purged (at startup and every few hours); 0 keeps everything. DELETE /network/data
+    # erases it all on demand.
+    NETWORK_RETENTION_DAYS: int = 30
+
     # ── Resource limits (A0-9) ──────────────────────────────────────────
     MAX_REQUEST_BODY_BYTES: int = 10 * 1024 * 1024   # any request body larger than this -> HTTP 413
     MAX_TRAFFIC_REQUESTS: int = 500                  # requests (+ HAR entries) per /traffic/analyze call

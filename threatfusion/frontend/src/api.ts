@@ -1,6 +1,9 @@
 export interface ScanRequest {
   target: string;
   target_type: "domain" | "ip" | "url" | "file_hash";
+  // Privacy opt-in (A0-10): by default a URL scan sends third parties only scheme://host/path
+  // (query string, fragment and credentials are dropped). true = send the URL exactly as typed.
+  send_full_url?: boolean;
 }
 
 export interface RiskExplanation {
@@ -492,6 +495,17 @@ export const fetchAlerts = async (severity?: string): Promise<NetworkAlert[]> =>
 
 export const fetchAlert = async (id: string): Promise<NetworkAlert> => {
   const res = await fetch(`${API_BASE}/network/alerts/${id}`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+// Erase every stored device profile, per-device domain history and alert (irreversible).
+export const deleteNetworkData = async (): Promise<Record<string, number>> => {
+  const res = await fetch(`${API_BASE}/network/data`, {
+    method: "DELETE",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: "{}",
+  });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

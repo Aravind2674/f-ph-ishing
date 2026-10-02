@@ -32,7 +32,7 @@ from app.core.auth import require_token
 from app.core.config import get_settings
 from app.core.ratelimit import scan_rate_limit
 from app.core.scan_store import ScanStore
-from app.core import safe_http
+from app.core import privacy, safe_http
 from app.core.safe_http import FetchError, blocked_reason
 from app.models.schemas import (
     ProviderResult,
@@ -220,6 +220,17 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     # whether it counts as a success, a gap, or a failure (A0-1).
     outcomes: list[ProviderResult] = []
 
+    # Privacy (A0-10): third parties and the target itself receive only scheme://host/path unless the user
+    # opted in — the query string/fragment/credentials are where tokens and personal data live.
+    if request.target_type == TargetType.URL:
+        outbound_url = request.target if request.send_full_url else (
+            privacy.strip_url_for_third_parties(request.target) or request.target)
+    else:
+        outbound_url = request.target
+    # A domain-type target may have been typed as a URL; providers must only ever see the host.
+    outbound_host = (privacy.hostname_of(request.target) or request.target
+                     if request.target_type == TargetType.DOMAIN else request.target)
+
     # Time budget (A0-9): one overall deadline for the provider lookups plus a cap per lookup, so a slow
     # or hung provider becomes `error/timeout` instead of holding the scan (and a worker) open.
     loop = asyncio.get_running_loop()
@@ -256,9 +267,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             vt_res = prov.not_configured("virustotal")
         elif request.target_type in (TargetType.DOMAIN, TargetType.IP):
             # NOTE: IPs still go through the domain endpoint; the /ip_addresses call is A1-1/A1-6.
-            vt_res = await _safe(vt_client.lookup_domain(request.target), "virustotal")
+            vt_res = await _safe(vt_client.lookup_domain(outbound_host), "virustotal")
         elif request.target_type == TargetType.URL:
-            vt_res = await _safe(vt_client.lookup_url(request.target), "virustotal")
+            vt_res = await _safe(vt_client.lookup_url(outbound_url), "virustotal")
         elif request.target_type == TargetType.FILE_HASH:
             vt_res = await _safe(vt_client.lookup_file_hash(request.target), "virustotal")
         if vt_res is not None:
@@ -272,11 +283,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             if request.target_type == TargetType.DOMAIN:
                 from urllib.parse import urlparse
 
-                clean_target = request.target.strip()
-                if clean_target.startswith("http://") or clean_target.startswith("https://"):
-                    parsed = urlparse(clean_target)
-                    clean_target = parsed.netloc or parsed.path
-                clean_target = clean_target.split('/')[0]
+                clean_target = outbound_host.strip()
                 try:
                     # Async, all A/AAAA records (the old blocking, IPv4-only gethostbyname is gone).
                     resolved = await asyncio.wait_for(safe_http.resolve_host(clean_target, 443), timeout=max(0.1, min(10.0, _budget())))
@@ -311,7 +318,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         # Technology Fingerprinting (only relevant for URLs/Domains)
         tech_res: ProviderResult | None = None
         if request.target_type in (TargetType.URL, TargetType.DOMAIN):
-            target_url = request.target
+            target_url = outbound_url if request.target_type == TargetType.URL else outbound_host
             if not target_url.startswith("http"):
                 target_url = f"https://{target_url}"
             tech_res = await _safe(tech_client.fingerprint_url(target_url), "tech_fingerprint")

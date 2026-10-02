@@ -17,15 +17,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let targetUrl = '';
   let apiToken = '';
+  let fullUrl = false; // privacy opt-in: send the whole URL instead of just the hostname
 
   // ── API token (A0-8) ────────────────────────────────────────────────────
   // The backend needs `Authorization: Bearer <token>` on every request except /health. The user pastes
   // it once; it is kept in chrome.storage.local (this browser profile only).
   const tokenInput = document.getElementById('token-input');
   const tokenSave = document.getElementById('token-save');
-  chrome.storage.local.get('tfApiToken', (v) => {
+  const fullUrlBox = document.getElementById('full-url');
+  chrome.storage.local.get(['tfApiToken', 'tfFullUrl'], (v) => {
     apiToken = v.tfApiToken || '';
     if (apiToken) tokenInput.placeholder = '•••••••• (saved)';
+    fullUrl = !!v.tfFullUrl;
+    fullUrlBox.checked = fullUrl;
+  });
+  fullUrlBox.addEventListener('change', () => {
+    fullUrl = fullUrlBox.checked;
+    chrome.storage.local.set({ tfFullUrl: fullUrl });
   });
   tokenSave.addEventListener('click', () => {
     const t = tokenInput.value.trim();
@@ -68,12 +76,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs.length > 0 && tabs[0].url) {
       targetUrl = tabs[0].url;
+      let parsed = null;
       try {
-        urlText.textContent = new URL(targetUrl).hostname;
+        parsed = new URL(targetUrl);
       } catch {
-        urlText.textContent = targetUrl;
+        parsed = null;
       }
-      scanBtn.disabled = false;
+      // Only ordinary web pages are ever scanned. chrome://, file://, about: … are never sent anywhere.
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+        urlText.textContent = 'This page cannot be scanned';
+        targetUrl = '';
+      } else {
+        urlText.textContent = parsed.hostname;
+        scanBtn.disabled = false;
+      }
     } else {
       urlText.textContent = 'Could not determine URL';
     }
@@ -95,7 +111,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         headers: apiToken
           ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiToken }
           : { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: targetUrl, target_type: 'url' })
+        // Default: ONLY the hostname leaves the browser (as a domain scan). The full URL — whose path and
+        // query often carry tokens — is sent only if the user ticked the opt-in.
+        body: JSON.stringify(
+          fullUrl
+            ? { target: targetUrl, target_type: 'url', send_full_url: true }
+            : { target: new URL(targetUrl).hostname, target_type: 'domain' }
+        )
       });
 
       const data = await response.json();

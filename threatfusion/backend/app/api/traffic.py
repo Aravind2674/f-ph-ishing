@@ -33,6 +33,7 @@ from app.recon.traffic import CapturedRequest, analyze_request, parse_har
 logger = logging.getLogger(__name__)
 
 from app.core.auth import require_token  # noqa: E402
+from app.core import privacy
 from app.core.config import get_settings
 
 router = APIRouter(prefix="/traffic", tags=["traffic"], dependencies=[Depends(require_token)])
@@ -97,11 +98,15 @@ async def analyze_traffic(request: TrafficAnalyzeRequest) -> TrafficAnalyzeRespo
 
     # Normalise both input shapes to CapturedRequest.
     captured: list[CapturedRequest] = [
-        CapturedRequest(method=r.method, url=r.url, headers=r.headers, body=r.body)
+        CapturedRequest(method=r.method, url=r.url, headers=privacy.redact_headers(r.headers), body=r.body)
         for r in request.requests
     ]
     if request.har:
         captured.extend(parse_har(request.har))
+    # Cookies / Authorization / API-key headers are never needed for classification: drop their values
+    # before anything else touches the requests (A0-10; the mitm addon redacts them at the source too).
+    for c in captured:
+        c.headers = privacy.redact_headers(c.headers)
 
     if not captured:
         return TrafficAnalyzeResponse(

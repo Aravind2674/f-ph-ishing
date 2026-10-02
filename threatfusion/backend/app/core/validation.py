@@ -3,7 +3,7 @@ import logging
 import ipaddress
 from urllib.parse import urlparse
 
-from app.core import safe_http
+from app.core import privacy, safe_http
 from app.core.safe_http import (
     FetchError,
     FetchPolicy,
@@ -121,6 +121,10 @@ async def validate_domain_target(target: str) -> tuple[bool, dict, str]:
     # Step 2: Validate Domain Format
     if not _is_valid_format(normalized):
         return False, {"success": False, "stage": "format", "message": "Invalid domain format.\nPlease enter a valid website domain."}, normalized
+
+    # Step 2b: private/local names (printer.local, files.corp.lan …) are never scanned or sent out (A0-10)
+    if privacy.provider_block_reason(normalized) in ("private_name", "single_label", "invalid_name"):
+        return False, {"success": False, "stage": "blocked", "message": "Scanning private, local or malformed names is not permitted."}, normalized
 
     # Step 3: Block Internal Targets
     if _is_internal(normalized):

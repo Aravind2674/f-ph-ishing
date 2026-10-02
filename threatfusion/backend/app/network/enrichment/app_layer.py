@@ -38,6 +38,7 @@ import socket
 from pathlib import Path
 from typing import Optional
 
+from app.core import privacy
 from app.core.artifacts import model_path
 from app.core.config import get_settings
 from app.ingestion.virustotal import VirusTotalClient
@@ -82,6 +83,14 @@ def _ml_label(score: float) -> str:
     return "Critical"
 
 
+_PRIVACY_REASON = {
+    "private_name": "Private/local name",
+    "single_label": "Single-label (local) name",
+    "private_address": "Private IP address",
+    "invalid_name": "Malformed name",
+}
+
+
 def _unavailable_reason(name: str, res) -> str:
     """Human-readable 'why there is no score' from a non-ok ProviderResult."""
     if res.status.value == "not_found":
@@ -116,6 +125,19 @@ class AppLayerScorer:
         use_mock = settings.USE_MOCK_DATA
         if target_type is None:
             target_type = "ip" if _looks_like_ip(target) else "domain"
+
+        # DNS names seen on the LAN may be internal hostnames (printer.local, nas, reverse-DNS) or contain
+        # arbitrary attacker-chosen bytes. They are still learned locally by the baseline store, but are
+        # NEVER sent to a third-party service nor interpolated into a provider URL (A0-10).
+        blocked = privacy.provider_block_reason(target)
+        if blocked:
+            return AppLayerSubScore(
+                available=False,
+                reason=f"{_PRIVACY_REASON.get(blocked, blocked)} — not sent to third-party services",
+                target=target[:255],
+                target_type=target_type,
+                live=not use_mock,
+            )
 
         # A0-5: without a real VirusTotal credential there is nothing honest to score.
         # Report "unavailable" with the reason instead of calling VT with a placeholder.

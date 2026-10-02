@@ -156,6 +156,13 @@ class ScanRequest(BaseModel):
         description="Type of target being scanned",
     )
 
+    send_full_url: bool = Field(
+        False,
+        description="Privacy opt-in. By default a URL scan sends third parties (VirusTotal) and the target "
+                    "only scheme://host/path — the query string, fragment and credentials are dropped. Set true "
+                    "to send the URL exactly as typed.",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Per‑source result models

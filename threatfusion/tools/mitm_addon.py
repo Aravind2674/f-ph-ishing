@@ -31,7 +31,8 @@ Usage
 Scope & safety
 --------------
 Only run this against traffic you are authorised to test. The addon is passive —
-it observes and scores; it neither blocks nor modifies requests.
+it observes and scores; it neither blocks nor modifies requests. Cookie, Authorization and
+API-key style headers are redacted before anything is sent to the backend.
 """
 
 from __future__ import annotations
@@ -49,7 +50,30 @@ _SKIP_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff",
              ".woff2", ".ico", ".map", ".mp4", ".webp")
 
 
+# Credential-bearing headers are never forwarded to the backend (A0-10). Kept dependency-free on purpose:
+# this file runs inside mitmproxy's own Python environment, not the backend's.
+_REDACTED = "[redacted]"
+_SENSITIVE_HEADERS = {
+    "cookie", "cookie2", "set-cookie", "set-cookie2", "authorization", "proxy-authorization",
+    "x-api-key", "apikey", "api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token",
+    "x-amz-security-token", "x-goog-api-key",
+}
+_SENSITIVE_FRAGMENTS = ("token", "secret", "apikey", "api-key", "api_key", "session", "password",
+                        "passwd", "credential", "signature")
+
+
+def redact_headers(headers: dict) -> dict:
+    """Replace the values of credential-bearing headers (case-insensitive)."""
+    out = {}
+    for k, v in (headers or {}).items():
+        name = str(k).strip().lower()
+        sensitive = name in _SENSITIVE_HEADERS or any(f in name for f in _SENSITIVE_FRAGMENTS)
+        out[k] = _REDACTED if sensitive else v
+    return out
+
+
 def _score(method: str, url: str, headers: dict, body: str | None) -> dict | None:
+    headers = redact_headers(headers)
     payload = json.dumps({
         "requests": [{"method": method, "url": url, "headers": headers, "body": body}]
     }).encode("utf-8")

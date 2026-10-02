@@ -10,7 +10,7 @@ import {
   Info,
   type LucideIcon,
 } from "lucide-react";
-import { fetchHealth, getApiToken, setApiToken, type ProviderHealth } from "@/api";
+import { deleteNetworkData, fetchHealth, getApiToken, setApiToken, type ProviderHealth } from "@/api";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -137,6 +137,50 @@ function ApiTokenCard() {
             Clear
           </Button>
         )}
+      </div>
+    </Card>
+  );
+}
+
+function PrivacyCard() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const erase = async () => {
+    if (!window.confirm("Erase ALL stored network data (devices, per-device domain history, alerts)? This cannot be undone.")) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const c = await deleteNetworkData();
+      setMsg(`Erased ${c.devices ?? 0} device(s), ${c.domains ?? 0} domain record(s), ${c.alerts ?? 0} alert(s).`);
+    } catch (e: any) {
+      setMsg(e.message || "Could not erase network data");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <span className="text-sm font-semibold text-foreground">Data &amp; privacy</span>
+      <ul className="mt-2 flex max-w-xl list-disc flex-col gap-1 pl-4 text-xs text-muted">
+        <li>
+          Private, local and reverse-DNS names (<code className="font-mono">printer.local</code>, …) and private IPs are
+          never sent to third-party services.
+        </li>
+        <li>
+          URL scans send only <code className="font-mono">scheme://host/path</code> unless you tick “send full URL”.
+        </li>
+        <li>
+          Network monitoring keeps per-device domain history for{" "}
+          <code className="font-mono">NETWORK_RETENTION_DAYS</code> (default 30), then deletes it automatically.
+        </li>
+      </ul>
+      <div className="mt-4 flex items-center gap-3">
+        <Button variant="outline" size="sm" disabled={busy} onClick={erase}>
+          {busy ? "Erasing…" : "Erase all network data"}
+        </Button>
+        {msg && <span className="font-mono text-[11px] text-subtle">{msg}</span>}
       </div>
     </Card>
   );
@@ -288,6 +332,8 @@ export const Settings: React.FC = () => {
       </Card>
 
       <ApiTokenCard />
+
+      <PrivacyCard />
 
       {/* Ingestion sources, grouped. */}
       <Card>
