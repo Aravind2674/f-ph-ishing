@@ -37,7 +37,7 @@ venv/Scripts/python.exe -m uvicorn app.main:app --reload   # run from backend/
 - Run the server **from `backend/`**: `.env`, the SQLite path and model paths are currently
   relative to the working directory (made absolute in a later hardening step).
 - **API token.** Every route except `/health` needs `Authorization: Bearer <token>`. The token is
-  generated on first start and stored outside the repo (Windows: `%APPDATA%\ThreatFusionpi_token`;
+  generated on first start and stored outside the repo (Windows: `%APPDATA%\ThreatFusion\api_token`;
   else `~/.config/threatfusion/api_token`). Print it with `python -m app.core.auth`, then paste it on the
   dashboard's **Settings** page and in the extension popup (**API token**); for the mitmproxy addon set
   `TF_API_TOKEN`. Requests must also use a local `Host` header (`ALLOWED_HOSTS`) and mutating requests must
