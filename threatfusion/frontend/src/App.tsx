@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { AlertTriangle, Crosshair } from 'lucide-react';
 import { DashboardLayout } from './components/DashboardLayout';
@@ -12,8 +12,10 @@ import { NetworkSection } from './components/NetworkSection';
 import { Card } from './components/ui/card';
 import { Skeleton } from './components/ui/skeleton';
 import { SiteMeteorsBackground } from './components/ui/site-meteors-background';
-import { submitScan } from './api';
+import { newScanId, submitScan, subscribeScanEvents } from './api';
 import type { ScanResult as IScanResult, ScanRequest } from './api';
+import { LiveSources } from './components/LiveSources';
+import { applyLiveEvent, emptyLiveState, type LiveState } from './lib/evidence';
 
 function App() {
   // NOTE: view/scan state management is intentionally unchanged from the
@@ -22,14 +24,22 @@ function App() {
   const [scanResult, setScanResult] = useState<IScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live per-source progress of the scan in flight (Server-Sent Events; purely additive — the POST is authoritative).
+  const [live, setLive] = useState<LiveState>(emptyLiveState());
+  const liveSub = useRef<{ close: () => void } | null>(null);
 
   const handleScanSubmit = async (request: ScanRequest) => {
     setLoading(true);
     setError(null);
     setScanResult(null);
     setCurrentView('scan'); // Auto-switch to scan view
+    // Choose the scan id up front and open the progress stream BEFORE posting, so the chips show from the first call.
+    const scanId = newScanId();
+    setLive(emptyLiveState());
+    liveSub.current?.close();
+    liveSub.current = subscribeScanEvents(scanId, (event) => setLive((s) => applyLiveEvent(s, event)));
     try {
-      const response = await submitScan(request);
+      const response = await submitScan({ ...request, scan_id: scanId });
       if (response.success && response.result) {
         setScanResult(response.result);
       } else {
@@ -38,6 +48,8 @@ function App() {
     } catch (err: any) {
       setError(err.message || 'Failed to submit scan');
     } finally {
+      liveSub.current?.close();
+      liveSub.current = null;
       setLoading(false);
     }
   };
@@ -91,7 +103,7 @@ function App() {
                 </motion.div>
               )}
 
-              {loading && <ScanningState />}
+              {loading && <ScanningState live={live} />}
               {!loading && !error && scanResult && (
                 <ScanResult result={scanResult} onRescan={handleRescan} />
               )}
@@ -129,13 +141,15 @@ function SectionDivider({ step, label, hint }: { step: string; label: string; hi
 }
 
 /** Designed loading state — skeletons + a scan-line, never a spinner. */
-function ScanningState() {
+function ScanningState({ live }: { live: LiveState }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wide2 text-subtle">
         <span className="size-1.5 animate-pulse rounded-full bg-foreground" />
         Fusing signals…
       </div>
+      {/* Per-source status chips, live (A1-7). Absent if the event stream could not be opened. */}
+      <LiveSources live={live} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {[0, 1].map((i) => (
           <Card key={i} className="flex items-center gap-5 p-6">

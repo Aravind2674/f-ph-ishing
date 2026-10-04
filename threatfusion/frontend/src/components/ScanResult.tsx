@@ -27,6 +27,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 import { RiskScorePanel } from "@/components/RiskScorePanel";
+import { EvidencePanel } from "@/components/EvidencePanel";
+import { FeatureProvenance } from "@/components/FeatureProvenance";
+import { HostSignals } from "@/components/HostSignals";
+import { SourceChips } from "@/components/SourceChip";
 
 interface ScanResultProps {
   result: IScanResult;
@@ -231,6 +235,7 @@ function DataRow({ label, children }: { label: string; children: React.ReactNode
  * and the suspicious substrings the saliency map flagged — rendered inline so
  * a viewer can see *which* characters looked like phishing.
  * ──────────────────────────────────────────────────────────────────────── */
+
 function HighlightedUrl({
   target,
   spans,
@@ -430,16 +435,12 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         </div>
       </div>
 
-      {/* Evidence banner: shown whenever the verdict rests on incomplete evidence. */}
-      {result.verdict_status && result.verdict_status !== "ok" && (
+      {/* "Unknown" banner. A partial verdict is explained by the Evidence panel just below the scores (A1-7). */}
+      {result.verdict_status === "unknown" && (
         <Card className="flex items-start gap-3 border-line-strong p-4">
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-foreground" />
           <div>
-            <p className="text-sm font-semibold text-foreground">
-              {result.verdict_status === "unknown"
-                ? "Risk unknown — no reputation evidence"
-                : "Partial evidence"}
-            </p>
+            <p className="text-sm font-semibold text-foreground">Risk unknown — no reputation evidence</p>
             {result.verdict_reason && (
               <p className="mt-1 text-xs text-muted">{result.verdict_reason}</p>
             )}
@@ -458,6 +459,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         severityLabel={result.baseline_label}
         revealKey={result.scan_id}
       />
+
+      {/* ── What the score rests on: "based on N of M sources", per-source chips, "no findings ≠ safe" ─ */}
+      <EvidencePanel outcomes={result.provider_results} verdict={result.verdict_status} />
 
       {/* ── Neural URL analysis (deep-learning model) ─────────────────── */}
       <NeuralPanel result={result} />
@@ -491,76 +495,12 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
             </span>
           </div>
           <div className="flex flex-col gap-4">
-            <DataRow label={`Successful Queries · ${result.data_sources_succeeded?.length ?? 0}`}>
-              {result.data_sources_succeeded?.length ? (
-                result.data_sources_succeeded.map((s) => (
-                  <Badge key={s} variant="outline">
-                    {s}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-xs text-subtle">None</span>
-              )}
-            </DataRow>
-            <DataRow label={`Failed Queries · ${result.data_sources_failed?.length ?? 0}`}>
-              {result.data_sources_failed?.length ? (
-                result.data_sources_failed.map((s) => (
-                  <Badge key={s} variant="ghost" className="line-through">
-                    {s}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-xs text-subtle">None</span>
-              )}
-            </DataRow>
-            {!!result.data_sources_not_found?.length && (
-              <DataRow label={`No record · ${result.data_sources_not_found.length}`}>
-                {result.data_sources_not_found.map((s) => (
-                  <Badge key={s} variant="subtle">
-                    {s}
-                  </Badge>
-                ))}
-                <span className="text-xs text-subtle">
-                  The source answered but has no data on this target — missing evidence, not a clean result.
-                </span>
-              </DataRow>
-            )}
-            {!!result.data_sources_skipped?.length && (
-              <DataRow label={`Not configured · ${result.data_sources_skipped.length}`}>
-                {result.data_sources_skipped.map((s) => (
-                  <Badge key={s} variant="subtle">
-                    {s}
-                  </Badge>
-                ))}
-                <span className="text-xs text-subtle">
-                  Not queried — no usable credential. This is missing evidence, not a clean result.
-                </span>
-              </DataRow>
-            )}
-            {!!result.provider_results?.length && (
-              <div className="border-t border-line pt-3">
-                <span className="tf-eyebrow">Provider provenance</span>
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {result.provider_results.map((o) => (
-                    <li
-                      key={o.source}
-                      className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted"
-                    >
-                      <Badge variant={o.status === "ok" ? "solid" : "outline"}>
-                        {o.status.replace("_", " ")}
-                      </Badge>
-                      <span className="text-foreground">{o.source}</span>
-                      {o.reason && <span>· {o.reason}</span>}
-                      {o.http_status ? <span>· HTTP {o.http_status}</span> : null}
-                      {o.cached && <span>· cached</span>}
-                      {o.mock && <span>· mock</span>}
-                      {o.latency_ms != null && <span>· {Math.round(o.latency_ms)} ms</span>}
-                      <span className="text-subtle">· {new Date(o.fetched_at).toLocaleTimeString()}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {/* The per-source states live in the Evidence panel above; the chips are repeated here with their timings. */}
+            {!!result.provider_results?.length && <SourceChips outcomes={result.provider_results} />}
+            <p className="text-xs leading-relaxed text-subtle">
+              "No record" and "not configured" mean a source had nothing to say about this target — that is missing evidence,
+              not a clean result.
+            </p>
             {(result.model_versions || result.feature_schema_version) && (
               <p className="border-t border-line pt-3 font-mono text-[10px] leading-relaxed text-subtle">
                 {result.mock_mode ? "MOCK DATA · " : ""}
@@ -589,6 +529,12 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
 
       {/* ── Full feature vector (collapsible) ─────────────────────────── */}
       {explanations.length > 0 && <FeatureVectorTable items={explanations} />}
+
+      {/* ── Feature provenance: every feature's value (or "unknown") and the source it came from ─────── */}
+      <FeatureProvenance features={result.features} outcomes={result.provider_results} />
+
+      {/* ── Host evidence: TLS certificate, registration (domain age), DNS, technology + end-of-life ──── */}
+      <HostSignals result={result} />
 
       {/* ── Enrichment: network exposure + tech stack ─────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

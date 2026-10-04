@@ -193,14 +193,15 @@ def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | Non
     return "ok", None
 
 
-def _build_summary(verdict_status: str, verdict_reason: str | None, ml_label: str | None,
+def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: str | None,
                    vt, shodan, cve) -> str:
     """Plain-language summary that never claims more than the evidence supports."""
     if verdict_status == "unknown":
         return f"Risk could not be assessed. {verdict_reason}"
     parts = []
-    if ml_label and ml_label != "Unknown":
-        parts.append(f"This target presents a {ml_label.lower()} risk profile.")
+    # The label of the HEADLINE score (the transparent baseline) — never the experimental model's.
+    if risk_label and risk_label != "Unknown":
+        parts.append(f"This target presents a {risk_label.lower()} risk profile.")
     if vt is not None:
         if vt.malicious_count > 0:
             parts.append(f"It is flagged by {vt.malicious_count} AV engines.")
@@ -367,7 +368,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             _emit({"type": "provider", "source": "shodan_internetdb", "status": "running"})
             ip_target = outbound_host
             dns_failure: ProviderResult | None = None
-            if tt == TargetType.DOMAIN:
+            if tt == TargetType.DOMAIN and not use_mock:
+                # (Live only. Mock mode is synthetic: it must not leak the typed host to a real resolver, and the mock
+                # InternetDB answer does not depend on the IP.)
                 try:
                     # Async, all A/AAAA records (the old blocking, IPv4-only gethostbyname is gone).
                     resolved = await asyncio.wait_for(safe_http.resolve_host(outbound_host.strip(), 443),
@@ -454,9 +457,12 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 # First use parses the EPSS/KEV/Exploit-DB CSVs (hundreds of thousands of rows): do that in a
                 # worker thread so the event loop (SSE heartbeats, other requests) keeps ticking (A0-9).
                 await asyncio.to_thread(_chainer.initialize)
-                attack_paths = await _chainer.build_and_solve_chain(cve.cves)
+                # Bounded by what is left of the scan's deadline: attack paths are a bonus, never a reason to hold the
+                # scan (and a worker) open — a hung or slow chainer just yields no paths.
+                attack_paths = await asyncio.wait_for(_chainer.build_and_solve_chain(cve.cves),
+                                                      timeout=max(0.5, deadline - loop.time()))
             except Exception as e:
-                logger.warning("Vulnerability chaining failed: %s", e)
+                logger.warning("Vulnerability chaining failed or ran out of time: %s", e)
 
         # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
         _emit({"type": "stage", "stage": "features"})
@@ -509,7 +515,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
         # ── 5. Verdict status + plain-language summary ──────────────────
         verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
-        summary_text = _build_summary(verdict_status, verdict_reason, m_label, vt, shodan, cve)
+        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve)
         buckets = _bucket_sources(outcomes)
 
         # Assemble the final payload
