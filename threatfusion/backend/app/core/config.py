@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     MAX_TRAFFIC_REQUESTS: int = 500                  # requests (+ HAR entries) per /traffic/analyze call
     SCAN_DEADLINE_SECONDS: int = 45                  # overall time budget for a scan's provider lookups
     PROVIDER_TIMEOUT_SECONDS: int = 20               # cap for one provider lookup (also bounded by the deadline)
+    # A1-5: a scan runs its independent providers concurrently; this process-wide gate bounds how many provider
+    # calls are in flight at once across ALL scans (sockets, provider quotas, event-loop fairness).
+    SCAN_MAX_CONCURRENT_PROVIDERS: int = 8
+    SCAN_EVENTS_WAIT_SECONDS: int = 30               # how long GET /scan/{id}/events waits for a scan that has not started
 
     # ── Access control (A0-8) ───────────────────────────────────────────
     # Every route except /health needs `Authorization: Bearer <token>`. API_TOKEN (env) wins;
