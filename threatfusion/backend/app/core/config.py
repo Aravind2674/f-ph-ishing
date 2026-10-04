@@ -178,6 +178,18 @@ class Settings(BaseSettings):
     VIRUSTOTAL_REQUESTS_PER_DAY: int = 500
     # How long a scan will queue for a quota slot before reporting the provider as `rate_limited`.
     VIRUSTOTAL_MAX_QUEUE_SECONDS: float = 15.0
+    # NVD (A1-2): its published window with a key is 50 requests / rolling 30 s (5 without). Read from config so a
+    # change on NVD's side doesn't need a code change.
+    NVD_REQUESTS_PER_WINDOW: int = 50
+    NVD_WINDOW_SECONDS: float = 30.0
+    NVD_MAX_CONCURRENCY: int = 5                     # CVE lookups in flight at once
+    NVD_DEADLINE_SECONDS: float = 15.0               # budget for one scan's NVD work; finished lookups are kept
+    NVD_MAX_RETRIES: int = 3                         # 403/429/503 are retried with exponential backoff
+    NVD_BACKOFF_BASE_SECONDS: float = 1.0
+    NVD_CACHE_TTL_SECONDS: int = 7 * 24 * 3600       # CVE records (answers only; failures are never cached)
+    NVD_LOOKUP_BY_CPE: bool = True                   # also look up the (versioned) CPEs InternetDB reports
+    NVD_MAX_CPES: int = 5                            # CPEs per host
+    NVD_MAX_PAGES: int = 3                           # pages per CPE query (2000 CVEs/page)
     # Persistent cache of provider answers (SQLite `provider_cache`). Failures are never cached.
     VIRUSTOTAL_CACHE_TTL_SECONDS: int = 6 * 3600     # an answer (VT re-analyses at most daily)
     PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS: int = 15 * 60   # "no record" — may be submitted soon after

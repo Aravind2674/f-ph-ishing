@@ -1,11 +1,11 @@
 """
-Process-wide provider clients (A1-1)
-====================================
+Process-wide provider clients (A1-1, A1-2)
+=========================================
 
-Before this module ``/scan`` built a fresh ``VirusTotalClient`` per request and the network layer built another per
-DNS event, so no cache ever hit and nothing could enforce a shared quota.  :data:`hub` owns **one** client (and one
-:class:`~app.core.quota.QuotaLimiter`, and one SQLite-backed :class:`~app.core.cache.ProviderCache`) for the whole
-process; scans and the network layer both go through it.  ``main.py``'s lifespan warms it at start-up and closes it
+Before this module ``/scan`` built a fresh ``VirusTotalClient`` / ``CVEClient`` per request and the network layer
+built another per DNS event, so no cache ever hit and nothing could enforce a shared quota.  :data:`hub` owns **one**
+client per provider (each with its own :class:`~app.core.quota.QuotaLimiter`, all sharing one SQLite-backed
+:class:`~app.core.cache.ProviderCache`) for the whole process; scans and the network layer both go through it.  ``main.py``'s lifespan warms it at start-up and closes it
 at shutdown — request handlers never close it.
 
 It is rebuilt only when the relevant settings change (tests flip them; production never does), so the limiter's
@@ -20,6 +20,7 @@ from typing import Optional
 from app.core.cache import ProviderCache
 from app.core.config import get_settings
 from app.core.quota import QuotaLimiter
+from app.ingestion.cve import CVEClient
 from app.ingestion.virustotal import VirusTotalClient
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ class ProviderHub:
         self.cache = ProviderCache(path_provider=lambda: get_settings().database_path)
         self._vt: Optional[VirusTotalClient] = None
         self._vt_key: Optional[tuple] = None
+        self._nvd: Optional[CVEClient] = None
+        self._nvd_key: Optional[tuple] = None
 
     def virustotal(self) -> VirusTotalClient:
         s = get_settings()
@@ -51,15 +54,44 @@ class ProviderHub:
             self._vt_key = key
         return self._vt
 
+    def nvd(self) -> CVEClient:
+        s = get_settings()
+        key = (
+            s.NVD_API_KEY, s.USE_MOCK_DATA, s.NVD_REQUESTS_PER_WINDOW, s.NVD_WINDOW_SECONDS, s.NVD_MAX_CONCURRENCY,
+            s.NVD_DEADLINE_SECONDS, s.NVD_MAX_RETRIES, s.NVD_BACKOFF_BASE_SECONDS, s.NVD_CACHE_TTL_SECONDS,
+            s.NVD_MAX_CPES, s.NVD_MAX_PAGES, s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS,
+        )
+        if self._nvd is None or key != self._nvd_key:
+            self._nvd = CVEClient(
+                api_key=s.NVD_API_KEY,
+                use_mock=s.USE_MOCK_DATA,
+                limiter=QuotaLimiter(windows=[(s.NVD_REQUESTS_PER_WINDOW, s.NVD_WINDOW_SECONDS)]),
+                cache=self.cache,
+                cache_ttl_seconds=s.NVD_CACHE_TTL_SECONDS,
+                not_found_ttl_seconds=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS,
+                max_concurrency=s.NVD_MAX_CONCURRENCY,
+                deadline_seconds=s.NVD_DEADLINE_SECONDS,
+                max_retries=s.NVD_MAX_RETRIES,
+                backoff_base=s.NVD_BACKOFF_BASE_SECONDS,
+                max_pages=s.NVD_MAX_PAGES,
+                max_cpes=s.NVD_MAX_CPES,
+            )
+            self._nvd_key = key
+        return self._nvd
+
     async def close(self) -> None:
         """Release connections (process shutdown)."""
         if self._vt is not None:
             await self._vt.close()
+        if self._nvd is not None:
+            await self._nvd.close()
 
     def reset(self) -> None:
         """Forget the clients (tests): the next access builds fresh ones with a fresh quota window."""
         self._vt = None
         self._vt_key = None
+        self._nvd = None
+        self._nvd_key = None
 
 
 hub = ProviderHub()

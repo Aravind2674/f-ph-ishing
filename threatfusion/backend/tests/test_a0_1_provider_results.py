@@ -224,7 +224,8 @@ async def test_nvd_success() -> None:
     (503, ProviderStatus.ERROR, "server_error"),
 ])
 async def test_nvd_status_mapping(code: int, status: ProviderStatus, reason: str | None) -> None:
-    nvd = CVEClient(api_key="real-key", use_mock=False)
+    # 403/429/503 are retried since A1-2 (tested in test_a1_2_nvd.py); no wait here, the final status is the point.
+    nvd = CVEClient(api_key="real-key", use_mock=False, backoff_base=0.0)
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=NVD_URL).respond(code)
         res = await nvd.lookup_cves(["CVE-2021-44228"])
@@ -237,7 +238,7 @@ async def test_nvd_status_mapping(code: int, status: ProviderStatus, reason: str
 
 @pytest.mark.asyncio
 async def test_nvd_partial_success_is_ok_but_says_so() -> None:
-    nvd = CVEClient(api_key="real-key", use_mock=False)
+    nvd = CVEClient(api_key="real-key", use_mock=False, max_retries=0)
     with respx.mock(assert_all_called=False) as router:
         router.get(url__regex=NVD_URL).mock(side_effect=[
             httpx.Response(200, json=NVD_OK_JSON), httpx.Response(503)])

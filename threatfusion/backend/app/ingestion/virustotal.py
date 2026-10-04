@@ -33,7 +33,6 @@ import asyncio
 import base64
 import logging
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from typing import Optional, Any
 
 import httpx
@@ -49,36 +48,8 @@ logger = logging.getLogger(__name__)
 SOURCE = "virustotal"
 
 
-DEFAULT_RETRY_AFTER = 60.0          # used when a 429 carries no (usable) Retry-After
-MAX_RETRY_AFTER = 24 * 3600.0
-
-
 class _NoAnalysis(Exception):
     """VT knows the object but has no AV analysis for it (empty/missing last_analysis_stats)."""
-
-
-def parse_retry_after(value: Optional[str], *, now: Optional[datetime] = None) -> float:
-    """Seconds to back off from a ``Retry-After`` header (delta-seconds or an HTTP-date, RFC 9110 §10.2.3).
-
-    A missing, negative, zero or unparseable value yields a conservative default rather than "retry now":
-    the provider just told us to stop, and guessing 0 would hammer it again immediately.
-    """
-    if value:
-        value = value.strip()
-        try:
-            seconds = float(value)
-        except ValueError:
-            try:
-                when = parsedate_to_datetime(value)
-                if when.tzinfo is None:
-                    when = when.replace(tzinfo=timezone.utc)
-                seconds = (when - (now or datetime.now(timezone.utc))).total_seconds()
-                seconds = max(seconds, 1.0)
-            except (TypeError, ValueError):
-                return DEFAULT_RETRY_AFTER
-        if seconds > 0:
-            return min(seconds, MAX_RETRY_AFTER)
-    return DEFAULT_RETRY_AFTER
 
 
 class VirusTotalClient:
@@ -175,7 +146,7 @@ class VirusTotalClient:
         if failure is not None:
             logger.warning("VirusTotal returned HTTP %s for %s", response.status_code, url)
             if response.status_code == 429:
-                seconds = parse_retry_after(response.headers.get("retry-after"))
+                seconds = prov.parse_retry_after(response.headers.get("retry-after"))
                 self._limiter.penalize(seconds)       # every later caller (scans, network layer) backs off too
                 failure = failure.model_copy(update={"retry_after": round(seconds, 1)})
             return failure

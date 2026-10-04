@@ -28,6 +28,8 @@ Design rule: *a failure is never converted into data.*  ``data`` is set only for
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional, TypeVar
 
 import httpx
@@ -110,3 +112,32 @@ def from_exception(source: str, exc: BaseException, *, started: Optional[float] 
     if isinstance(exc, httpx.HTTPError):
         return error(source, "network", started=started)
     return error(source, f"unexpected:{type(exc).__name__}", started=started)
+
+
+DEFAULT_RETRY_AFTER = 60.0          # used when a 429 carries no (usable) Retry-After
+MAX_RETRY_AFTER = 24 * 3600.0
+
+
+def parse_retry_after(value: Optional[str], *, default: Optional[float] = DEFAULT_RETRY_AFTER,
+                      now: Optional[datetime] = None) -> Optional[float]:
+    """Seconds to back off from a ``Retry-After`` header (delta-seconds or an HTTP-date, RFC 9110 §10.2.3).
+
+    A missing, negative, zero or unparseable value yields ``default`` — by default a conservative 60 s rather
+    than "retry now": the provider just told us to stop, and guessing 0 would hammer it again immediately.
+    Callers that have a better fallback (NVD: exponential backoff) pass ``default=None``.
+    """
+    if value:
+        value = value.strip()
+        try:
+            seconds = float(value)
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(value)
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                seconds = max((when - (now or datetime.now(timezone.utc))).total_seconds(), 1.0)
+            except (TypeError, ValueError):
+                return default
+        if seconds > 0:
+            return min(seconds, MAX_RETRY_AFTER)
+    return default

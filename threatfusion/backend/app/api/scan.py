@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from app.ingestion.cve import CVEClient
+from app.ingestion.cve import specific_cpe_names
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
@@ -246,7 +246,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
     vt_client = hub.virustotal()          # process-wide: shared quota + persistent cache (A1-1); never closed per scan
     shodan_client = ShodanClient(api_key=settings.SHODAN_API_KEY, use_mock=use_mock)
-    cve_client = CVEClient(api_key=settings.NVD_API_KEY, use_mock=use_mock)
+    cve_client = hub.nvd()                # process-wide: shared rate window + persistent CVE cache (A1-2)
     tech_client = TechFingerprintClient(use_mock=use_mock)
 
     # Every provider call yields a ProviderResult; its *status* — not truthiness — decides
@@ -334,13 +334,15 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             outcomes.append(shodan_res)
         shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None
 
-        # NVD / CVE (only if Shodan listed vulnerabilities; needs a real key)
+        # NVD / CVE: the CVE IDs InternetDB listed plus (live mode) its versioned CPEs, in one lookup that has its
+        # own deadline and keeps whatever finished (A1-2). Needs a real key.
         cve_res: ProviderResult | None = None
-        if shodan is not None and shodan.vulns:
+        cpes = [] if use_mock or not settings.NVD_LOOKUP_BY_CPE or shodan is None else shodan.cpes
+        if shodan is not None and (shodan.vulns or specific_cpe_names(cpes)):
             if not providers["nvd"].configured:
                 cve_res = prov.not_configured("nvd")
             else:
-                cve_res = await _safe(cve_client.lookup_cves(shodan.vulns), "nvd")
+                cve_res = await _safe(cve_client.lookup_for_host(shodan.vulns, cpes), "nvd")
             outcomes.append(cve_res)
         cve = cve_res.data if cve_res is not None and cve_res.ok else None
 
@@ -478,7 +480,6 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     finally:
         # Ensure all async clients are closed
         await shodan_client.close()
-        await cve_client.close()
         await tech_client.close()
 
 

@@ -55,6 +55,9 @@ TestClient.__init__ = _testclient_init
 # throttled; tests/test_a1_1_virustotal.py turns it on explicitly.
 os.environ["VIRUSTOTAL_REQUESTS_PER_MINUTE"] = "0"
 os.environ["VIRUSTOTAL_REQUESTS_PER_DAY"] = "0"
+# NVD (A1-2): no real waiting when a scan-level test makes NVD answer 403/429/503 (the retry delays are tested
+# with a fake clock in test_a1_2_nvd.py).
+os.environ["NVD_BACKOFF_BASE_SECONDS"] = "0.01"
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +67,10 @@ def _fresh_provider_hub():
     from app.core.config import Settings
     from app.core.hub import hub
 
+    from app.core.ratelimit import SCAN_LIMITER
+
     hub.reset()
+    SCAN_LIMITER.clear()                   # the per-client /scan limit is process-global: don't leak hits between tests
     try:
         db = Settings(_env_file=None).database_path
         if db.exists():

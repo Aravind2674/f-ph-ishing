@@ -30,24 +30,32 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional, Sequence
 
 
 class QuotaLimiter:
+    """``per_minute`` / ``per_day`` are the common provider limits; ``windows=[(limit, seconds), ...]`` adds any
+    other (NVD: 50 requests per rolling 30 s).  A limit of 0 disables that window."""
+
     def __init__(
         self,
         per_minute: int = 0,
         per_day: int = 0,
         *,
+        windows: Sequence[tuple[int, float]] = (),
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        self.per_minute = max(0, int(per_minute))
-        self.per_day = max(0, int(per_day))
+        specs: list[tuple[int, float]] = []
+        if per_minute and per_minute > 0:
+            specs.append((int(per_minute), 60.0))
+        if per_day and per_day > 0:
+            specs.append((int(per_day), 86_400.0))
+        specs += [(int(limit), float(seconds)) for limit, seconds in windows if limit and limit > 0 and seconds > 0]
         self._clock = clock
         self._sleep = sleep
-        self._minute: deque[float] = deque()      # reserved *start* times (may lie in the future)
-        self._day: deque[float] = deque()
+        # (limit, window seconds, reserved *start* times — which may lie in the future)
+        self._windows: list[tuple[int, float, deque[float]]] = [(lim, sec, deque()) for lim, sec in specs]
         self._blocked_until: float = 0.0
 
     # ── state ──────────────────────────────────────────────────────────
@@ -56,34 +64,30 @@ class QuotaLimiter:
         """Seconds a provider-imposed ``Retry-After`` block still has to run (0 if none)."""
         return max(0.0, self._blocked_until - self._clock())
 
-    def snapshot(self) -> dict[str, float | int]:
+    def snapshot(self) -> dict[str, object]:
         """Usage for ``/health`` and logs (no secrets)."""
         now = self._clock()
         return {
-            "per_minute": self.per_minute, "per_day": self.per_day,
-            "used_last_minute": sum(1 for t in self._minute if now - 60.0 < t <= now + 60.0),
-            "used_last_day": sum(1 for t in self._day if now - 86_400.0 < t),
+            "windows": [
+                {"limit": lim, "window_seconds": sec, "used": sum(1 for t in dq if now - sec < t)}
+                for lim, sec, dq in self._windows
+            ],
             "blocked_for_seconds": round(self.blocked_for, 1),
         }
 
     def penalize(self, seconds: float) -> None:
-        """Honour a provider's ``Retry-After``: nobody calls it again for ``seconds`` (never shortens a block)."""
+        """Honour a provider's ``Retry-After``/backoff: nobody calls it again for ``seconds`` (never shortens a block)."""
         if seconds and seconds > 0:
             self._blocked_until = max(self._blocked_until, self._clock() + float(seconds))
 
     # ── acquire ────────────────────────────────────────────────────────
     def _earliest_start(self, now: float) -> float:
         start = max(now, self._blocked_until)
-        if self.per_minute:
-            while self._minute and self._minute[0] <= now - 60.0:
-                self._minute.popleft()
-            if len(self._minute) >= self.per_minute:
-                start = max(start, self._minute[-self.per_minute] + 60.0)
-        if self.per_day:
-            while self._day and self._day[0] <= now - 86_400.0:
-                self._day.popleft()
-            if len(self._day) >= self.per_day:
-                start = max(start, self._day[-self.per_day] + 86_400.0)
+        for limit, seconds, hits in self._windows:
+            while hits and hits[0] <= now - seconds:
+                hits.popleft()
+            if len(hits) >= limit:
+                start = max(start, hits[-limit] + seconds)
         return start
 
     async def acquire(self, max_wait: float = 0.0) -> Optional[float]:
@@ -97,10 +101,8 @@ class QuotaLimiter:
         wait = start - now
         if wait > max(0.0, max_wait):
             return wait
-        if self.per_minute:
-            self._minute.append(start)
-        if self.per_day:
-            self._day.append(start)
+        for _limit, _seconds, hits in self._windows:
+            hits.append(start)
         if wait > 0:
             await self._sleep(wait)
         return None
