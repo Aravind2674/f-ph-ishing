@@ -54,6 +54,22 @@ export interface ProviderOutcome {
   cached: boolean;
   latency_ms?: number | null;
   mock: boolean;
+  retry_after?: number | null; // seconds until the provider's quota allows another call (rate_limited)
+}
+
+// What the scanner actually looked up after canonicalisation (A1-6). `url` is the public form (no query/credentials).
+export interface CanonicalTarget {
+  kind: string;
+  host?: string | null;
+  registered_domain?: string | null;
+  subdomain?: string;
+  ip?: string | null;
+  port?: number | null;
+  scheme?: string | null;
+  url?: string | null;
+  has_userinfo?: boolean;
+  hash?: string | null;
+  hash_type?: string | null;
 }
 
 export interface FeatureCoverage {
@@ -68,6 +84,7 @@ export interface ScanResult {
   target: string;
   target_type: string;
   timestamp: string;
+  canonical?: CanonicalTarget | null; // absent on scans stored before A1-6
   // null = not computed (no evidence / model not loaded) — never shown as 0.
   baseline_score: number | null;
   // Band of baseline_score ("Unknown" if no evidence). The baseline is the headline score:

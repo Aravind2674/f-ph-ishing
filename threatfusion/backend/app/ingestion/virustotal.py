@@ -11,14 +11,20 @@ was the audit's root cause of "an outage looks like a clean target".
 Key endpoints used
 ------------------
 * ``GET /api/v3/domains/{domain}``      – domain reputation & last analysis.
+* ``GET /api/v3/ip_addresses/{ip}``    – IP reputation (IPs used to be sent to ``/domains/``; A1-1).
 * ``GET /api/v3/urls/{url_id}``         – URL reputation (url_id = base64).
 * ``GET /api/v3/files/{hash}``          – file‑hash lookup (MD5/SHA‑1/SHA‑256).
 
-Rate limits
------------
-The free VT API tier allows **4 requests / minute (500/day)**.  A real, process-wide
-token bucket is part of A1-1; until then a semaphore only bounds *concurrency*.  A 429
-from VirusTotal is surfaced as ``error / rate_limited`` instead of being swallowed.
+Quota, cache, lifetime (A1-1)
+-----------------------------
+The free VT tier allows **4 requests / minute and 500 / day**.  One process-wide client (``core/hub.py``) is
+shared by every scan *and* the network layer, together with one :class:`~app.core.quota.QuotaLimiter`:
+
+* every network call first takes a slot; a caller that would have to wait longer than ``max_queue_seconds`` gets
+  ``error / rate_limited`` (+ ``retry_after``) immediately instead of hanging until the scan deadline;
+* a 429 is surfaced the same way and its ``Retry-After`` is *honoured* — the limiter blocks every later caller
+  for that long, so a burst can't keep hammering a provider that just said "stop";
+* answers (ok / not_found) are cached in SQLite (``core/cache.py``) and cost no quota; failures never are.
 """
 
 from __future__ import annotations
@@ -26,14 +32,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Tuple, Any
+from email.utils import parsedate_to_datetime
+from typing import Optional, Any
 
 import httpx
 
 from app.core import privacy
 from app.core import providers as prov
+from app.core.cache import ProviderCache, url_key
+from app.core.quota import QuotaLimiter
 from app.models.schemas import ProviderResult, ProviderStatus, VirusTotalResult
 
 logger = logging.getLogger(__name__)
@@ -41,8 +49,36 @@ logger = logging.getLogger(__name__)
 SOURCE = "virustotal"
 
 
+DEFAULT_RETRY_AFTER = 60.0          # used when a 429 carries no (usable) Retry-After
+MAX_RETRY_AFTER = 24 * 3600.0
+
+
 class _NoAnalysis(Exception):
     """VT knows the object but has no AV analysis for it (empty/missing last_analysis_stats)."""
+
+
+def parse_retry_after(value: Optional[str], *, now: Optional[datetime] = None) -> float:
+    """Seconds to back off from a ``Retry-After`` header (delta-seconds or an HTTP-date, RFC 9110 §10.2.3).
+
+    A missing, negative, zero or unparseable value yields a conservative default rather than "retry now":
+    the provider just told us to stop, and guessing 0 would hammer it again immediately.
+    """
+    if value:
+        value = value.strip()
+        try:
+            seconds = float(value)
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(value)
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                seconds = (when - (now or datetime.now(timezone.utc))).total_seconds()
+                seconds = max(seconds, 1.0)
+            except (TypeError, ValueError):
+                return DEFAULT_RETRY_AFTER
+        if seconds > 0:
+            return min(seconds, MAX_RETRY_AFTER)
+    return DEFAULT_RETRY_AFTER
 
 
 class VirusTotalClient:
@@ -56,60 +92,78 @@ class VirusTotalClient:
         When True, return deterministic synthetic data instead of making real HTTP calls.
     """
 
-    def __init__(self, api_key: str, use_mock: bool = True) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        use_mock: bool = True,
+        *,
+        limiter: Optional[QuotaLimiter] = None,
+        cache: Optional[ProviderCache] = None,
+        cache_ttl: float = 3600.0,
+        not_found_ttl: float = 900.0,
+        max_queue_seconds: float = 15.0,
+    ) -> None:
         self._api_key: str = api_key
         self._use_mock: bool = use_mock
         self._base_url: str = "https://www.virustotal.com/api/v3"
 
-        # Bounds concurrency only (real rate limiting arrives with the shared client in A1-1).
-        self._semaphore = asyncio.Semaphore(4)
+        # No limiter given = unlimited windows (a limiter with 0/0), which still carries Retry-After blocks.
+        self._limiter = limiter if limiter is not None else QuotaLimiter(0, 0)
+        self._max_queue = max_queue_seconds
+        # Only *answers* are cached (ok / not_found) — never failures (the old client cached the empty result of
+        # a failed call for an hour). The default is an in-memory store; the shared hub injects the SQLite one.
+        self._cache = cache if cache is not None else ProviderCache()
+        self._cache_ttl = cache_ttl
+        self._not_found_ttl = not_found_ttl
 
-        # In-memory cache. Only *answers* are cached (ok / not_found) — never failures:
-        # the previous client cached the empty result of a failed call for an hour.
-        self._cache: Dict[Tuple[str, str], Tuple[ProviderResult[VirusTotalResult], float]] = {}
-        self._cache_ttl = 3600  # 1 hour
-
+        # httpx clients and semaphores belong to the event loop that created them: rebuilt if the loop changes
+        # (one loop in production; each TestClient request has its own).
         self._client: Optional[httpx.AsyncClient] = None
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._client_loop: Optional[asyncio.AbstractEventLoop] = None
         logger.info("VirusTotalClient initialised (mock_mode=%s)", self._use_mock)
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Lazy-initialize the HTTP client for connection reuse."""
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=15.0,
-                headers={"x-apikey": self._api_key}
-            )
-        return self._client
+    async def _get_client(self) -> tuple[httpx.AsyncClient, asyncio.Semaphore]:
+        """Lazy-initialize the HTTP client (connection reuse) and the concurrency bound for this event loop."""
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client_loop is not loop:
+            self._client = httpx.AsyncClient(timeout=15.0, headers={"x-apikey": self._api_key})
+            self._semaphore = asyncio.Semaphore(4)       # bounds concurrent connections (the quota is the limiter's)
+            self._client_loop = loop
+        return self._client, self._semaphore
 
     async def close(self) -> None:
-        """Close the HTTP client and release connections."""
+        """Close the HTTP client and release connections (process shutdown — not per scan)."""
         if self._client:
-            await self._client.aclose()
+            try:
+                await self._client.aclose()
+            except RuntimeError:           # its loop is already closed
+                pass
             self._client = None
+            self._semaphore = None
+            self._client_loop = None
 
-    def _check_cache(self, method: str, target: str) -> Optional[ProviderResult[VirusTotalResult]]:
-        """Return a fresh cached *answer* (marked ``cached=True``), else None."""
-        if self._use_mock:
-            return None  # Skip cache in mock mode so tests are predictable
+    async def _cache_get(self, key: str) -> Optional[ProviderResult[VirusTotalResult]]:
+        try:
+            return await self._cache.get(SOURCE, key, VirusTotalResult)
+        except Exception:                  # a cache problem must never fail a scan
+            logger.exception("provider cache read failed; continuing without it")
+            return None
 
-        key = (method, target)
-        if key in self._cache:
-            result, timestamp = self._cache[key]
-            if time.time() - timestamp < self._cache_ttl:
-                logger.debug("Cache hit for %s %s", method, target)
-                return result.model_copy(update={"cached": True})
-            del self._cache[key]
-        return None
-
-    def _set_cache(self, method: str, target: str, result: ProviderResult[VirusTotalResult]) -> None:
-        """Cache answers only; an error must be retried, not remembered."""
-        if not self._use_mock and result.status in (ProviderStatus.OK, ProviderStatus.NOT_FOUND):
-            self._cache[(method, target)] = (result, time.time())
+    async def _cache_put(self, key: str, result: ProviderResult[VirusTotalResult]) -> None:
+        try:
+            await self._cache.put(SOURCE, key, result, ttl_ok=self._cache_ttl, ttl_not_found=self._not_found_ttl)
+        except Exception:
+            logger.exception("provider cache write failed; continuing without it")
 
     async def _fetch(self, url: str) -> ProviderResult[VirusTotalResult]:
-        """GET ``url`` and classify the outcome (see ``core/providers.py`` for the mapping)."""
-        async with self._semaphore:
-            client = await self._get_client()
+        """Take a quota slot, GET ``url`` and classify the outcome (see ``core/providers.py``)."""
+        retry_after = await self._limiter.acquire(max_wait=self._max_queue)
+        if retry_after is not None:
+            logger.info("VirusTotal quota: next slot in %.0fs (> %.0fs queue limit) — not calling", retry_after, self._max_queue)
+            return prov.error(SOURCE, "rate_limited", retry_after=retry_after)
+        client, semaphore = await self._get_client()
+        async with semaphore:
             started = prov.start_timer()
             try:
                 response = await client.get(url)
@@ -120,6 +174,10 @@ class VirusTotalClient:
         failure = prov.from_http_status(SOURCE, response.status_code, started=started)
         if failure is not None:
             logger.warning("VirusTotal returned HTTP %s for %s", response.status_code, url)
+            if response.status_code == 429:
+                seconds = parse_retry_after(response.headers.get("retry-after"))
+                self._limiter.penalize(seconds)       # every later caller (scans, network layer) backs off too
+                failure = failure.model_copy(update={"retry_after": round(seconds, 1)})
             return failure
         try:
             data = self._parse_response(response.json())
@@ -230,32 +288,40 @@ class VirusTotalClient:
     # Public async methods
     # ------------------------------------------------------------------
 
-    async def _lookup(self, kind: str, target: str, url: str) -> ProviderResult[VirusTotalResult]:
+    async def _lookup(self, kind: str, key: str, subject: Optional[str], mock_target: str,
+                      url: str) -> ProviderResult[VirusTotalResult]:
         if self._use_mock:
-            return prov.ok(SOURCE, self._generate_mock(target), http_status=None, mock=True)
-        # Never send private/local/malformed names (or private IPs) to VirusTotal (A0-10).
-        subject = target if kind == "domain" else privacy.hostname_of(target) if kind == "url" else None
+            return prov.ok(SOURCE, self._generate_mock(mock_target), http_status=None, mock=True)
+        # Never send private/local/malformed names (or private IPs) to VirusTotal (A0-10) — and a refused
+        # lookup costs no quota and touches no cache.
         if subject is not None:
             blocked = privacy.provider_block_reason(subject)
             if blocked:
                 return prov.skipped(SOURCE, blocked)
-        cached = self._check_cache(kind, target)
+        cached = await self._cache_get(key)
         if cached is not None:
             return cached
         result = await self._fetch(url)
-        self._set_cache(kind, target, result)
+        await self._cache_put(key, result)
         return result
 
     async def lookup_domain(self, domain: str) -> ProviderResult[VirusTotalResult]:
         """Fetch the reputation and last‑analysis stats for a domain."""
-        return await self._lookup("domain", domain, f"{self._base_url}/domains/{domain}")
+        return await self._lookup("domain", f"domain:{domain.lower()}", domain, domain,
+                                  f"{self._base_url}/domains/{domain}")
+
+    async def lookup_ip(self, ip: str) -> ProviderResult[VirusTotalResult]:
+        """Fetch the reputation and last‑analysis stats for an IPv4/IPv6 address."""
+        return await self._lookup("ip", f"ip:{ip.lower()}", ip, ip, f"{self._base_url}/ip_addresses/{ip}")
 
     async def lookup_url(self, url: str) -> ProviderResult[VirusTotalResult]:
         """Fetch the reputation and last‑analysis stats for a URL."""
         # VT v3 API requires the URL to be base64url encoded without padding
         url_id = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
-        return await self._lookup("url", url, f"{self._base_url}/urls/{url_id}")
+        return await self._lookup("url", url_key(url), privacy.hostname_of(url) or "", url,
+                                  f"{self._base_url}/urls/{url_id}")
 
     async def lookup_file_hash(self, file_hash: str) -> ProviderResult[VirusTotalResult]:
         """Fetch the analysis report for a file hash."""
-        return await self._lookup("hash", file_hash, f"{self._base_url}/files/{file_hash}")
+        return await self._lookup("hash", f"hash:{file_hash.lower()}", None, file_hash,
+                                  f"{self._base_url}/files/{file_hash}")

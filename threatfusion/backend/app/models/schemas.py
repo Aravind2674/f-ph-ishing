@@ -82,6 +82,8 @@ class ProviderOutcome(BaseModel):
     cached: bool = Field(False, description="True if served from the local cache")
     latency_ms: Optional[float] = Field(None, description="Network latency of the call, if one was made")
     mock: bool = Field(False, description="True if produced by the mock layer, not a real provider")
+    retry_after: Optional[float] = Field(
+        None, description="Seconds until the provider's quota allows another call (rate_limited only)")
 
 
 class ProviderResult(BaseModel, Generic[T]):
@@ -101,6 +103,8 @@ class ProviderResult(BaseModel, Generic[T]):
     cached: bool = False
     latency_ms: Optional[float] = None
     mock: bool = False
+    retry_after: Optional[float] = Field(
+        None, description="Seconds until the provider's quota allows another call (rate_limited only)")
 
     @property
     def ok(self) -> bool:
@@ -111,7 +115,7 @@ class ProviderResult(BaseModel, Generic[T]):
         return ProviderOutcome(
             source=self.source, status=self.status, http_status=self.http_status,
             reason=self.reason, fetched_at=self.fetched_at, cached=self.cached,
-            latency_ms=self.latency_ms, mock=self.mock,
+            latency_ms=self.latency_ms, mock=self.mock, retry_after=self.retry_after,
         )
 
 

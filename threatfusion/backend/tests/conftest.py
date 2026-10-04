@@ -51,6 +51,37 @@ def _testclient_init(self, *args, **kwargs):
 
 TestClient.__init__ = _testclient_init
 
+# VirusTotal quota (A1-1): the free-tier limiter (4/min) is OFF by default in tests so unrelated tests aren't
+# throttled; tests/test_a1_1_virustotal.py turns it on explicitly.
+os.environ["VIRUSTOTAL_REQUESTS_PER_MINUTE"] = "0"
+os.environ["VIRUSTOTAL_REQUESTS_PER_DAY"] = "0"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_provider_hub():
+    """Each test gets a fresh process-wide client/limiter and an empty provider cache (the session DB is shared)."""
+    import sqlite3
+    from app.core.config import Settings
+    from app.core.hub import hub
+
+    hub.reset()
+    try:
+        db = Settings(_env_file=None).database_path
+        if db.exists():
+            con = sqlite3.connect(db)
+            try:
+                con.execute("DELETE FROM provider_cache")
+                con.commit()
+            except sqlite3.OperationalError:       # table not created yet (no test has initialised the DB)
+                pass
+            finally:
+                con.close()
+    except Exception:
+        pass
+    yield
+    hub.reset()
+
+
 # Force mock mode for all tests
 os.environ['USE_MOCK_DATA'] = 'true'
 os.environ['VIRUSTOTAL_API_KEY'] = 'test-key'

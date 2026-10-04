@@ -19,7 +19,6 @@ from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.ingestion.cve import CVEClient
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
-from app.ingestion.virustotal import VirusTotalClient
 from app.ml.baseline import baseline_score
 from app.ml.explain import explain_prediction
 from app.ml.features import FEATURE_SCHEMA_VERSION, extract_features_with_coverage
@@ -30,6 +29,7 @@ from app.core import providers as prov
 from app.core.artifacts import model_path, model_version
 from app.core.auth import require_token
 from app.core.config import get_settings
+from app.core.hub import hub
 from app.core.ratelimit import scan_rate_limit
 from app.core.scan_store import ScanStore
 from app.core import privacy, safe_http
@@ -244,7 +244,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     use_mock = settings.USE_MOCK_DATA
     providers = settings.provider_statuses()
 
-    vt_client = VirusTotalClient(api_key=settings.VIRUSTOTAL_API_KEY, use_mock=use_mock)
+    vt_client = hub.virustotal()          # process-wide: shared quota + persistent cache (A1-1); never closed per scan
     shodan_client = ShodanClient(api_key=settings.SHODAN_API_KEY, use_mock=use_mock)
     cve_client = CVEClient(api_key=settings.NVD_API_KEY, use_mock=use_mock)
     tech_client = TechFingerprintClient(use_mock=use_mock)
@@ -293,9 +293,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         vt_res: ProviderResult | None = None
         if not providers["virustotal"].configured:
             vt_res = prov.not_configured("virustotal")
-        elif request.target_type in (TargetType.DOMAIN, TargetType.IP):
-            # NOTE: IPs still go through the domain endpoint; the /ip_addresses call is A1-1.
+        elif request.target_type == TargetType.DOMAIN:
             vt_res = await _safe(vt_client.lookup_domain(outbound_host), "virustotal")
+        elif request.target_type == TargetType.IP:
+            vt_res = await _safe(vt_client.lookup_ip(outbound_host), "virustotal")
         elif request.target_type == TargetType.URL:
             vt_res = await _safe(vt_client.lookup_url(outbound_url), "virustotal")
         elif request.target_type == TargetType.FILE_HASH:
@@ -476,7 +477,6 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
     finally:
         # Ensure all async clients are closed
-        await vt_client.close()
         await shodan_client.close()
         await cve_client.close()
         await tech_client.close()

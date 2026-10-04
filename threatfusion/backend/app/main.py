@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings, log_provider_table, startup_warnings
 from app.core.auth import get_api_token, log_token_location
 from app.core.db import init_db
+from app.core.hub import hub
 from app.core.security import SecurityMiddleware
 from app.core.logging import setup_logging, get_logger
 
@@ -35,6 +36,9 @@ async def _retention_loop(service) -> None:
             counts = await service.purge(days)
             if any(counts.values()):
                 logger.info("Retention purge (%d days): removed %s", days, counts)
+            expired = await hub.cache.purge_expired()          # provider_cache rows past their TTL (A1-1)
+            if expired:
+                logger.info("Provider cache: purged %d expired lookups", expired)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -75,6 +79,14 @@ async def lifespan(app: FastAPI):
     await init_db(db_path)
     logger.info("Database ready: %s", db_path)
 
+    # Step 3b: the process-wide provider clients (A1-1) — one VirusTotal client + quota limiter + SQLite cache
+    # shared by scans and the network layer. Built here, closed at shutdown; handlers never close it.
+    hub.virustotal()
+    if not settings.USE_MOCK_DATA:
+        logger.info("VirusTotal quota: %s/min, %s/day (0 = unlimited); answers cached %ss",
+                    settings.VIRUSTOTAL_REQUESTS_PER_MINUTE, settings.VIRUSTOTAL_REQUESTS_PER_DAY,
+                    settings.VIRUSTOTAL_CACHE_TTL_SECONDS)
+
     # Step 4: Initialize the Network Layer (baseline store + alert tables).
     # This is always initialised so the API can serve status/history even
     # before live capture is started. Capture itself only begins when
@@ -100,6 +112,10 @@ async def lifespan(app: FastAPI):
         await net_service.stop()
     except Exception:
         logger.exception("Error stopping network monitor during shutdown")
+    try:
+        await hub.close()
+    except Exception:
+        logger.exception("Error closing provider clients during shutdown")
     logger.info("ThreatFusion API shutting down")
 
 

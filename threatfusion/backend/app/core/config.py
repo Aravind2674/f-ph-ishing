@@ -168,9 +168,19 @@ class Settings(BaseSettings):
 
     # ── Rate limiting ───────────────────────────────────────────────────
     # Per-CLIENT cap on POST /scan (sliding 60 s window; 0 = off). This protects the process and the
-    # shared provider quota from one noisy client; honouring each provider's own limit (VirusTotal
-    # free tier: 4/min, 500/day) is the provider clients' job (A1-1).
+    # shared provider quota from one noisy client.
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 30
+
+    # ── Provider quotas & cache (A1-1) ──────────────────────────────────
+    # VirusTotal's *own* limits, enforced by one process-wide limiter that scans and the network layer share
+    # (core/quota.py). Defaults are the free tier; set both to 0 for a premium key.
+    VIRUSTOTAL_REQUESTS_PER_MINUTE: int = 4
+    VIRUSTOTAL_REQUESTS_PER_DAY: int = 500
+    # How long a scan will queue for a quota slot before reporting the provider as `rate_limited`.
+    VIRUSTOTAL_MAX_QUEUE_SECONDS: float = 15.0
+    # Persistent cache of provider answers (SQLite `provider_cache`). Failures are never cached.
+    VIRUSTOTAL_CACHE_TTL_SECONDS: int = 6 * 3600     # an answer (VT re-analyses at most daily)
+    PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS: int = 15 * 60   # "no record" — may be submitted soon after
 
     # ── Network Layer — capture & monitoring ────────────────────────────
     # Interface names are passed straight to scapy. Empty string means

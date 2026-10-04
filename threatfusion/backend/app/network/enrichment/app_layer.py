@@ -41,7 +41,7 @@ from typing import Optional
 from app.core import privacy
 from app.core.artifacts import model_path
 from app.core.config import get_settings
-from app.ingestion.virustotal import VirusTotalClient
+from app.core.hub import hub
 from app.ingestion.shodan import ShodanClient
 from app.ml.baseline import baseline_score
 from app.ml.features import extract_features
@@ -97,7 +97,8 @@ def _unavailable_reason(name: str, res) -> str:
         return f"{name} has no record of this target"
     detail = res.reason or res.status.value
     http = f" (HTTP {res.http_status})" if res.http_status else ""
-    return f"{name} lookup unavailable: {detail}{http}"
+    retry = f", retry in {int(res.retry_after)}s" if getattr(res, "retry_after", None) else ""
+    return f"{name} lookup unavailable: {detail}{http}{retry}"
 
 
 def _looks_like_ip(target: str) -> bool:
@@ -150,21 +151,18 @@ class AppLayerScorer:
                 live=not use_mock,
             )
 
-        vt_client = VirusTotalClient(
-            api_key=settings.VIRUSTOTAL_API_KEY, use_mock=use_mock
-        )
+        vt_client = hub.virustotal()        # the SAME client (quota + cache) the scans use; never closed here
         shodan_client = ShodanClient(
             api_key=settings.SHODAN_API_KEY, use_mock=use_mock
         )
 
         try:
             shodan = None
-            # Domains and IPs both go through lookup_domain in the existing client contract
-            # (mock handles IP-as-domain, and live VT resolves domains directly).
+            # IPs go to VT's /ip_addresses endpoint, domains to /domains (A1-1).
             # The client never raises: it returns a ProviderResult whose status says what
             # happened. Only an `ok` answer is scored — a failed lookup used to arrive here as
             # an empty result and was reported as "0/0 engines (live)".
-            vt_res = await vt_client.lookup_domain(target)
+            vt_res = await (vt_client.lookup_ip(target) if target_type == "ip" else vt_client.lookup_domain(target))
             if not vt_res.ok:
                 return AppLayerSubScore(
                     available=False,
@@ -214,5 +212,4 @@ class AppLayerScorer:
                 live=not use_mock,
             )
         finally:
-            await vt_client.close()
             await shodan_client.close()

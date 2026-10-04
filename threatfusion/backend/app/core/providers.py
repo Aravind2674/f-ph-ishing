@@ -60,9 +60,10 @@ def not_found(source: str, *, http_status: Optional[int] = 404,
 
 
 def error(source: str, reason: str, *, http_status: Optional[int] = None,
-          started: Optional[float] = None) -> ProviderResult:
+          started: Optional[float] = None, retry_after: Optional[float] = None) -> ProviderResult:
     return ProviderResult(source=source, status=ProviderStatus.ERROR, reason=reason,
-                          http_status=http_status, latency_ms=_latency_ms(started))
+                          http_status=http_status, latency_ms=_latency_ms(started),
+                          retry_after=None if retry_after is None else round(float(retry_after), 1))
 
 
 def skipped(source: str, reason: str) -> ProviderResult:
