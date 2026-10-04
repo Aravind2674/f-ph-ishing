@@ -112,6 +112,9 @@ _LABEL = {
     "shodan_internetdb": "Shodan",
     "nvd": "NVD",
     "tech_fingerprint": "TechFingerprint",
+    "tls": "TLS",
+    "rdap": "RDAP",
+    "dns": "DNS",
 }
 
 
@@ -354,6 +357,27 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             outcomes.append(tech_res)
         tech = tech_res.data if tech_res is not None and tech_res.ok else None
 
+        # Host signals (A1-3): the certificate, the registration record (real domain age) and DNS facts. They are
+        # given the canonical *host* / *registered domain* only — never a URL (privacy, A0-10) — and apply to
+        # domain/URL targets. Each is switchable and three-state like every other provider.
+        tls_res = rdap_res = dns_res = None
+        if request.target_type in (TargetType.URL, TargetType.DOMAIN):
+            async def _signal(source: str, enabled: bool, make_call):
+                # The switches govern *live* probing (real sockets). Mock mode is synthetic and touches no network,
+                # so it always runs the mock clients and a mock scan looks the same whatever the switches say.
+                if not enabled and not use_mock:
+                    return prov.skipped(source, "disabled")
+                return await _safe(make_call(), source)
+
+            tls_res = await _signal("tls", settings.TLS_ENABLED, lambda: hub.tls().lookup(target.host))
+            rdap_res = await _signal("rdap", settings.RDAP_ENABLED, lambda: hub.rdap().lookup(target.registered_domain))
+            dns_res = await _signal("dns", settings.DNS_ENABLED,
+                                    lambda: hub.dns().lookup(target.host, target.registered_domain))
+            outcomes.extend([tls_res, rdap_res, dns_res])
+        tls = tls_res.data if tls_res is not None and tls_res.ok else None
+        rdap = rdap_res.data if rdap_res is not None and rdap_res.ok else None
+        dns = dns_res.data if dns_res is not None and dns_res.ok else None
+
         vt = vt_res.data if vt_res is not None and vt_res.ok else None
 
         # ── 1b. Predictive Vulnerability Chaining ───────────────────────
@@ -368,7 +392,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 logger.warning("Vulnerability chaining failed: %s", e)
 
         # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
-        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech)
+        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns)
 
         # ── 3. Rule-Based Baseline ──────────────────────────────────────
         # With no evidence at all there is nothing to score: None, not a reassuring 0.0.
@@ -430,6 +454,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             shodan=shodan,
             cve=cve,
             tech_fingerprint=tech,
+            tls=tls,
+            rdap=rdap,
+            dns=dns,
             features=features,
             feature_coverage=coverage,
             baseline_score=b_score,

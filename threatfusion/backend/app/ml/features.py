@@ -24,19 +24,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, Set
 
+from app.ingestion.rdap import domain_age_days
+from app.ingestion.tls import tls_cert_valid
 from app.models.schemas import (
     CVEResult,
+    DnsInfo,
     FeatureCoverage,
     FeatureVector,
+    RdapInfo,
     ShodanResult,
     TechFingerprintResult,
+    TlsInfo,
     VirusTotalResult,
 )
 
 # Version of the feature *semantics* stored with every scan:
 #   1 = original floats with neutral constants (ssl=1.0, age=365) standing in for missing data
 #   2 = A0-1: unknown is None (XGBoost sees NaN); no fabricated constants
-FEATURE_SCHEMA_VERSION = 2
+#   3 = A1-3: ssl_cert_valid / domain_age_days are real (TLS probe / RDAP registration date), still None if unknown
+FEATURE_SCHEMA_VERSION = 3
 
 # Common ports often targeted by automated scanners and ransomware
 HIGH_RISK_PORTS: Set[int] = {
@@ -82,6 +88,9 @@ def extract_features_with_coverage(
     shodan: Optional[ShodanResult],
     cve: Optional[CVEResult],
     tech: Optional[TechFingerprintResult],
+    tls: Optional[TlsInfo] = None,
+    rdap: Optional[RdapInfo] = None,
+    dns: Optional[DnsInfo] = None,
 ) -> tuple[FeatureVector, FeatureCoverage]:
     """Derive a ``FeatureVector`` *and* which providers contributed to it.
 
@@ -90,9 +99,10 @@ def extract_features_with_coverage(
 
     * a provider that did not answer leaves *its* features ``None`` (XGBoost sees NaN) —
       never ``0.0`` (which reads as "clean") and never ``0.5`` (which reads as "neutral");
-    * ``ssl_cert_valid`` and ``domain_age_days`` are ``None`` until real TLS/RDAP lookups
-      exist (A1-3).  They used to be the constants 1.0 and 365.0 on every scan — fabricated
-      evidence that also shifted every baseline score.
+    * ``ssl_cert_valid`` comes from the TLS probe (``1.0`` valid, ``0.0`` invalid or no TLS) and
+      ``domain_age_days`` from the RDAP/WHOIS registration date (A1-3); each stays ``None`` when its probe did
+      not answer or the registry publishes no date.  They used to be the constants 1.0 and 365.0 on every scan —
+      fabricated evidence that also shifted every baseline score.
 
     ``FeatureCoverage`` carries the has_<provider> missingness flags.  They are kept out of
     ``FeatureVector`` on purpose: the deployed XGBoost artifact expects exactly 19 columns.
@@ -103,7 +113,16 @@ def extract_features_with_coverage(
         has_shodan=shodan is not None,
         has_cve=cve is not None,
         has_tech=tech is not None,
+        has_tls=tls is not None,
+        has_rdap=rdap is not None,
+        has_dns=dns is not None,
     )
+
+    # ── Host signals (A1-3) ─────────────────────────────────────────
+    if tls is not None:
+        vec.ssl_cert_valid = tls_cert_valid(tls)
+    if rdap is not None:
+        vec.domain_age_days = domain_age_days(rdap)      # None if the registry published no registration date
 
     # ── VirusTotal ──────────────────────────────────────────────────
     if vt is not None:
@@ -186,6 +205,9 @@ def extract_features(
     shodan: Optional[ShodanResult],
     cve: Optional[CVEResult],
     tech: Optional[TechFingerprintResult],
+    tls: Optional[TlsInfo] = None,
+    rdap: Optional[RdapInfo] = None,
+    dns: Optional[DnsInfo] = None,
 ) -> FeatureVector:
     """Backward-compatible wrapper: the 19-dimensional vector without the coverage flags."""
-    return extract_features_with_coverage(vt, shodan, cve, tech)[0]
+    return extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns)[0]

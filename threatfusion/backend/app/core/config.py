@@ -190,6 +190,23 @@ class Settings(BaseSettings):
     NVD_LOOKUP_BY_CPE: bool = True                   # also look up the (versioned) CPEs InternetDB reports
     NVD_MAX_CPES: int = 5                            # CPEs per host
     NVD_MAX_PAGES: int = 3                           # pages per CPE query (2000 CVEs/page)
+
+    # Host signals (A1-3). Each can be switched off; all are keyless.
+    #   TLS  — connects to <host>:443 (the *target's own* server; nothing is sent over the handshake)
+    #   RDAP — asks the TLD registry's public RDAP service about the *registered domain* (WHOIS only where a TLD
+    #          has no RDAP); never a URL, never a private/local name
+    #   DNS  — A/AAAA/MX/NS/TXT/CAA/DMARC via the system resolver (or DNS_NAMESERVERS) + Team Cymru's DNS ASN map
+    TLS_ENABLED: bool = True
+    TLS_TIMEOUT_SECONDS: float = 6.0
+    TLS_CACHE_TTL_SECONDS: int = 3600
+    RDAP_ENABLED: bool = True
+    RDAP_REQUESTS_PER_MINUTE: int = 30
+    RDAP_CACHE_TTL_SECONDS: int = 24 * 3600
+    RDAP_WHOIS_FALLBACK: bool = True
+    DNS_ENABLED: bool = True
+    DNS_TIMEOUT_SECONDS: float = 4.0
+    DNS_CACHE_TTL_SECONDS: int = 900
+    DNS_NAMESERVERS: str = ""                        # comma-separated resolver IPs; empty = the system resolver
     # Persistent cache of provider answers (SQLite `provider_cache`). Failures are never cached.
     VIRUSTOTAL_CACHE_TTL_SECONDS: int = 6 * 3600     # an answer (VT re-analyses at most daily)
     PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS: int = 15 * 60   # "no record" — may be submitted soon after
@@ -303,6 +320,9 @@ class Settings(BaseSettings):
             "shodan_internetdb": status("shodan_internetdb", True, "keyless"),
             "nvd": status("nvd", nvd_ok, nvd_state),
             "tech_fingerprint": status("tech_fingerprint", True, "local"),
+            "tls": status("tls", True, "keyless"),
+            "rdap": status("rdap", True, "keyless"),
+            "dns": status("dns", True, "keyless"),
             "wigle": status("wigle", wigle_ok, wigle_state),
         }
 

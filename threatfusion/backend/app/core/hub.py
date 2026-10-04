@@ -21,6 +21,9 @@ from app.core.cache import ProviderCache
 from app.core.config import get_settings
 from app.core.quota import QuotaLimiter
 from app.ingestion.cve import CVEClient
+from app.ingestion.dns_records import DnsClient
+from app.ingestion.rdap import RdapClient
+from app.ingestion.tls import TlsClient
 from app.ingestion.virustotal import VirusTotalClient
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,12 @@ class ProviderHub:
         self._vt_key: Optional[tuple] = None
         self._nvd: Optional[CVEClient] = None
         self._nvd_key: Optional[tuple] = None
+        self._tls: Optional[TlsClient] = None
+        self._tls_key: Optional[tuple] = None
+        self._rdap: Optional[RdapClient] = None
+        self._rdap_key: Optional[tuple] = None
+        self._dns: Optional[DnsClient] = None
+        self._dns_key: Optional[tuple] = None
 
     def virustotal(self) -> VirusTotalClient:
         s = get_settings()
@@ -79,6 +88,39 @@ class ProviderHub:
             self._nvd_key = key
         return self._nvd
 
+    def tls(self) -> TlsClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.TLS_TIMEOUT_SECONDS, s.TLS_CACHE_TTL_SECONDS, s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS)
+        if self._tls is None or key != self._tls_key:
+            self._tls = TlsClient(use_mock=s.USE_MOCK_DATA, cache=self.cache, cache_ttl=s.TLS_CACHE_TTL_SECONDS,
+                                  not_found_ttl=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS, timeout=s.TLS_TIMEOUT_SECONDS)
+            self._tls_key = key
+        return self._tls
+
+    def rdap(self) -> RdapClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.RDAP_REQUESTS_PER_MINUTE, s.RDAP_CACHE_TTL_SECONDS, s.RDAP_WHOIS_FALLBACK,
+               s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS)
+        if self._rdap is None or key != self._rdap_key:
+            self._rdap = RdapClient(use_mock=s.USE_MOCK_DATA, cache=self.cache, cache_ttl=s.RDAP_CACHE_TTL_SECONDS,
+                                    not_found_ttl=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS,
+                                    limiter=QuotaLimiter(s.RDAP_REQUESTS_PER_MINUTE, 0),
+                                    whois_fallback=s.RDAP_WHOIS_FALLBACK)
+            self._rdap_key = key
+        return self._rdap
+
+    def dns(self) -> DnsClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.DNS_TIMEOUT_SECONDS, s.DNS_CACHE_TTL_SECONDS, s.DNS_NAMESERVERS,
+               s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS)
+        if self._dns is None or key != self._dns_key:
+            servers = [x.strip() for x in s.DNS_NAMESERVERS.split(",") if x.strip()] or None
+            self._dns = DnsClient(use_mock=s.USE_MOCK_DATA, cache=self.cache, cache_ttl=s.DNS_CACHE_TTL_SECONDS,
+                                  not_found_ttl=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS, timeout=s.DNS_TIMEOUT_SECONDS,
+                                  nameservers=servers)
+            self._dns_key = key
+        return self._dns
+
     async def close(self) -> None:
         """Release connections (process shutdown)."""
         if self._vt is not None:
@@ -92,6 +134,8 @@ class ProviderHub:
         self._vt_key = None
         self._nvd = None
         self._nvd_key = None
+        self._tls = self._rdap = self._dns = None
+        self._tls_key = self._rdap_key = self._dns_key = None
 
 
 hub = ProviderHub()

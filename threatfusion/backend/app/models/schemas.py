@@ -131,6 +131,10 @@ class FeatureCoverage(BaseModel):
     has_shodan: bool = False
     has_cve: bool = False
     has_tech: bool = False
+    # Host signals (A1-3): the TLS certificate, the RDAP/WHOIS registration record and DNS records.
+    has_tls: bool = False
+    has_rdap: bool = False
+    has_dns: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +357,80 @@ class TechFingerprintResult(BaseModel):
 # Feature‑engineering / ML models
 # ---------------------------------------------------------------------------
 
+class TlsInfo(BaseModel):
+    """What the host's TLS endpoint (port 443) really presents (A1-3, ``ingestion/tls.py``).
+
+    Everything is *observed*, nothing is assumed: ``chain_valid`` is OpenSSL's verdict on the chain **and** the
+    host name against the system trust store; the certificate fields are read from the certificate itself (also
+    when verification failed — an expired or self-signed certificate is still parsed, which is how the UI can say
+    *why* it is invalid).  Dates are stored, ``days_to_expiry`` / ``cert_age_days`` are derived at use time
+    (``ingestion/tls.py``) so a cached record keeps ageing correctly.
+    """
+
+    host: str
+    has_tls: bool = Field(True, description="False when nothing on :443 speaks TLS (refused / plain HTTP)")
+    chain_valid: Optional[bool] = Field(None, description="Chain + host name verified against the trust store")
+    verify_error: Optional[str] = Field(
+        None, description="expired | self_signed | self_signed_in_chain | unknown_issuer | hostname_mismatch | verify_failed:<code>")
+    not_before: Optional[datetime] = None
+    not_after: Optional[datetime] = None
+    san_matches_host: Optional[bool] = Field(None, description="The certificate's names (SAN, else CN) cover the host")
+    san_names: list[str] = Field(default_factory=list)
+    self_signed: Optional[bool] = None
+    subject_cn: Optional[str] = None
+    issuer_cn: Optional[str] = None
+    issuer_org: Optional[str] = None
+    validation_level: Optional[str] = Field(None, description="dv | ov | ev | iv — from the CA/B certificate-policy OIDs")
+    issuer_type: Optional[str] = Field(None, description="free_dv | paid_dv | ov | ev | unknown")
+    tls_version: Optional[str] = None
+    key_type: Optional[str] = None
+    key_bits: Optional[int] = None
+
+
+class RdapInfo(BaseModel):
+    """Registration data for a registered domain (A1-3, ``ingestion/rdap.py``): the source of the real domain age.
+
+    ``registered_at`` is stored (not the age) so a cached record keeps ageing; ``None`` means the registry did
+    not publish a registration date — the age is then *unknown*, never 0.
+    """
+
+    domain: str
+    registered_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    last_changed_at: Optional[datetime] = None
+    registrar: Optional[str] = None
+    statuses: list[str] = Field(default_factory=list)
+    nameservers: list[str] = Field(default_factory=list)
+    source: str = Field("rdap", description="rdap | whois (WHOIS only where the TLD has no RDAP service)")
+    server: Optional[str] = Field(None, description="The RDAP/WHOIS server that answered")
+
+
+class DnsInfo(BaseModel):
+    """DNS facts about the host (A1-3, ``ingestion/dns_records.py``).
+
+    Each record family is **three-state**: a list when the lookup answered (``[]`` = the zone has none), ``None``
+    when the lookup *failed* (listed in ``failed_types``).  ``spf`` / ``dmarc`` follow the same rule.
+    """
+
+    host: str
+    lookup_domain: str = Field(..., description="The registered domain MX/NS/TXT/CAA/DMARC were read from")
+    a: Optional[list[str]] = None
+    aaaa: Optional[list[str]] = None
+    mx: Optional[list[str]] = None
+    ns: Optional[list[str]] = None
+    txt: Optional[list[str]] = None
+    caa: Optional[list[str]] = None
+    spf: Optional[bool] = None
+    spf_record: Optional[str] = None
+    dmarc: Optional[bool] = None
+    dmarc_policy: Optional[str] = None
+    asn: Optional[int] = Field(None, description="Hosting autonomous system of the first public address")
+    asn_org: Optional[str] = None
+    asn_prefix: Optional[str] = None
+    asn_country: Optional[str] = None
+    failed_types: list[str] = Field(default_factory=list)
+
+
 class FeatureVector(BaseModel):
     """Flat numeric feature vector consumed by both the baseline rule
     scorer and the gradient‑boosted fusion model.
@@ -444,12 +522,14 @@ class FeatureVector(BaseModel):
 
     # ── Supplementary features ───────────────────────────────────────
     ssl_cert_valid: Optional[float] = Field(
-        1.0,
-        description="1.0 if the SSL/TLS certificate is valid, 0.0 otherwise",
+        None,
+        description="1.0 if the host presents a currently valid, name-matching certificate, 0.0 if it presents an "
+                    "invalid one or no TLS at all; null when TLS was not probed (A1-3)",
     )
     domain_age_days: Optional[float] = Field(
-        0.0,
-        description="Age of the domain in days – newly registered domains are riskier",
+        None,
+        description="Age of the registered domain in days from its RDAP/WHOIS registration date; null when unknown "
+                    "(never 0) — newly registered domains are riskier",
     )
 
 
@@ -591,6 +671,9 @@ class ScanResult(BaseModel):
         None,
         description="Technology fingerprinting results (None if source failed)",
     )
+    tls: Optional[TlsInfo] = Field(None, description="TLS certificate facts (None if unavailable; A1-3)")
+    rdap: Optional[RdapInfo] = Field(None, description="Registration record incl. the real domain age (A1-3)")
+    dns: Optional[DnsInfo] = Field(None, description="DNS records, SPF/DMARC and hosting ASN (A1-3)")
 
     # ── Engineered features ──────────────────────────────────────────
     features: Optional[FeatureVector] = Field(

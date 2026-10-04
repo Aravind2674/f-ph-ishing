@@ -58,6 +58,11 @@ os.environ["VIRUSTOTAL_REQUESTS_PER_DAY"] = "0"
 # NVD (A1-2): no real waiting when a scan-level test makes NVD answer 403/429/503 (the retry delays are tested
 # with a fake clock in test_a1_2_nvd.py).
 os.environ["NVD_BACKOFF_BASE_SECONDS"] = "0.01"
+# Host signals (A1-3) open real sockets (TLS to :443, WHOIS, DNS) — respx cannot intercept those, so they are OFF
+# by default in tests (a test that exercises them swaps in stubs/local servers and enables them explicitly).
+os.environ["TLS_ENABLED"] = "false"
+os.environ["RDAP_ENABLED"] = "false"
+os.environ["DNS_ENABLED"] = "false"
 
 
 @pytest.fixture(autouse=True)
