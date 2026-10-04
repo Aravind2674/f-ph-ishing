@@ -15,6 +15,8 @@ Version history
 * v3 – ``provider_cache``: persistent TTL cache of third-party answers (A1-1; see ``core/cache.py``).
 * v4 – ``feed_meta`` / ``feed_entries``: bulk feeds kept locally with their fetch time (KEV, later OpenPhish/PhishTank/
   Tranco; B11/B2 — see ``core/feeds.py``).
+* v5 – ``feedback``: user reports of false positives / negatives with provenance, reviewed before they can reach any
+  training data (B20 — see ``api/feedback.py``).
 
 The network layer's tables (``net_*``) and ``verify_audit`` create themselves; they share this file but
 not this version counter.
@@ -112,11 +114,38 @@ async def _migrate_v4(db: aiosqlite.Connection) -> None:
     await db.executescript(_V4_FEEDS)
 
 
+_V5_FEEDBACK = """
+CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    target TEXT NOT NULL,              -- host name, or the full URL only if the reporter opted in
+    target_type TEXT NOT NULL,
+    label TEXT NOT NULL,               -- false_positive | false_negative | confirm_malicious | confirm_benign
+    note TEXT,
+    source TEXT NOT NULL,              -- extension | ui | api
+    scan_id TEXT,
+    verdict_snapshot TEXT,             -- JSON: what ThreatFusion said when the report was made
+    model_versions TEXT,               -- JSON
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | accepted | rejected: reviewed before entering any training data
+    reviewed_at TEXT,
+    reviewer TEXT,
+    review_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
+CREATE INDEX IF NOT EXISTS idx_feedback_target ON feedback(target);
+"""
+
+
+async def _migrate_v5(db: aiosqlite.Connection) -> None:
+    await db.executescript(_V5_FEEDBACK)
+
+
 MIGRATIONS: list[tuple[int, Callable[[aiosqlite.Connection], Awaitable[None]]]] = [
     (1, _migrate_v1),
     (2, _migrate_v2),
     (3, _migrate_v3),
     (4, _migrate_v4),
+    (5, _migrate_v5),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

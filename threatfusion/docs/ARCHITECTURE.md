@@ -224,6 +224,30 @@ legitimate and badly patched.
 
 Honest limits (also in every model card): the data is a benchmark (~45 % phishing), the models read the URL **text** only, and host-disjoint evaluation lowers every score on purpose. Results drift: see the decay table.
 
+## Two-tier scans, extension, India helpers, feedback (Phase B-fast-tier)
+
+```
+browser extension / UI ──► POST /scan/fast ──► fast tier  (local data only, target-private, ~ms)
+                                                 │  canonical target → OpenPhish / PhishTank feeds → look-alike (B4)
+                                                 │  → URL-text models → Tranco prior → cached recent scan
+POST /scan {mode:"async"} ──► fast verdict + scan_id (immediately)
+                          └─► slow tier as a bounded in-process job: providers, page fetch, fusion, persistence
+                              progress: SSE /scan/{id}/events      result: GET /scan/{id}  (running | done | error)
+```
+
+- The fast verdict is a **transparent rule over named parts** (`block` = the exact page is on a local list; `warn` = look-alike / flagged text
+  / listed host; `info` = a brand's own domain; `none` = nothing found, which is **not** a clean bill of health). Local lists that could not be read are
+  reported as gaps, never as "clean".
+- The job queue (`core/jobs.py`) is in-process on purpose (single-user local tool, no Redis to install); the interface (`submit` / `state` /
+  `shutdown`) is small enough to put `arq` behind. Bounded: `SCAN_MAX_CONCURRENT_JOBS` (4) run, `SCAN_MAX_PENDING_JOBS` (50) wait, beyond that HTTP 429.
+- **Extension** (`extension/`): a service worker checks navigations with the host only (full URL opt-in); decisions live in a pure module
+  (`lib.mjs`) tested with Node's runner; the content script only reads whether password fields exist. See `extension/README.md` for the data-flow
+  and permission table.
+- **India** (`app/india/`): `scam_patterns.py` (fixed a-priori weights; the arithmetic is shown) and `report_kit.py` (prepares text, lists official
+  channels, submits nothing). `/india/analyze-text`, `/india/report-kit`, `/india/scan/{id}/report-kit`.
+- **Feedback** (`api/feedback.py`, table `feedback`): reports are `pending` until a person reviews them; only `accepted` rows can leave through
+  `ml/feedback_export.py`. Anyone able to reach the API could otherwise poison a label.
+
 ## Evaluation Results
 
 > ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,

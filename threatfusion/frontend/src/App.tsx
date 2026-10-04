@@ -12,9 +12,11 @@ import { NetworkSection } from './components/NetworkSection';
 import { Card } from './components/ui/card';
 import { Skeleton } from './components/ui/skeleton';
 import { SiteMeteorsBackground } from './components/ui/site-meteors-background';
-import { newScanId, submitScan, subscribeScanEvents } from './api';
+import { newScanId, submitScan, subscribeScanEvents, waitForScan, type FastVerdict } from './api';
 import type { ScanResult as IScanResult, ScanRequest } from './api';
 import { LiveSources } from './components/LiveSources';
+import { FastVerdictCard } from './components/FastVerdictCard';
+import { MessageCheck } from './components/MessageCheck';
 import { applyLiveEvent, emptyLiveState, type LiveState } from './lib/evidence';
 
 function App() {
@@ -26,12 +28,15 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // Live per-source progress of the scan in flight (Server-Sent Events; purely additive — the POST is authoritative).
   const [live, setLive] = useState<LiveState>(emptyLiveState());
+  // The fast-tier verdict (B1): local checks, shown at once while the full scan runs.
+  const [fast, setFast] = useState<FastVerdict | null>(null);
   const liveSub = useRef<{ close: () => void } | null>(null);
 
   const handleScanSubmit = async (request: ScanRequest) => {
     setLoading(true);
     setError(null);
     setScanResult(null);
+    setFast(null);
     setCurrentView('scan'); // Auto-switch to scan view
     // Choose the scan id up front and open the progress stream BEFORE posting, so the chips show from the first call.
     const scanId = newScanId();
@@ -39,7 +44,10 @@ function App() {
     liveSub.current?.close();
     liveSub.current = subscribeScanEvents(scanId, (event) => setLive((s) => applyLiveEvent(s, event)));
     try {
-      const response = await submitScan({ ...request, scan_id: scanId });
+      // Two tiers (B1): the POST answers at once with the fast verdict; the full scan then finishes in the background.
+      const started = await submitScan({ ...request, scan_id: scanId, mode: 'async' });
+      if (started.fast) setFast(started.fast);
+      const response = started.status === 'running' ? await waitForScan(scanId) : started;
       if (response.success && response.result) {
         setScanResult(response.result);
       } else {
@@ -103,6 +111,7 @@ function App() {
                 </motion.div>
               )}
 
+              {loading && <FastVerdictCard verdict={fast} running />}
               {loading && <ScanningState live={live} />}
               {!loading && !error && scanResult && (
                 <ScanResult result={scanResult} onRescan={handleRescan} />
@@ -120,6 +129,12 @@ function App() {
             <section className="flex flex-col gap-5">
               <SectionDivider step="03" label="Verify a target" hint="safe active probes · localhost only" />
               <VerifyPanel />
+            </section>
+
+            {/* ── 04 · Check a message (India) ───────────────────────────── */}
+            <section className="flex flex-col gap-5">
+              <SectionDivider step="04" label="Check a message" hint="scam patterns · report helpers" />
+              <MessageCheck />
             </section>
           </div>
         )}

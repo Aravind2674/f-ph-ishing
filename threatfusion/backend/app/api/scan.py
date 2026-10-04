@@ -50,6 +50,8 @@ from app.models.schemas import (
     ScanHistoryItem,
     ScanRequest,
     ScanResponse,
+    FastRequest,
+    FastVerdict,
     ScanResult,
     TargetType,
 )
@@ -256,10 +258,70 @@ def _format_error(t: Target) -> dict:
 @router.post("", response_model=ScanResponse, summary="Submit a new IOC scan",
              dependencies=[Depends(scan_rate_limit)])
 async def create_scan(request: ScanRequest) -> ScanResponse:
-    """Accept an IOC and run the full enrichment and ML scoring pipeline.
-    
-    This endpoint executes synchronously for demonstration purposes.
+    """Accept an IOC and run the enrichment and scoring pipeline.
+
+    ``mode: "sync"`` (the default) returns the full result when the scan is done. ``mode: "async"`` (B1) returns the
+    **fast-tier verdict** (local lists, brand check, URL-text models, a recent scan: nothing leaves the machine) plus a
+    ``scan_id`` at once and runs the slow tier as a background job whose progress streams over SSE.
     """
+    if request.mode == "async":
+        return await _start_async_scan(request)
+    return await _execute_scan(request)
+
+
+@router.post("/fast", response_model=FastVerdict, summary="Fast tier only: local checks, no provider calls",
+             dependencies=[Depends(scan_rate_limit)])
+async def fast_scan(request: FastRequest) -> FastVerdict:
+    """The first answer, from local data only (B1). Used by the browser extension; never sends anything to a third party."""
+    from app.core.fast import fast_check, recent_scan_summary
+
+    async def recent(t):
+        return await recent_scan_summary(_store, t)
+
+    return await fast_check(request.target, request.target_type, send_full_url=request.send_full_url, recent_scan_lookup=recent)
+
+
+async def _start_async_scan(request: ScanRequest):
+    from fastapi.responses import JSONResponse
+    from app.core.fast import fast_check, recent_scan_summary
+    from app.core.jobs import JOBS, QueueFull
+
+    settings = get_settings()
+    target = canonicalize(request.target, request.target_type)
+    if not target.valid:
+        return JSONResponse(status_code=400, content=_format_error(target))
+    scan_id = request.scan_id or str(uuid4())
+    if JOBS.has(scan_id) or bus.is_started(scan_id) or await _store.get(scan_id) is not None:
+        return JSONResponse(status_code=409, content={"success": False, "detail": f"scan_id '{scan_id}' is already used."})
+
+    async def recent(t):
+        return await recent_scan_summary(_store, t)
+
+    fast = await fast_check(request.target, request.target_type, send_full_url=request.send_full_url, recent_scan_lookup=recent)
+    sync_request = request.model_copy(update={"scan_id": scan_id, "mode": "sync"})
+
+    async def job() -> str | None:
+        resp = await _execute_scan(sync_request)
+        if isinstance(resp, ScanResponse):
+            return None if resp.success else (resp.error or "the scan failed")
+        # a JSONResponse: the target failed validation after the fast answer (e.g. the name does not resolve)
+        try:
+            detail = json.loads(bytes(resp.body)).get("message") or "validation failed"
+        except Exception:
+            detail = "validation failed"
+        bus.publish(scan_id, {"type": "error", "scan_id": scan_id, "message": "The scan could not be started."})
+        return str(detail)
+
+    JOBS.max_concurrent, JOBS.max_pending = settings.SCAN_MAX_CONCURRENT_JOBS, settings.SCAN_MAX_PENDING_JOBS
+    try:
+        JOBS.submit(scan_id, job)
+    except QueueFull:
+        return JSONResponse(status_code=429, content={"success": False, "detail": "Too many scans are waiting; try again shortly."})
+    return ScanResponse(success=True, result=None, error=None, scan_id=scan_id, status="running", fast=fast)
+
+
+async def _execute_scan(request: ScanRequest) -> ScanResponse:
+    """The slow tier: the full enrichment + scoring pipeline (what ``create_scan`` used to be)."""
     # ── 0. Canonicalise, then validate ──────────────────────────────────────
     # One parser for every component (A1-6): from here on providers see `target`, never the typed string.
     from fastapi.responses import JSONResponse
@@ -693,7 +755,13 @@ async def get_history(
 @router.get("/{scan_id}", response_model=ScanResponse, summary="Retrieve a specific scan")
 async def get_scan(scan_id: str) -> ScanResponse:
     """Fetch the full stored result (evidence, provenance, summary) for a single scan."""
+    from app.core.jobs import JOBS
+
     result = await _store.get(scan_id)
+    if result is None and JOBS.state(scan_id) in ("queued", "running"):
+        return ScanResponse(success=True, result=None, error=None, scan_id=scan_id, status="running")
+    if result is None and JOBS.state(scan_id) == "error":
+        return ScanResponse(success=False, result=None, error=JOBS.error(scan_id) or "the scan failed", scan_id=scan_id, status="error")
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
