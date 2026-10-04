@@ -182,7 +182,7 @@ def test_events_describe_the_scan_without_leaking_the_target(world) -> None:
     assert events[-1]["type"] == "done" and events[-1]["scan_id"] == "scan-privacy-01"
     assert events[-1]["verdict_status"] in ("ok", "partial", "unknown")
     stages = [e["stage"] for e in events if e["type"] == "stage"]
-    assert stages == ["features", "scoring"]
+    assert stages == ["lookalike", "features", "scoring"]   # B4: the local brand check runs between enrichment and features
     done = [e for e in _provider_events(events) if e["status"] != "running"]
     assert {"source", "status", "reason", "cached", "mock", "latency_ms"} <= set(done[0])
     blob = json.dumps(events)

@@ -29,6 +29,7 @@ import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 import { RiskScorePanel } from "@/components/RiskScorePanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { ExposurePanel } from "@/components/ExposurePanel";
+import { LookalikePanel } from "@/components/LookalikePanel";
 import { FeatureProvenance } from "@/components/FeatureProvenance";
 import { HostSignals } from "@/components/HostSignals";
 import { SourceChips } from "@/components/SourceChip";
@@ -463,6 +464,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
 
       {/* ── What the score rests on: "based on N of M sources", per-source chips, "no findings ≠ safe" ─ */}
       <EvidencePanel outcomes={result.provider_results} verdict={result.verdict_status} />
+
+      {/* ── Brand impersonation (B4): local look-alike check, kept apart from the maliciousness scores ─ */}
+      <LookalikePanel check={result.brand_check} />
 
       {/* ── Exploit exposure (B11): likelihood of exploitation, kept apart from the maliciousness scores ─ */}
       <ExposurePanel exposure={result.exposure} />

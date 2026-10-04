@@ -210,6 +210,11 @@ class Settings(BaseSettings):
     VULNRICHMENT_REQUESTS_PER_MINUTE: int = 120
     VULNRICHMENT_MAX_CVES: int = 25
 
+    # Brand impersonation (B4): a local, deterministic check of the host against protected brands (no network).
+    LOOKALIKE_ENABLED: bool = True
+    LOOKALIKE_THRESHOLD: float = 0.80                # rule score at or above which a resemblance is flagged
+    LOOKALIKE_POPULAR_LIMIT: int = 5000              # top Tranco domains added to the curated list (when that feed is loaded)
+
     # Technology fingerprinting (A1-4). Optional path to a newer Wappalyzer ``technologies.json`` (same format) to use
     # instead of the data bundled with the engine; end-of-life data comes from endoflife.date (keyless, cached a week).
     WAPPALYZER_DATA_FILE: str = ""

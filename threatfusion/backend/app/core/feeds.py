@@ -115,6 +115,15 @@ class FeedStore:
             async with db.execute("SELECT count(*) FROM feed_entries WHERE feed=?", (feed,)) as cur:
                 return (await cur.fetchone())[0]
 
+    async def items(self, feed: str, limit: int = 10_000) -> list[tuple[str, Any]]:
+        """Up to ``limit`` ``(key, value)`` pairs of a feed (e.g. the top of a ranked list); ``[]`` if it was never fetched."""
+        if self._path_provider is None:
+            table = self._mem_entries.get(feed, {})
+            return [(k, json.loads(v)) for k, v in list(table.items())[:limit]]
+        async with await self._connect() as db:
+            async with db.execute("SELECT key, value FROM feed_entries WHERE feed=? LIMIT ?", (feed, limit)) as cur:
+                return [(k, json.loads(v)) for k, v in await cur.fetchall()]
+
     async def get(self, feed: str, key: str) -> Optional[Any]:
         return (await self.get_many(feed, [key])).get(key)
 

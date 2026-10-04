@@ -187,6 +187,35 @@ export interface ExposureAssessment {
   feed_ages: Record<string, number | null>; // days since each local feed was fetched
 }
 
+// ── Brand impersonation (B4): a local check of the host against protected brands ──
+export type LookalikeKind =
+  | "homoglyph" | "leetspeak" | "typo" | "separator" | "brand_keyword" | "brand_in_subdomain" | "same_name_other_tld" | "contains_brand";
+
+export interface LookalikeMatch {
+  brand: string;
+  brand_domain: string; // the brand's primary official domain
+  sector: string;
+  country: string | null;
+  source: "curated" | "popular";
+  kind: LookalikeKind;
+  similarity: number; // a rule score for the kind of resemblance — a heuristic, not a probability
+  distance: number | null;
+  matched: string;
+  evidence: string[];
+  mixed_script: boolean;
+}
+
+export interface BrandCheck {
+  status: "lookalike" | "official" | "no_match";
+  match: LookalikeMatch | null;
+  official_of: string | null;
+  candidates: LookalikeMatch[]; // weaker resemblances below the flagging threshold
+  brands_checked: number;
+  popular_checked: number;
+  threshold: number;
+  notes: string[];
+}
+
 export interface TechFingerprintResult {
   technologies: DetectedTechnology[];
   headers_analyzed?: number;
@@ -234,6 +263,8 @@ export interface ScanResult {
   rdap?: RdapInfo | null;
   dns?: DnsInfo | null;
   exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
+  brand_check?: BrandCheck | null; // B4; local, separate from the maliciousness scores
+  lookalike_of?: LookalikeMatch | null;
   // The 19 engineered features; null = unknown (its source did not answer). See lib/evidence.ts for provenance.
   features?: Record<string, number | null> | null;
   cve: any;

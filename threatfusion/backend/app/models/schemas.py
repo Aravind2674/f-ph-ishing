@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -135,6 +135,8 @@ class FeatureCoverage(BaseModel):
     has_tls: bool = False
     has_rdap: bool = False
     has_dns: bool = False
+    # Certificate-transparency history (B3): reported, not yet an input of the deployed models (retrain: A2-1).
+    has_ct: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +426,39 @@ class RdapInfo(BaseModel):
     server: Optional[str] = Field(None, description="The RDAP/WHOIS server that answered")
 
 
+class CtCert(BaseModel):
+    """One certificate from the public Certificate Transparency logs (kept small: times and issuer only)."""
+
+    logged_at: Optional[datetime] = None
+    not_before: Optional[datetime] = None
+    issuer: Optional[str] = None
+
+
+class CtInfo(BaseModel):
+    """Certificate-transparency history of a host (B3, ``ingestion/ct.py``, via crt.sh).
+
+    A phishing site almost always gets a certificate *just before* it goes live, and kits often put several brand-like names
+    on one certificate; an established site has years of them.  ``first_seen`` is stored (not the age) so a cached record
+    keeps ageing; the ``cert_*`` fields are re-derived on every read (``ct.derive``).  First-seen-in-CT is *not* the
+    registration date: a domain can exist for years without a certificate (RDAP gives the registration).
+    """
+
+    host: str
+    certs_total: int = Field(0, description="Distinct certificates crt.sh returned for the host")
+    certs: list[CtCert] = Field(default_factory=list, description="Newest first, capped")
+    san_names: list[str] = Field(default_factory=list, description="Distinct names across those certificates, capped")
+    first_seen: Optional[datetime] = None
+    truncated: bool = Field(False, description="More certificates exist than are kept: counts are lower bounds")
+    # ── derived on read (never trusted from a cache) ──
+    cert_first_seen_days: Optional[float] = Field(None, description="Days since the earliest certificate was logged")
+    cert_count_30d: Optional[int] = Field(None, description="Certificates logged in the last 30 days")
+    latest_issuer: Optional[str] = None
+    issuer_is_free_dv: Optional[bool] = Field(
+        None, description="The newest certificate comes from a free / automated DV issuer (common on legitimate sites too)")
+    san_brand_hits: list[str] = Field(default_factory=list, description="'name -> Brand' for SAN names that imitate a protected brand")
+    san_brand_keyword_hits: int = 0
+
+
 class DnsInfo(BaseModel):
     """DNS facts about the host (A1-3, ``ingestion/dns_records.py``).
 
@@ -513,6 +548,42 @@ class ExposureAssessment(BaseModel):
     notes: list[str] = Field(default_factory=list)
     method: str = ""
     feed_ages: dict[str, Optional[float]] = Field(default_factory=dict, description="Age in days of the local feeds used")
+
+
+# ── Brand impersonation (B4) ────────────────────────────────────────────────
+LookalikeKind = Literal["homoglyph", "leetspeak", "typo", "separator", "brand_keyword", "brand_in_subdomain",
+                        "same_name_other_tld", "contains_brand"]
+
+
+class LookalikeMatch(BaseModel):
+    """One protected brand this domain resembles, and the evidence for it."""
+
+    brand: str
+    brand_domain: str = Field(..., description="The brand's primary official domain")
+    sector: str
+    country: Optional[str] = None
+    source: Literal["curated", "popular"] = "curated"
+    kind: LookalikeKind
+    similarity: float = Field(..., ge=0.0, le=1.0,
+                              description="Rule score for the *kind* of resemblance — a heuristic, not a probability")
+    distance: Optional[int] = Field(None, description="Edit distance, for typo matches")
+    matched: str = Field("", description="The part of the host that resembles the brand (label, token or subdomain)")
+    evidence: list[str] = Field(default_factory=list)
+    mixed_script: bool = Field(False, description="A label mixes scripts (e.g. Latin + Cyrillic) — the homograph signature")
+
+
+class BrandCheck(BaseModel):
+    """Is this host impersonating a protected brand? (B4) — ``lookalike_of`` is ``match`` when ``status == 'lookalike'``."""
+
+    status: Literal["lookalike", "official", "no_match"]
+    match: Optional[LookalikeMatch] = None
+    official_of: Optional[str] = Field(None, description="Set when the host is one of the brand's own domains")
+    candidates: list[LookalikeMatch] = Field(default_factory=list,
+                                             description="Weaker resemblances below the flagging threshold")
+    brands_checked: int = Field(0, description="Curated brands compared")
+    popular_checked: int = Field(0, description="Popular (Tranco) domains compared in addition")
+    threshold: float = 0.8
+    notes: list[str] = Field(default_factory=list)
 
 
 class FeatureVector(BaseModel):
@@ -760,10 +831,19 @@ class ScanResult(BaseModel):
     tls: Optional[TlsInfo] = Field(None, description="TLS certificate facts (None if unavailable; A1-3)")
     rdap: Optional[RdapInfo] = Field(None, description="Registration record incl. the real domain age (A1-3)")
     dns: Optional[DnsInfo] = Field(None, description="DNS records, SPF/DMARC and hosting ASN (A1-3)")
+    ct: Optional[CtInfo] = Field(None, description="Certificate-transparency history: first certificate, recent issuance, issuer (B3)")
     exposure: Optional[ExposureAssessment] = Field(
         None,
         description="Exploit-informed exposure of the host (EPSS / KEV / SSVC) — deliberately separate from the "
                     "maliciousness scores and never blended into them (B11). None when it could not be assessed at all.",
+    )
+    brand_check: Optional[BrandCheck] = Field(
+        None,
+        description="Local brand-impersonation check of the host (B4): status, evidence and what was compared. "
+                    "None for IP / file-hash targets or when the check is switched off.",
+    )
+    lookalike_of: Optional[LookalikeMatch] = Field(
+        None, description="The brand this host impersonates (``brand_check.match``), when it scored at or above the threshold",
     )
 
     # ── Engineered features ──────────────────────────────────────────

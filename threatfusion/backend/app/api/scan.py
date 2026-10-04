@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from app.ingestion.cve import specific_cpe_names
 from app.ingestion.eol import apply_eol, assessable
 from app.ml.exposure import assess_exposure
+from app.ml.lookalike import assess_lookalike
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
@@ -42,6 +43,7 @@ from app.core import privacy, safe_http
 from app.core.safe_http import FetchError, blocked_reason
 from app.core.targets import Target, canonicalize
 from app.models.schemas import (
+    BrandCheck,
     CanonicalTarget,
     ProviderResult,
     ProviderStatus,
@@ -198,7 +200,7 @@ def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | Non
 
 
 def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: str | None,
-                   vt, shodan, cve) -> str:
+                   vt, shodan, cve, brand_check: BrandCheck | None = None) -> str:
     """Plain-language summary that never claims more than the evidence supports."""
     if verdict_status == "unknown":
         return f"Risk could not be assessed. {verdict_reason}"
@@ -215,6 +217,9 @@ def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: 
         parts.append(f"There are {len(shodan.open_ports)} exposed ports"
                      + (f", with {len(cve.cves)} known CVEs detected." if cve is not None and cve.cves
                         else "."))
+    if brand_check is not None and brand_check.match is not None:
+        m = brand_check.match
+        parts.append(f"The domain name imitates {m.brand} ({m.kind.replace('_', ' ')}).")
     if verdict_status == "partial" and verdict_reason:
         parts.append(f"Partial evidence: {verdict_reason}")
     return " ".join(parts)
@@ -498,6 +503,17 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             except Exception as e:
                 logger.warning("Vulnerability chaining failed or ran out of time: %s", e)
 
+        # ── 1c. Brand impersonation (B4) ────────────────────────────────
+        # Local and deterministic (no network, no quota): the canonical host against the protected brands. Reported next
+        # to the maliciousness scores — a domain can imitate a brand and still have no external reputation yet.
+        brand_check: BrandCheck | None = None
+        if settings.LOOKALIKE_ENABLED and tt in (TargetType.URL, TargetType.DOMAIN) and target.host:
+            _emit({"type": "stage", "stage": "lookalike"})
+            try:
+                brand_check = assess_lookalike(target.host, await hub.brands(), threshold=settings.LOOKALIKE_THRESHOLD)
+            except Exception:
+                logger.exception("Brand look-alike check failed")        # a gap in coverage, never a failed scan
+
         # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
         _emit({"type": "stage", "stage": "features"})
         features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns)
@@ -549,7 +565,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
         # ── 5. Verdict status + plain-language summary ──────────────────
         verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
-        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve)
+        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve, brand_check)
         buckets = _bucket_sources(outcomes)
 
         # Assemble the final payload
@@ -567,6 +583,8 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             rdap=rdap,
             dns=dns,
             exposure=exposure,
+            brand_check=brand_check,
+            lookalike_of=brand_check.match if brand_check is not None else None,
             features=features,
             feature_coverage=coverage,
             baseline_score=b_score,

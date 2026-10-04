@@ -14,6 +14,7 @@ window survives for as long as the configuration does.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -30,8 +31,11 @@ from app.ingestion.vulnrichment import VulnrichmentClient
 from app.ingestion.rdap import RdapClient
 from app.ingestion.tls import TlsClient
 from app.ingestion.virustotal import VirusTotalClient
+from app.ml.brands import BrandIndex
 
 logger = logging.getLogger(__name__)
+
+TRANCO_FEED = "tranco"        # filled by the B2 reputation feeds: ``{domain: rank}``
 
 
 class ProviderHub:
@@ -51,6 +55,8 @@ class ProviderHub:
         self._dns_key: Optional[tuple] = None
         self._eol: Optional[EolClient] = None
         self._eol_key: Optional[tuple] = None
+        self._brands: Optional[BrandIndex] = None
+        self._brands_key: Optional[tuple] = None
         self._epss: Optional[EpssClient] = None
         self._epss_key: Optional[tuple] = None
         self._kev: Optional[KevFeed] = None
@@ -172,6 +178,24 @@ class ProviderHub:
             self._vuln_key = key
         return self._vuln
 
+    async def brands(self) -> BrandIndex:
+        """The protected-brand index: the curated list, plus the top of the Tranco feed once B2 has downloaded it.
+
+        Rebuilt only when the feed was re-fetched (its ``fetched_at`` changes); a missing feed is not an error — the
+        check then runs on the curated list alone and reports ``popular_checked: 0``.
+        """
+        s = get_settings()
+        meta = await self.feeds.meta(TRANCO_FEED)
+        key = (meta.fetched_at if meta else None, s.LOOKALIKE_POPULAR_LIMIT)
+        if self._brands is None or key != self._brands_key:
+            popular: list[tuple[str, int]] = []
+            if meta is not None:
+                rows = await self.feeds.items(TRANCO_FEED, s.LOOKALIKE_POPULAR_LIMIT)
+                popular = sorted(((d, int(r)) for d, r in rows if isinstance(r, (int, float))), key=lambda x: x[1])
+            self._brands = await asyncio.to_thread(BrandIndex.build, popular, s.LOOKALIKE_POPULAR_LIMIT)
+            self._brands_key = key
+        return self._brands
+
     async def close(self) -> None:
         """Release connections (process shutdown)."""
         if self._vt is not None:
@@ -192,6 +216,8 @@ class ProviderHub:
         self._tls_key = self._rdap_key = self._dns_key = self._eol_key = None
         self._epss = self._kev = self._vuln = None
         self._epss_key = self._kev_key = self._vuln_key = None
+        self._brands = None
+        self._brands_key = None
 
 
 hub = ProviderHub()
