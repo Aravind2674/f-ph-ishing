@@ -328,8 +328,15 @@ class DetectedTechnology(BaseModel):
         100,
         ge=0,
         le=100,
-        description="Detection confidence percentage (0–100)",
+        description="Wappalyzer's own confidence (sum of the matching patterns' confidences, capped at 100); "
+                    "50 for an *implied* technology (inferred, not observed)",
     )
+    implied: bool = Field(False, description="Inferred from another technology (Wappalyzer 'implies'), not observed")
+    # Lifecycle (A1-4, from endoflife.date). None = unknown: no version, no mapping, or the lookup failed.
+    eol: Optional[bool] = Field(None, description="True = this release is end-of-life; False = supported; None = unknown")
+    eol_date: Optional[str] = Field(None, description="ISO date this release cycle reaches/reached end of life")
+    eol_cycle: Optional[str] = Field(None, description="The endoflife.date release cycle the version was matched to")
+    latest_version: Optional[str] = Field(None, description="Latest release of that cycle, per endoflife.date")
 
 
 class TechFingerprintResult(BaseModel):
@@ -350,6 +357,10 @@ class TechFingerprintResult(BaseModel):
     scripts_analyzed: int = Field(
         0,
         description="Number of JavaScript file references inspected",
+    )
+    eol_assessed: int = Field(
+        0,
+        description="How many technologies got a lifecycle verdict (eol true/false) from endoflife.date",
     )
 
 
@@ -505,7 +516,8 @@ class FeatureVector(BaseModel):
     )
     tech_has_known_eol_component: Optional[float] = Field(
         0.0,
-        description="1.0 if any end‑of‑life technology is detected",
+        description="1.0 if any detected technology release is end-of-life per endoflife.date; 0.0 if none is "
+                    "(or nothing was detected); null when technologies were detected but none could be assessed",
     )
     tech_avg_confidence: Optional[float] = Field(
         0.0,
@@ -517,7 +529,8 @@ class FeatureVector(BaseModel):
     )
     tech_has_eol_cms_version: Optional[float] = Field(
         0.0,
-        description="1.0 if an outdated/EOL CMS is specifically detected",
+        description="1.0 if a detected CMS release is end-of-life; 0.0 if the CMS (if any) is supported; null when "
+                    "a CMS was detected but could not be assessed",
     )
 
     # ── Supplementary features ───────────────────────────────────────

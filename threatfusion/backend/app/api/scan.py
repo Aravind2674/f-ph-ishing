@@ -17,6 +17,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
 from app.ingestion.cve import specific_cpe_names
+from app.ingestion.eol import apply_eol, assessable
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
@@ -112,6 +113,7 @@ _LABEL = {
     "shodan_internetdb": "Shodan",
     "nvd": "NVD",
     "tech_fingerprint": "TechFingerprint",
+    "endoflife": "EndOfLife",
     "tls": "TLS",
     "rdap": "RDAP",
     "dns": "DNS",
@@ -356,6 +358,17 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             tech_res = await _safe(tech_client.fingerprint_url(target_url), "tech_fingerprint")
             outcomes.append(tech_res)
         tech = tech_res.data if tech_res is not None and tech_res.ok else None
+
+        # End-of-life (A1-4): ask endoflife.date about the detected technologies *that have a version*, and attach the
+        # verdicts. Unknown stays unknown: a failed lookup leaves ``eol=None`` and is reported as its own outcome.
+        if tech is not None and assessable(tech.technologies):
+            if not settings.EOL_ENABLED and not use_mock:
+                eol_res = prov.skipped("endoflife", "disabled")
+            else:
+                eol_res = await _safe(hub.eol().assess(tech.technologies), "endoflife")
+            outcomes.append(eol_res)
+            if eol_res.ok:
+                tech = apply_eol(tech, eol_res.data)
 
         # Host signals (A1-3): the certificate, the registration record (real domain age) and DNS facts. They are
         # given the canonical *host* / *registered domain* only — never a URL (privacy, A0-10) — and apply to

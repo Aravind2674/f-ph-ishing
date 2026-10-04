@@ -63,6 +63,7 @@ os.environ["NVD_BACKOFF_BASE_SECONDS"] = "0.01"
 os.environ["TLS_ENABLED"] = "false"
 os.environ["RDAP_ENABLED"] = "false"
 os.environ["DNS_ENABLED"] = "false"
+os.environ["EOL_ENABLED"] = "false"       # A1-4: endoflife.date is a remote lookup
 
 
 @pytest.fixture(autouse=True)

@@ -87,6 +87,12 @@ async def lifespan(app: FastAPI):
                     settings.VIRUSTOTAL_REQUESTS_PER_MINUTE, settings.VIRUSTOTAL_REQUESTS_PER_DAY,
                     settings.VIRUSTOTAL_CACHE_TTL_SECONDS)
 
+    # Step 3c: load the Wappalyzer fingerprint data in a worker thread so the first scan doesn't pay for it
+    # (and the event loop never does). Fire-and-forget: a failure is logged and retried on first use.
+    from app.ingestion.techfingerprint import warm_up as _warm_fingerprints
+    warm_task = asyncio.create_task(asyncio.to_thread(_warm_fingerprints), name="wappalyzer-warmup")
+    warm_task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or logger.error("fingerprint warm-up failed: %s", t.exception()))
+
     # Step 4: Initialize the Network Layer (baseline store + alert tables).
     # This is always initialised so the API can serve status/history even
     # before live capture is started. Capture itself only begins when

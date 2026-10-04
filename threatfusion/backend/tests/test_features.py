@@ -46,8 +46,8 @@ def test_extract_features_with_data() -> None:
     
     tech = TechFingerprintResult(
         technologies=[
-            # jQuery 1 is in the EOL set
-            DetectedTechnology(name="jQuery", version="1.12", categories=["JS"], confidence=90),
+            # end-of-life now comes from endoflife.date (attached by the scan as `eol`), not a hard-coded set
+            DetectedTechnology(name="jQuery", version="1.12", categories=["JS"], confidence=90, eol=True),
             DetectedTechnology(name="Nginx", version="1.21", categories=["Web servers"], confidence=100)
         ]
     )

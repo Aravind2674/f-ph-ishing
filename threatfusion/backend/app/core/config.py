@@ -191,6 +191,14 @@ class Settings(BaseSettings):
     NVD_MAX_CPES: int = 5                            # CPEs per host
     NVD_MAX_PAGES: int = 3                           # pages per CPE query (2000 CVEs/page)
 
+    # Technology fingerprinting (A1-4). Optional path to a newer Wappalyzer ``technologies.json`` (same format) to use
+    # instead of the data bundled with the engine; end-of-life data comes from endoflife.date (keyless, cached a week).
+    WAPPALYZER_DATA_FILE: str = ""
+    EOL_ENABLED: bool = True
+    EOL_API_BASE: str = "https://endoflife.date/api"
+    EOL_CACHE_TTL_SECONDS: int = 7 * 24 * 3600
+    EOL_REQUESTS_PER_MINUTE: int = 60
+
     # Host signals (A1-3). Each can be switched off; all are keyless.
     #   TLS  — connects to <host>:443 (the *target's own* server; nothing is sent over the handshake)
     #   RDAP — asks the TLD registry's public RDAP service about the *registered domain* (WHOIS only where a TLD
@@ -323,6 +331,7 @@ class Settings(BaseSettings):
             "tls": status("tls", True, "keyless"),
             "rdap": status("rdap", True, "keyless"),
             "dns": status("dns", True, "keyless"),
+            "endoflife": status("endoflife", True, "keyless"),
             "wigle": status("wigle", wigle_ok, wigle_state),
         }
 

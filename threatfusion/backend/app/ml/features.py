@@ -61,27 +61,6 @@ HIGH_RISK_PORTS: Set[int] = {
     9200,  # Elasticsearch
 }
 
-# A simplified set of End-of-Life technology indicators for demonstration
-# In a real system, this would be backed by a CVE/EOL database.
-EOL_SET: Set[str] = {
-    "jQuery 1",
-    "jQuery 2",
-    "Python 2",
-    "PHP 5",
-    "AngularJS",
-    "React 15",
-}
-
-
-def is_eol(name: str, version: Optional[str]) -> bool:
-    """Check if a technology and version is known to be end-of-life."""
-    if not version:
-        return False
-    # Simplified check: just look at the major version number
-    major_version = version.split('.')[0]
-    tech_str = f"{name} {major_version}"
-    return tech_str in EOL_SET
-
 
 def extract_features_with_coverage(
     vt: Optional[VirusTotalResult],
@@ -179,21 +158,30 @@ def extract_features_with_coverage(
     if tech is not None:
         vec.tech_count = float(len(tech.technologies))
 
-        has_eol = any(is_eol(t.name, t.version) for t in tech.technologies)
-        vec.tech_has_known_eol_component = 1.0 if has_eol else 0.0
+        # End-of-life comes from endoflife.date (A1-4) via ``DetectedTechnology.eol``; it used to be a hard-coded set
+        # of six strings. True/False = assessed; None = unknown (no version, unmapped product, or the lookup failed).
+        # 1.0 if any release is EOL; 0.0 if the stack was assessed (or is empty) and none is; unknown otherwise —
+        # "we could not check" must not read as "nothing is outdated".
+        techs = tech.technologies
+        if any(t.eol for t in techs):
+            vec.tech_has_known_eol_component = 1.0
+        elif not techs or any(t.eol is False for t in techs):
+            vec.tech_has_known_eol_component = 0.0
+        else:
+            vec.tech_has_known_eol_component = None
 
-        categories = set()
-        has_eol_cms = False
-        for t in tech.technologies:
-            categories.update(t.categories)
-            if "CMS" in t.categories and is_eol(t.name, t.version):
-                has_eol_cms = True
+        cms = [t for t in techs if "CMS" in t.categories]
+        if any(t.eol for t in cms):
+            vec.tech_has_eol_cms_version = 1.0
+        elif not cms or any(t.eol is False for t in cms):
+            vec.tech_has_eol_cms_version = 0.0
+        else:
+            vec.tech_has_eol_cms_version = None
 
-        vec.tech_stack_diversity_count = float(len(categories))
-        vec.tech_has_eol_cms_version = 1.0 if has_eol_cms else 0.0
+        vec.tech_stack_diversity_count = float(len({c for t in techs for c in t.categories}))
 
         if tech.technologies:
-            # Average confidence scaled to [0, 1]; undefined (None) when nothing was detected.
+            # Average of Wappalyzer's real confidences, scaled to [0, 1]; None when nothing was detected.
             avg_conf = sum(t.confidence for t in tech.technologies) / len(tech.technologies)
             vec.tech_avg_confidence = avg_conf / 100.0
 

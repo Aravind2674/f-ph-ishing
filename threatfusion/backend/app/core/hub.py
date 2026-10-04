@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.core.quota import QuotaLimiter
 from app.ingestion.cve import CVEClient
 from app.ingestion.dns_records import DnsClient
+from app.ingestion.eol import EolClient
 from app.ingestion.rdap import RdapClient
 from app.ingestion.tls import TlsClient
 from app.ingestion.virustotal import VirusTotalClient
@@ -43,6 +44,8 @@ class ProviderHub:
         self._rdap_key: Optional[tuple] = None
         self._dns: Optional[DnsClient] = None
         self._dns_key: Optional[tuple] = None
+        self._eol: Optional[EolClient] = None
+        self._eol_key: Optional[tuple] = None
 
     def virustotal(self) -> VirusTotalClient:
         s = get_settings()
@@ -121,6 +124,16 @@ class ProviderHub:
             self._dns_key = key
         return self._dns
 
+    def eol(self) -> EolClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.EOL_API_BASE, s.EOL_CACHE_TTL_SECONDS, s.EOL_REQUESTS_PER_MINUTE)
+        if self._eol is None or key != self._eol_key:
+            self._eol = EolClient(use_mock=s.USE_MOCK_DATA, cache=self.cache, base_url=s.EOL_API_BASE,
+                                  cache_ttl=s.EOL_CACHE_TTL_SECONDS,
+                                  limiter=QuotaLimiter(s.EOL_REQUESTS_PER_MINUTE, 0))
+            self._eol_key = key
+        return self._eol
+
     async def close(self) -> None:
         """Release connections (process shutdown)."""
         if self._vt is not None:
@@ -134,8 +147,8 @@ class ProviderHub:
         self._vt_key = None
         self._nvd = None
         self._nvd_key = None
-        self._tls = self._rdap = self._dns = None
-        self._tls_key = self._rdap_key = self._dns_key = None
+        self._tls = self._rdap = self._dns = self._eol = None
+        self._tls_key = self._rdap_key = self._dns_key = self._eol_key = None
 
 
 hub = ProviderHub()
