@@ -27,6 +27,7 @@ from typing import Optional, Set
 from app.ingestion.rdap import domain_age_days
 from app.ingestion.tls import tls_cert_valid
 from app.models.schemas import (
+    CtInfo,
     CVEResult,
     DnsInfo,
     FeatureCoverage,
@@ -70,6 +71,7 @@ def extract_features_with_coverage(
     tls: Optional[TlsInfo] = None,
     rdap: Optional[RdapInfo] = None,
     dns: Optional[DnsInfo] = None,
+    ct: Optional[CtInfo] = None,
 ) -> tuple[FeatureVector, FeatureCoverage]:
     """Derive a ``FeatureVector`` *and* which providers contributed to it.
 
@@ -95,6 +97,7 @@ def extract_features_with_coverage(
         has_tls=tls is not None,
         has_rdap=rdap is not None,
         has_dns=dns is not None,
+        has_ct=ct is not None,
     )
 
     # ── Host signals (A1-3) ─────────────────────────────────────────

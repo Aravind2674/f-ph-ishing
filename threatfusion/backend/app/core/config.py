@@ -231,6 +231,12 @@ class Settings(BaseSettings):
     TLS_ENABLED: bool = True
     TLS_TIMEOUT_SECONDS: float = 6.0
     TLS_CACHE_TTL_SECONDS: int = 3600
+    # Certificate transparency (B3): crt.sh — the host name only; first certificate, recent issuance, issuer, brand-like names.
+    CT_ENABLED: bool = True
+    CT_BASE_URL: str = "https://crt.sh/"
+    CT_REQUESTS_PER_MINUTE: int = 10                 # crt.sh is a free volunteer service: be gentle
+    CT_CACHE_TTL_SECONDS: int = 6 * 3600
+    CT_MAX_BYTES: int = 6 * 1024 * 1024
     RDAP_ENABLED: bool = True
     RDAP_REQUESTS_PER_MINUTE: int = 30
     RDAP_CACHE_TTL_SECONDS: int = 24 * 3600
@@ -355,6 +361,7 @@ class Settings(BaseSettings):
             "tls": status("tls", True, "keyless"),
             "rdap": status("rdap", True, "keyless"),
             "dns": status("dns", True, "keyless"),
+            "ct": status("ct", True, "keyless"),
             "endoflife": status("endoflife", True, "keyless"),
             "epss": status("epss", True, "keyless"),
             "kev": status("kev", True, "keyless"),

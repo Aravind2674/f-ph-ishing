@@ -62,6 +62,7 @@ os.environ["NVD_BACKOFF_BASE_SECONDS"] = "0.01"
 # by default in tests (a test that exercises them swaps in stubs/local servers and enables them explicitly).
 os.environ["TLS_ENABLED"] = "false"
 os.environ["RDAP_ENABLED"] = "false"
+os.environ["CT_ENABLED"] = "false"        # B3: crt.sh is a remote lookup
 os.environ["DNS_ENABLED"] = "false"
 os.environ["EOL_ENABLED"] = "false"       # A1-4: endoflife.date is a remote lookup
 os.environ["EPSS_ENABLED"] = "false"      # B11: EPSS / KEV / Vulnrichment are remote lookups too

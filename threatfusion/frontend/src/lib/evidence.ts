@@ -31,6 +31,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   tls: "TLS certificate",
   rdap: "Registration (RDAP)",
   dns: "DNS",
+  ct: "Certificate transparency",
 };
 
 export function sourceLabel(source: string): string {
@@ -65,6 +66,7 @@ export function humanReason(reason: string | null | undefined, retryAfter?: numb
     case "tls_handshake_failed": return "TLS handshake failed";
     case "whois_failed": return "WHOIS fallback failed";
     case "bootstrap_failed": return "RDAP service directory unavailable";
+    case "response_too_large": return "The answer was too large to read (a very busy domain)";
     case "disabled": return "Switched off in settings";
     case "not_configured": return "Not configured";
     case "no_registered_domain": return "No registered domain to look up";

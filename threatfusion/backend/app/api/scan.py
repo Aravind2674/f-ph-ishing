@@ -143,6 +143,7 @@ _LABEL = {
     "tls": "TLS",
     "rdap": "RDAP",
     "dns": "DNS",
+    "ct": "CertTransparency",
 }
 
 
@@ -347,7 +348,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
     tt = request.target_type
     expected = (["virustotal"] + (["shodan_internetdb"] if tt in (TargetType.IP, TargetType.DOMAIN) else [])
-                + (["tech_fingerprint", "tls", "rdap", "dns"] if tt in (TargetType.URL, TargetType.DOMAIN) else []))
+                + (["tech_fingerprint", "tls", "rdap", "dns", "ct"] if tt in (TargetType.URL, TargetType.DOMAIN) else []))
     _emit({"type": "start", "scan_id": scan_id, "target_type": tt.value, "providers": expected, "mock": use_mock})
 
     try:
@@ -470,16 +471,17 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             return await _track(source, make_call, enabled=enabled)
 
         (vt_res, (shodan_res, cve_res, intel_res, exposure), (tech_res, eol_res, tech),
-         tls_res, rdap_res, dns_res) = await asyncio.gather(
+         tls_res, rdap_res, dns_res, ct_res) = await asyncio.gather(
             vt_chain(),
             shodan_chain(),
             tech_chain(),
             host_signal("tls", settings.TLS_ENABLED, lambda: hub.tls().lookup(target.host)),
             host_signal("rdap", settings.RDAP_ENABLED, lambda: hub.rdap().lookup(target.registered_domain)),
             host_signal("dns", settings.DNS_ENABLED, lambda: hub.dns().lookup(target.host, target.registered_domain)),
+            host_signal("ct", settings.CT_ENABLED, lambda: hub.ct().lookup(target.host)),
         )
         # A stable provenance order, whatever finished first.
-        outcomes = [r for r in (vt_res, shodan_res, cve_res, *intel_res, tech_res, eol_res, tls_res, rdap_res, dns_res)
+        outcomes = [r for r in (vt_res, shodan_res, cve_res, *intel_res, tech_res, eol_res, tls_res, rdap_res, dns_res, ct_res)
                     if r is not None]
         vt = vt_res.data if vt_res is not None and vt_res.ok else None
         shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None
@@ -487,6 +489,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         tls = tls_res.data if tls_res is not None and tls_res.ok else None
         rdap = rdap_res.data if rdap_res is not None and rdap_res.ok else None
         dns = dns_res.data if dns_res is not None and dns_res.ok else None
+        ct = ct_res.data if ct_res is not None and ct_res.ok else None
 
         # ── 1b. Predictive Vulnerability Chaining ───────────────────────
         attack_paths = []
@@ -516,7 +519,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
         # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
         _emit({"type": "stage", "stage": "features"})
-        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns)
+        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns, ct)
 
         # ── 3. Rule-Based Baseline ──────────────────────────────────────
         _emit({"type": "stage", "stage": "scoring"})
@@ -582,6 +585,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             tls=tls,
             rdap=rdap,
             dns=dns,
+            ct=ct,
             exposure=exposure,
             brand_check=brand_check,
             lookalike_of=brand_check.match if brand_check is not None else None,

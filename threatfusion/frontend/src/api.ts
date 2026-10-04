@@ -187,6 +187,20 @@ export interface ExposureAssessment {
   feed_ages: Record<string, number | null>; // days since each local feed was fetched
 }
 
+// ── Certificate transparency (B3): when certificates were first/recently issued for the host ──
+export interface CtInfo {
+  host: string;
+  certs_total: number;
+  first_seen: string | null;
+  truncated: boolean;
+  cert_first_seen_days: number | null; // days since the earliest logged certificate; null = unknown
+  cert_count_30d: number | null;
+  latest_issuer: string | null;
+  issuer_is_free_dv: boolean | null; // common on legitimate sites too — a weak hint only
+  san_brand_hits: string[]; // "name -> Brand"
+  san_brand_keyword_hits: number;
+}
+
 // ── Brand impersonation (B4): a local check of the host against protected brands ──
 export type LookalikeKind =
   | "homoglyph" | "leetspeak" | "typo" | "separator" | "brand_keyword" | "brand_in_subdomain" | "same_name_other_tld" | "contains_brand";
@@ -262,6 +276,7 @@ export interface ScanResult {
   tls?: TlsInfo | null;
   rdap?: RdapInfo | null;
   dns?: DnsInfo | null;
+  ct?: CtInfo | null; // B3
   exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
   brand_check?: BrandCheck | null; // B4; local, separate from the maliciousness scores
   lookalike_of?: LookalikeMatch | null;

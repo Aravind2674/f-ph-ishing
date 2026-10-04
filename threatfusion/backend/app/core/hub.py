@@ -28,6 +28,7 @@ from app.ingestion.eol import EolClient
 from app.ingestion.epss import EpssClient
 from app.ingestion.kev import KevFeed
 from app.ingestion.vulnrichment import VulnrichmentClient
+from app.ingestion.ct import CtClient
 from app.ingestion.rdap import RdapClient
 from app.ingestion.tls import TlsClient
 from app.ingestion.virustotal import VirusTotalClient
@@ -49,6 +50,8 @@ class ProviderHub:
         self._nvd_key: Optional[tuple] = None
         self._tls: Optional[TlsClient] = None
         self._tls_key: Optional[tuple] = None
+        self._ct: Optional[CtClient] = None
+        self._ct_key: Optional[tuple] = None
         self._rdap: Optional[RdapClient] = None
         self._rdap_key: Optional[tuple] = None
         self._dns: Optional[DnsClient] = None
@@ -116,6 +119,17 @@ class ProviderHub:
                                   not_found_ttl=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS, timeout=s.TLS_TIMEOUT_SECONDS)
             self._tls_key = key
         return self._tls
+
+    def ct(self) -> CtClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.CT_BASE_URL, s.CT_REQUESTS_PER_MINUTE, s.CT_CACHE_TTL_SECONDS, s.CT_MAX_BYTES,
+               s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS)
+        if self._ct is None or key != self._ct_key:
+            self._ct = CtClient(use_mock=s.USE_MOCK_DATA, base_url=s.CT_BASE_URL, cache=self.cache,
+                                cache_ttl=s.CT_CACHE_TTL_SECONDS, not_found_ttl=s.PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS,
+                                limiter=QuotaLimiter(s.CT_REQUESTS_PER_MINUTE, 0), max_bytes=s.CT_MAX_BYTES)
+            self._ct_key = key
+        return self._ct
 
     def rdap(self) -> RdapClient:
         s = get_settings()
@@ -212,8 +226,8 @@ class ProviderHub:
         self._vt_key = None
         self._nvd = None
         self._nvd_key = None
-        self._tls = self._rdap = self._dns = self._eol = None
-        self._tls_key = self._rdap_key = self._dns_key = self._eol_key = None
+        self._tls = self._rdap = self._dns = self._eol = self._ct = None
+        self._tls_key = self._rdap_key = self._dns_key = self._eol_key = self._ct_key = None
         self._epss = self._kev = self._vuln = None
         self._epss_key = self._kev_key = self._vuln_key = None
         self._brands = None
