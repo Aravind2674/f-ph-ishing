@@ -14,8 +14,36 @@ export interface ScanRequest {
 export interface RiskExplanation {
   feature_name: string;
   feature_value: number | null; // null = unknown (provider did not answer)
-  shap_value: number;
+  shap_value: number; // a LOG-ODDS contribution to the raw model margin (see `unit`)
   human_readable: string;
+  unit?: string; // "log-odds"
+  probability_delta?: number | null; // what-if: change in the calibrated probability if this feature's contribution were removed
+  group?: "surface" | "host" | "path" | "risk" | "brand" | null;
+}
+
+// A2: calibrated URL-text models + the transparent baseline (kept apart from provider-based scores).
+export interface UrlRiskTerm {
+  text: string;
+  weight: number;
+}
+
+export interface UrlRiskAssessment {
+  applicable: boolean;
+  score: number | null; // calibrated probability, tree model
+  raw_score: number | null;
+  cnn_score: number | null; // calibrated probability, character CNN
+  baseline_score: number | null; // the a-priori lexical baseline, calibrated the same way
+  fused_score: number | null; // stacked fusion (B7)
+  fusion_contributions: Record<string, number>; // per-channel log-odds
+  headline_score: number | null;
+  flagged: boolean;
+  threshold: number | null;
+  threshold_basis: string | null;
+  at_prevalence: Record<string, number>; // what the headline means if 1 in 100 / 1 in 1000 URLs are phishing
+  baseline_terms: UrlRiskTerm[];
+  model_name: string | null;
+  model_version: string | null;
+  notes: string[];
 }
 
 // A suspicious URL substring surfaced by the character-level neural model
@@ -303,6 +331,7 @@ export interface ScanResult {
   dns?: DnsInfo | null;
   ct?: CtInfo | null; // B3
   reputation?: ReputationSummary | null; // B2; separate from the maliciousness scores
+  url_risk?: UrlRiskAssessment | null; // A2: calibrated URL-text models
   exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
   brand_check?: BrandCheck | null; // B4; local, separate from the maliciousness scores
   lookalike_of?: LookalikeMatch | null;

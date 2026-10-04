@@ -164,7 +164,7 @@ def test_a_scan_is_written_to_the_scans_table_with_provenance(app_with_db) -> No
     assert row["baseline_label"] == res["baseline_label"] and row["ml_label"] == res["ml_label"]
     assert row["feature_schema_version"] == res["feature_schema_version"] >= 2
     versions = json.loads(row["model_versions"])
-    assert set(versions) >= {"xgboost_fusion", "neural_url"} and all(versions.values())
+    assert set(versions) >= {"url_xgb", "url_cnn", "url_fusion"} and all(versions.values())
     prov = json.loads(row["provenance"])
     assert {p["source"] for p in prov} >= {"virustotal", "shodan_internetdb"} and all("status" in p for p in prov)
     assert json.loads(row["result_json"])["scan_id"] == res["scan_id"]

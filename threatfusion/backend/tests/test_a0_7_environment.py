@@ -118,7 +118,8 @@ def test_manifest_covers_every_runtime_artifact() -> None:
     from app.core.artifacts import ArtifactManifest
 
     manifest = ArtifactManifest.load(MODELS / "manifest.json")
-    for name in ("fusion_model.json", "neural_fusion.pt", "neural_fusion_config.json",
+    for name in ("url_xgb.ubj", "url_xgb_calibration.json", "url_cnn.pt", "url_cnn_config.json", "url_cnn_calibration.json",
+                 "url_baseline_calibration.json", "url_fusion.json", "url_xgb.card.json", "url_cnn.card.json", "url_fusion.card.json",
                  "vuln_classifier.pt", "vuln_classifier_config.json"):
         assert name in manifest.files, f"{name} missing from manifest"
 
@@ -126,7 +127,7 @@ def test_manifest_covers_every_runtime_artifact() -> None:
 def test_verify_artifact_accepts_pristine_files() -> None:
     from app.core.artifacts import verify_artifact
 
-    for name in ("fusion_model.json", "neural_fusion.pt", "vuln_classifier.pt"):
+    for name in ("url_xgb.ubj", "url_cnn.pt", "url_xgb.card.json", "vuln_classifier.pt"):
         verify_artifact(MODELS / name)  # must not raise
 
 
@@ -139,7 +140,7 @@ def _copy_with_manifest(tmp_path: Path, name: str) -> Path:
 def test_tampered_artifact_is_refused(tmp_path: Path) -> None:
     from app.core.artifacts import ArtifactIntegrityError, verify_artifact
 
-    victim = _copy_with_manifest(tmp_path, "fusion_model.json")
+    victim = _copy_with_manifest(tmp_path, "url_xgb.ubj")
     data = bytearray(victim.read_bytes())
     data[len(data) // 2] ^= 0x01  # flip one bit
     victim.write_bytes(bytes(data))
@@ -167,8 +168,7 @@ def test_missing_manifest_is_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("cls_path,artifact", [
-    ("app.ml.fusion_model.FusionModel", "fusion_model.json"),
-    ("app.ml.neural_fusion.NeuralFusionModel", "neural_fusion.pt"),
+    ("app.ml.url_cnn.UrlCnnModel", "url_cnn.pt"),
     ("app.ml.vuln_classifier.VulnClassifier", "vuln_classifier.pt"),
 ])
 def test_model_loaders_refuse_tampered_files(tmp_path: Path, cls_path: str, artifact: str) -> None:
@@ -191,7 +191,7 @@ def test_model_loaders_refuse_tampered_files(tmp_path: Path, cls_path: str, arti
 def test_torch_load_uses_weights_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never allow arbitrary pickle execution when reading ``.pt`` checkpoints."""
     import torch
-    from app.ml.neural_fusion import NeuralFusionModel
+    from app.ml.url_cnn import UrlCnnModel
     from app.ml.vuln_classifier import VulnClassifier
 
     calls: list[dict] = []
@@ -202,7 +202,7 @@ def test_torch_load_uses_weights_only(monkeypatch: pytest.MonkeyPatch) -> None:
         return real_load(*args, **kwargs)
 
     monkeypatch.setattr(torch, "load", spy)
-    NeuralFusionModel().load(MODELS / "neural_fusion.pt")
+    UrlCnnModel().load(MODELS / "url_cnn.pt")
     VulnClassifier().load(MODELS / "vuln_classifier.pt")
     assert len(calls) == 2
     assert all(c.get("weights_only") is True for c in calls), calls

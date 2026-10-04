@@ -22,6 +22,10 @@ env/
 ml/models/*.pkl
 ml/models/*.joblib
 ml/results/*.png
+# ...except the figures that ml/results/report.md embeds
+!ml/results/calibration_and_pr.png
+!ml/results/decay.png
+!ml/results/importance.png
 
 # IDE
 .vscode/

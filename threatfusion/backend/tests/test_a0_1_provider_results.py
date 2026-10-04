@@ -32,7 +32,6 @@ from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ingestion.virustotal import VirusTotalClient
 from app.ml.baseline import baseline_score
 from app.ml.features import extract_features, extract_features_with_coverage
-from app.ml.fusion_model import FusionModel
 from tests.conftest import mock_site
 from app.models.schemas import (
     CVEResult,
@@ -321,8 +320,9 @@ def test_baseline_ignores_unknown_features_instead_of_treating_them_as_good_or_b
     assert only_vt > 0.4  # a clear VT detection still drives the score without other sources
 
 
-def test_xgboost_input_encodes_unknown_as_nan() -> None:
-    arr = FusionModel().feature_vector_to_array(extract_features(None, None, None, None))
+def test_a_model_input_built_from_unknown_features_is_nan_not_a_neutral_constant() -> None:
+    vec = extract_features(None, None, None, None)
+    arr = np.array([[np.nan if v is None else v for v in vec.model_dump().values()]], dtype=np.float64)
     assert arr.shape == (1, 19) and bool(np.isnan(arr).all())
 
 
@@ -365,8 +365,11 @@ def test_full_provider_outage_is_reported_as_unknown_never_low(scan_client: Test
     assert set(res["data_sources_failed"]) == {"VirusTotal", "Shodan", "TechFingerprint"}
     assert res["mock_mode"] is False
     assert res["verdict_status"] == "unknown"
-    assert res["ml_score"] is None and res["ml_label"] == "Unknown" and res["ml_status"] == "insufficient_evidence"
-    assert res["baseline_score"] is None, "no evidence at all => no score, not 0.0"
+    # The URL-text models read the *string*, so they still answer when every provider is down (that is their point: a
+    # brand-new domain no feed has seen). It is a separate, labelled channel: the provider-based verdict and baseline stay
+    # unknown, and nothing here is reported as "Low".
+    assert res["ml_status"] == "ok" and res["url_risk"]["applicable"] is True and res["ml_label"] != "Low"
+    assert res["baseline_score"] is None and res["baseline_label"] == "Unknown", "no evidence at all => no score, not 0.0"
     by_src = {o["source"]: o for o in res["provider_results"]}
     assert by_src["virustotal"]["status"] == "error" and by_src["virustotal"]["reason"] == "auth"
     assert by_src["shodan_internetdb"]["http_status"] == 503
@@ -398,7 +401,9 @@ def test_not_found_is_distinct_from_failed_and_from_success(scan_client: TestCli
     assert set(res["data_sources_not_found"]) == {"VirusTotal", "Shodan"}
     assert res["data_sources_failed"] == []
     assert "VirusTotal" not in res["data_sources_succeeded"]
-    assert res["ml_score"] is None, "VT has no record: the VT-only model has nothing to score"
+    # The URL-text models do not depend on VirusTotal: they still answer (a separate, labelled channel) while the
+    # provider-based verdict has nothing to go on.
+    assert res["ml_status"] == "ok" and res["url_risk"]["applicable"] is True
 
 
 def test_nvd_failure_is_not_listed_as_success_and_cvss_is_unknown(scan_client: TestClient) -> None:

@@ -753,6 +753,42 @@ class RiskExplanation(BaseModel):
         ...,
         description="Plain‑English explanation, e.g. 'Open RDP port (+0.31 risk)'",
     )
+    # Additive (A2-5): the unit is stated, and a what-if in probability terms is given alongside.
+    unit: str = Field("log-odds", description="Unit of shap_value: a log-odds contribution to the raw model margin "
+                                              "(base value + sum of contributions = margin)")
+    probability_delta: Optional[float] = Field(
+        None, description="How much the calibrated probability would change if this feature's contribution were removed "
+                          "(a what-if, not an additive share)")
+    group: Optional[str] = Field(None, description="Feature group: surface | host | path | risk | brand")
+
+
+class UrlRiskTerm(BaseModel):
+    """One fired rule of the transparent lexical baseline."""
+
+    text: str
+    weight: float
+
+
+class UrlRiskAssessment(BaseModel):
+    """The URL-level maliciousness assessment (A2): calibrated model scores for the URL *string* (``ml/url_risk``)."""
+
+    applicable: bool = True
+    score: Optional[float] = Field(None, description="Calibrated probability from the tree model (URL features)")
+    raw_score: Optional[float] = Field(None, description="The tree model's uncalibrated score (a ranking, not a probability)")
+    cnn_score: Optional[float] = Field(None, description="Calibrated probability from the character CNN (None = not loaded)")
+    baseline_score: Optional[float] = Field(None, description="The a-priori lexical baseline, calibrated the same way")
+    fused_score: Optional[float] = Field(None, description="Stacked fusion of the channels that answered (B7)")
+    fusion_contributions: dict[str, float] = Field(default_factory=dict, description="Per-channel log-odds in the fused score")
+    headline_score: Optional[float] = Field(None, description="The fused score if available, else the tree model's")
+    flagged: bool = Field(False, description="headline_score >= threshold")
+    threshold: Optional[float] = None
+    threshold_basis: Optional[str] = None
+    at_prevalence: dict[str, float] = Field(default_factory=dict,
+                                            description="What the headline score means if only 1 in 100 / 1 in 1000 URLs are phishing")
+    baseline_terms: list[UrlRiskTerm] = Field(default_factory=list)
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    notes: list[str] = Field(default_factory=list)
 
 
 class NeuralExplanation(BaseModel):
@@ -872,6 +908,11 @@ class ScanResult(BaseModel):
         None,
         description="Exploit-informed exposure of the host (EPSS / KEV / SSVC) — deliberately separate from the "
                     "maliciousness scores and never blended into them (B11). None when it could not be assessed at all.",
+    )
+    url_risk: Optional[UrlRiskAssessment] = Field(
+        None,
+        description="Calibrated URL-string maliciousness models and the transparent baseline (A2). None for IP / hash "
+                    "targets or when the model is not loaded (see ml_status).",
     )
     reputation: Optional[ReputationSummary] = Field(
         None,

@@ -8,30 +8,24 @@ SHAP‑based explanations.
 
 Sub‑modules
 -----------
-* ``features``      – Feature engineering: raw source data → ``FeatureVector``.
-* ``baseline``      – Deterministic rule‑based scorer (no training needed).
-                      Serves as a sanity‑check baseline and a fallback when
-                      the trained model is unavailable.
-* ``fusion_model``  – Gradient‑boosted (XGBoost) fusion model that learns
-                      non‑linear interactions across data sources.
-* ``explain``       – SHAP TreeExplainer wrapper that produces per‑feature
-                      risk attributions for the fusion model's predictions.
+* ``features``      – Provider evidence → the 19‑column ``FeatureVector`` (unknown stays ``None``).
+* ``baseline``      – Deterministic rule‑based scorer over those provider features (the headline severity).
+* ``url_features`` / ``url_canon`` – URL‑string features and the one canonical URL form (scheme/``www`` blind) shared by
+                      training and serving.
+* ``url_risk``      – The calibrated URL‑text models (tree model + character CNN + transparent lexical baseline) and their
+                      stacked fusion, with SHAP evidence; ``runtime`` holds the process‑wide instance, ``model_cards`` the
+                      model‑card checks (a schema mismatch disables a model).
+* ``calibration`` / ``fusion`` – Isotonic / Platt calibration, noisy‑OR and stacked‑logistic fusion with missingness flags.
+* ``brands`` / ``lookalike`` / ``confusables`` – Brand impersonation (B4).  ``exposure`` – exploit‑informed exposure (B11).
+* ``vuln_classifier`` / ``payload_norm`` – HTTP attack classifier and its payload normaliser.
 
 Pipeline flow
 -------------
 ::
 
-    VirusTotalResult ─┐
-    ShodanResult ─────┤
-    CVEResult ────────┼─→ extract_features() ─→ FeatureVector
-    TechFingerprintResult ┘                           │
-                                                      ├─→ baseline_score()
-                                                      │
-                                                      ├─→ FusionModel.predict_proba()
-                                                      │         │
-                                                      │         └─→ explain_prediction()
-                                                      │                    │
-                                                      └────────────────────┘
-                                                               ↓
-                                                         ScanResult
+    providers ──→ extract_features() ──→ FeatureVector ──→ baseline_score()          (maliciousness headline)
+    URL text ───→ url_risk.assess()  ──→ calibrated tree / CNN / fusion + SHAP        (URL‑text channel)
+    CVEs ───────→ exposure.assess_exposure()                                          (kept apart: exposure)
+                                   ↓
+                              ScanResult
 """

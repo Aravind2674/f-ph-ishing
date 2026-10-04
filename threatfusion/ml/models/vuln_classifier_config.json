@@ -87,5 +87,7 @@
     4,
     5
   ],
-  "dropout": 0.3
+  "dropout": 0.3,
+  "temperature": 1.1385198831558228,
+  "window_stride": 128
 }
