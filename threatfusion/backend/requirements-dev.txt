@@ -53,6 +53,10 @@ certifi==2026.7.22
     #   httpcore
     #   httpx
     #   requests
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+    # via
+    #   -c requirements.txt
+    #   cryptography
 charset-normalizer==3.5.2
     # via
     #   -c requirements.txt
@@ -73,12 +77,20 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   tqdm
 contourpy==1.4.0
     # via matplotlib
+cryptography==50.0.2
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 cycler==0.12.1
     # via matplotlib
 cyclonedx-python-lib==11.12.0
     # via pip-audit
 defusedxml==0.7.1
     # via py-serializable
+dnspython==2.8.0
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 fastapi==0.142.2
     # via
     #   -c requirements.txt
@@ -87,6 +99,7 @@ filelock==4.0.9
     # via
     #   -c requirements.txt
     #   cachecontrol
+    #   tldextract
     #   torch
 fonttools==4.66.1
     # via matplotlib
@@ -127,6 +140,7 @@ idna==3.20
     #   anyio
     #   httpx
     #   requests
+    #   tldextract
     #   yarl
 iniconfig==2.3.0
     # via pytest
@@ -240,6 +254,10 @@ propcache==0.5.4
     #   yarl
 py-serializable==2.1.0
     # via cyclonedx-python-lib
+pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via
+    #   -c requirements.txt
+    #   cffi
 pydantic==2.13.5
     # via
     #   -c requirements.txt
@@ -292,6 +310,12 @@ requests==2.34.2
     #   cachecontrol
     #   pip-audit
     #   python-wappalyzer
+    #   requests-file
+    #   tldextract
+requests-file==3.0.1
+    # via
+    #   -c requirements.txt
+    #   tldextract
 respx==0.23.1
     # via -r requirements-dev.in
 rich==15.0.0
@@ -354,6 +378,10 @@ threadpoolctl==3.7.0
     # via
     #   -c requirements.txt
     #   scikit-learn
+tldextract==5.4.0
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 tomli==2.4.1
     # via pip-audit
 tomli-w==1.2.0

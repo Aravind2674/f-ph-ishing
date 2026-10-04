@@ -508,6 +508,28 @@ class NeuralExplanation(BaseModel):
 # Composite / orchestrator‑level models
 # ---------------------------------------------------------------------------
 
+class CanonicalTarget(BaseModel):
+    """What the scanner actually looked up, after ``core/targets.canonicalize`` (A1-6).
+
+    The *user-visible* proof that "BÜCHER.example." and "https://bücher.example/x?t=1" were treated as
+    ``xn--bcher-kva.example``. ``url`` is the **public** form (no query, fragment or credentials) — the secrets
+    in the typed string are deliberately not echoed back.
+    """
+
+    kind: TargetType
+    host: Optional[str] = Field(None, description="ASCII/punycode lowercase hostname, or the IP literal")
+    registered_domain: Optional[str] = Field(
+        None, description="eTLD+1 from the Public Suffix List; null when the suffix is not a public one")
+    subdomain: str = ""
+    ip: Optional[str] = None
+    port: Optional[int] = Field(None, description="Explicit non-default port, if any")
+    scheme: Optional[str] = None
+    url: Optional[str] = Field(None, description="Canonical URL without query/fragment/credentials (URL targets)")
+    has_userinfo: bool = Field(False, description="The typed target contained user:password@ credentials")
+    hash: Optional[str] = None
+    hash_type: Optional[str] = None
+
+
 class ScanResult(BaseModel):
     """Complete scan result combining all data sources, engineered features,
     model scores, and SHAP explanations.
@@ -541,6 +563,11 @@ class ScanResult(BaseModel):
     timestamp: datetime = Field(
         ...,
         description="UTC timestamp when the scan was initiated",
+    )
+    canonical: Optional[CanonicalTarget] = Field(
+        None,
+        description="The canonical form of the target that providers were queried with (A1-6); "
+                    "null on scans stored before it existed",
     )
 
     # ── Raw data from each source ────────────────────────────────────

@@ -34,7 +34,9 @@ from app.core.ratelimit import scan_rate_limit
 from app.core.scan_store import ScanStore
 from app.core import privacy, safe_http
 from app.core.safe_http import FetchError, blocked_reason
+from app.core.targets import Target, canonicalize
 from app.models.schemas import (
+    CanonicalTarget,
     ProviderResult,
     ProviderStatus,
     ScanHistoryItem,
@@ -69,6 +71,12 @@ else:
         logger.error("XGBoost fusion model NOT loaded from %s: %s", _fusion_path, e)
 
 # ── Neural Fusion Model (char-CNN + tabular) ────────────────────────────
+# One chainer per process: it parses the EPSS / KEV / Exploit-DB CSVs on first use, which must happen once, not
+# once per scan (it used to be constructed inside create_scan, re-reading ~300k rows for every CVE-bearing scan).
+from app.ml.chaining import VulnerabilityChainer  # noqa: E402
+
+_chainer = VulnerabilityChainer()
+
 # Optional deep-learning model that also reads the raw URL string. Loaded
 # best-effort: if the checkpoint is absent the pipeline silently falls back to
 # the XGBoost/baseline scores, so this never breaks an existing deployment.
@@ -182,6 +190,30 @@ def _build_summary(verdict_status: str, verdict_reason: str | None, ml_label: st
     return " ".join(parts)
 
 
+def _canonical_view(t: Target) -> CanonicalTarget:
+    """The API view of a canonical Target — never carries the query, fragment or credentials."""
+    return CanonicalTarget(
+        kind=t.kind, host=t.host, registered_domain=t.registered_domain, subdomain=t.subdomain, ip=t.ip,
+        port=t.port, scheme=t.scheme, url=t.url_public, has_userinfo=t.has_userinfo, hash=t.hash,
+        hash_type=t.hash_type,
+    )
+
+
+_FORMAT_MESSAGES = {
+    TargetType.DOMAIN: "Invalid domain format.\nPlease enter a valid website domain.",
+    TargetType.URL: "Invalid URL format.\nPlease enter a valid http(s) URL.",
+    TargetType.IP: "Invalid IP address.\nPlease enter a single IPv4 or IPv6 address (no CIDR range or path).",
+    TargetType.FILE_HASH: "Invalid file hash.\nPlease enter a 32, 40 or 64 digit hexadecimal MD5, SHA-1 or SHA-256 hash.",
+}
+
+
+def _format_error(t: Target) -> dict:
+    """The 400 body for a target that failed canonicalisation (no provider has been contacted)."""
+    if t.problem == "empty":
+        return {"success": False, "stage": "normalize", "message": "Empty or invalid target.", "problem": t.problem}
+    return {"success": False, "stage": "format", "message": _FORMAT_MESSAGES[t.kind], "problem": t.problem}
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 @router.post("", response_model=ScanResponse, summary="Submit a new IOC scan",
@@ -191,11 +223,15 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     
     This endpoint executes synchronously for demonstration purposes.
     """
-    # ── 0. Pre-Scan Validation ──────────────────────────────────────────────
+    # ── 0. Canonicalise, then validate ──────────────────────────────────────
+    # One parser for every component (A1-6): from here on providers see `target`, never the typed string.
+    from fastapi.responses import JSONResponse
+    target = canonicalize(request.target, request.target_type)
+    if not target.valid:
+        return JSONResponse(status_code=400, content=_format_error(target))
     if request.target_type in (TargetType.DOMAIN, TargetType.URL):
         from app.core.validation import validate_domain_target
-        from fastapi.responses import JSONResponse
-        is_valid, validation_data, normalized = await validate_domain_target(request.target)
+        is_valid, validation_data, normalized = await validate_domain_target(target.host)
         if not is_valid:
             return JSONResponse(status_code=400, content=validation_data)
 
@@ -213,23 +249,15 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
     cve_client = CVEClient(api_key=settings.NVD_API_KEY, use_mock=use_mock)
     tech_client = TechFingerprintClient(use_mock=use_mock)
 
-    from app.ml.chaining import VulnerabilityChainer
-    chainer = VulnerabilityChainer()
-
     # Every provider call yields a ProviderResult; its *status* — not truthiness — decides
     # whether it counts as a success, a gap, or a failure (A0-1).
     outcomes: list[ProviderResult] = []
 
     # Privacy (A0-10): third parties and the target itself receive only scheme://host/path unless the user
     # opted in — the query string/fragment/credentials are where tokens and personal data live.
-    if request.target_type == TargetType.URL:
-        outbound_url = request.target if request.send_full_url else (
-            privacy.strip_url_for_third_parties(request.target) or request.target)
-    else:
-        outbound_url = request.target
-    # A domain-type target may have been typed as a URL; providers must only ever see the host.
-    outbound_host = (privacy.hostname_of(request.target) or request.target
-                     if request.target_type == TargetType.DOMAIN else request.target)
+    outbound_url = (target.url_full if request.send_full_url else target.url_public) or ""
+    # A domain-type target may have been typed as a URL; providers only ever see the canonical host (or IP).
+    outbound_host = target.host or ""
 
     # Time budget (A0-9): one overall deadline for the provider lookups plus a cap per lookup, so a slow
     # or hung provider becomes `error/timeout` instead of holding the scan (and a worker) open.
@@ -266,19 +294,19 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         if not providers["virustotal"].configured:
             vt_res = prov.not_configured("virustotal")
         elif request.target_type in (TargetType.DOMAIN, TargetType.IP):
-            # NOTE: IPs still go through the domain endpoint; the /ip_addresses call is A1-1/A1-6.
+            # NOTE: IPs still go through the domain endpoint; the /ip_addresses call is A1-1.
             vt_res = await _safe(vt_client.lookup_domain(outbound_host), "virustotal")
         elif request.target_type == TargetType.URL:
             vt_res = await _safe(vt_client.lookup_url(outbound_url), "virustotal")
         elif request.target_type == TargetType.FILE_HASH:
-            vt_res = await _safe(vt_client.lookup_file_hash(request.target), "virustotal")
+            vt_res = await _safe(vt_client.lookup_file_hash(target.hash), "virustotal")
         if vt_res is not None:
             outcomes.append(vt_res)
 
         # Shodan InternetDB (only relevant for IPs and Domains)
         shodan_res: ProviderResult | None = None
         if request.target_type in (TargetType.IP, TargetType.DOMAIN):
-            ip_target = request.target
+            ip_target = outbound_host
             dns_failure: ProviderResult | None = None
             if request.target_type == TargetType.DOMAIN:
                 from urllib.parse import urlparse
@@ -318,9 +346,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         # Technology Fingerprinting (only relevant for URLs/Domains)
         tech_res: ProviderResult | None = None
         if request.target_type in (TargetType.URL, TargetType.DOMAIN):
-            target_url = outbound_url if request.target_type == TargetType.URL else outbound_host
-            if not target_url.startswith("http"):
-                target_url = f"https://{target_url}"
+            target_url = outbound_url if request.target_type == TargetType.URL else f"https://{outbound_host}"
             tech_res = await _safe(tech_client.fingerprint_url(target_url), "tech_fingerprint")
             outcomes.append(tech_res)
         tech = tech_res.data if tech_res is not None and tech_res.ok else None
@@ -331,7 +357,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         attack_paths = []
         if cve and cve.cves:
             try:
-                attack_paths = await chainer.build_and_solve_chain(cve.cves)
+                # First use parses the EPSS/KEV/Exploit-DB CSVs (hundreds of thousands of rows): do that in a
+                # worker thread so the event loop (SSE heartbeats, other requests) keeps ticking (A0-9).
+                await asyncio.to_thread(_chainer.initialize)
+                attack_paths = await _chainer.build_and_solve_chain(cve.cves)
             except Exception as e:
                 logger.warning("Vulnerability chaining failed: %s", e)
 
@@ -364,7 +393,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
         # ── 4b. Neural Fusion Model (char-CNN + tabular) ────────────────
         # Reads the raw URL string, so it can flag lexical phishing patterns
-        # even when no external source has ever seen the target (zero-day).
+        # even when no external source has ever seen the target (zero-day). It deliberately gets the string
+        # *as typed*: it runs locally (nothing leaves the machine) and the very things canonicalisation
+        # strips — `paypal.com@evil.example` userinfo, odd casing, encodings — are its lexical signal.
         neural_score = None
         neural_label = None
         neural_url_score = None
@@ -391,6 +422,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             target=request.target,
             target_type=request.target_type,
             timestamp=datetime.now(timezone.utc),
+            canonical=_canonical_view(target),
             virustotal=vt,
             shodan=shodan,
             cve=cve,

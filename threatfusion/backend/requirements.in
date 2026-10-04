@@ -28,3 +28,11 @@ scapy
 python-Wappalyzer
 # python-Wappalyzer still imports pkg_resources, which setuptools>=82 removed.
 setuptools<82
+
+# ── Host intelligence & target canonicalisation (Phase A1) ──────────────────
+# Public Suffix List (offline snapshot bundled with the package; never fetched at runtime) for registered domains.
+tldextract
+# Async DNS records (A/AAAA/MX/NS/TXT/CAA, SPF/DMARC).
+dnspython
+# Parse X.509 certificates (issuer, validity, SANs) from the DER the TLS handshake returns.
+cryptography
