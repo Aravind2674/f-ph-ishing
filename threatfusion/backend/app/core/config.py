@@ -44,6 +44,9 @@ _PLACEHOLDER_RE = re.compile(
 _CREDENTIAL_FIELDS = (
     "VIRUSTOTAL_API_KEY", "SHODAN_API_KEY", "NVD_API_KEY", "WIGLE_API_NAME", "WIGLE_API_TOKEN",
     "API_TOKEN",
+    # independent reputation channels (B2)
+    "ABUSECH_AUTH_KEY", "GOOGLE_SAFE_BROWSING_API_KEY", "ABUSEIPDB_API_KEY", "OTX_API_KEY", "URLSCAN_API_KEY",
+    "GREYNOISE_API_KEY", "PHISHTANK_APP_KEY",
 )
 
 
@@ -90,6 +93,17 @@ class Settings(BaseSettings):
     VIRUSTOTAL_API_KEY: str = ""
     SHODAN_API_KEY: str = ""
     NVD_API_KEY: str = ""
+
+    # ── Independent reputation channels (B2) ────────────────────────────
+    # Each one answers "is this target known bad?" from a source that does not depend on VirusTotal. Keys unset =
+    # that channel is reported "not configured" (never silently dropped). Only host names / IPs / public URLs are sent.
+    ABUSECH_AUTH_KEY: str = ""                       # abuse.ch URLhaus + ThreatFox (free Auth-Key, required)
+    GOOGLE_SAFE_BROWSING_API_KEY: str = ""           # Safe Browsing Lookup API: non-commercial use; commercial = Web Risk
+    ABUSEIPDB_API_KEY: str = ""                      # free key
+    OTX_API_KEY: str = ""                            # AlienVault OTX free key
+    URLSCAN_API_KEY: str = ""                        # optional: raises the search rate limit (search only, never submit)
+    GREYNOISE_API_KEY: str = ""                      # optional: the Community API works keyless at a low daily limit
+    PHISHTANK_APP_KEY: str = ""                      # optional: PhishTank bulk download without throttling
 
     # ── WiGLE (Network Layer, rogue-AP signal) ──────────────────────────
     # WiGLE uses HTTP Basic auth with an API *name* + *token* (not a single
@@ -214,6 +228,29 @@ class Settings(BaseSettings):
     LOOKALIKE_ENABLED: bool = True
     LOOKALIKE_THRESHOLD: float = 0.80                # rule score at or above which a resemblance is flagged
     LOOKALIKE_POPULAR_LIMIT: int = 5000              # top Tranco domains added to the curated list (when that feed is loaded)
+
+    # Reputation channel switches, cache lifetimes and thresholds (B2).
+    URLHAUS_ENABLED: bool = True
+    THREATFOX_ENABLED: bool = True
+    SAFEBROWSING_ENABLED: bool = True
+    ABUSEIPDB_ENABLED: bool = True
+    ABUSEIPDB_MIN_CONFIDENCE: int = 50               # abuse-confidence score (0-100) at or above which an IP counts as listed
+    URLSCAN_ENABLED: bool = True
+    OTX_ENABLED: bool = True
+    GREYNOISE_ENABLED: bool = True
+    REPUTATION_CACHE_TTL_SECONDS: int = 6 * 3600     # answers; a "no record" answer uses PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS
+    REPUTATION_REQUESTS_PER_MINUTE: int = 30         # per channel
+    # Local bulk feeds (downloaded once, kept locally, every answer carries the feed age).
+    OPENPHISH_ENABLED: bool = True
+    OPENPHISH_FEED_URL: str = "https://openphish.com/feed.txt"
+    OPENPHISH_MAX_AGE_HOURS: int = 12
+    PHISHTANK_ENABLED: bool = True
+    PHISHTANK_FEED_URL: str = "https://data.phishtank.com/data/online-valid.json"
+    PHISHTANK_MAX_AGE_HOURS: int = 12
+    TRANCO_ENABLED: bool = True
+    TRANCO_FEED_URL: str = "https://tranco-list.eu/top-1m.csv.zip"
+    TRANCO_MAX_AGE_HOURS: int = 24
+    TRANCO_TOP_N: int = 100000
 
     # Technology fingerprinting (A1-4). Optional path to a newer Wappalyzer ``technologies.json`` (same format) to use
     # instead of the data bundled with the engine; end-of-life data comes from endoflife.date (keyless, cached a week).
@@ -353,6 +390,10 @@ class Settings(BaseSettings):
         vt_ok, vt_state = self._credential_state("VIRUSTOTAL_API_KEY")
         nvd_ok, nvd_state = self._credential_state("NVD_API_KEY")
         wigle_ok, wigle_state = self._credential_state("WIGLE_API_NAME", "WIGLE_API_TOKEN")
+        abusech_ok, abusech_state = self._credential_state("ABUSECH_AUTH_KEY")
+        gsb_ok, gsb_state = self._credential_state("GOOGLE_SAFE_BROWSING_API_KEY")
+        abuseipdb_ok, abuseipdb_state = self._credential_state("ABUSEIPDB_API_KEY")
+        otx_ok, otx_state = self._credential_state("OTX_API_KEY")
         return {
             "virustotal": status("virustotal", vt_ok, vt_state),
             "shodan_internetdb": status("shodan_internetdb", True, "keyless"),
@@ -367,6 +408,16 @@ class Settings(BaseSettings):
             "kev": status("kev", True, "keyless"),
             "vulnrichment": status("vulnrichment", True, "keyless"),
             "wigle": status("wigle", wigle_ok, wigle_state),
+            "urlhaus": status("urlhaus", abusech_ok, abusech_state),
+            "threatfox": status("threatfox", abusech_ok, abusech_state),
+            "safebrowsing": status("safebrowsing", gsb_ok, gsb_state),
+            "abuseipdb": status("abuseipdb", abuseipdb_ok, abuseipdb_state),
+            "otx": status("otx", otx_ok, otx_state),
+            "urlscan": status("urlscan", True, "keyless"),
+            "greynoise": status("greynoise", True, "keyless"),
+            "openphish": status("openphish", True, "keyless"),
+            "phishtank": status("phishtank", True, "keyless"),
+            "tranco": status("tranco", True, "keyless"),
         }
 
     # ── Pydantic-settings configuration ─────────────────────────────────

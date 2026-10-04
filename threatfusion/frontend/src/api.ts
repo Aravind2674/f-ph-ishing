@@ -187,6 +187,31 @@ export interface ExposureAssessment {
   feed_ages: Record<string, number | null>; // days since each local feed was fetched
 }
 
+// ── Independent reputation channels (B2): who says what, side by side — not a score ──
+export interface ReputationVerdict {
+  source: string;
+  listed: boolean; // true only when the source positively says the target is bad
+  category: string | null;
+  match: "exact_url" | "url_path" | "host" | "ip" | "ioc" | null;
+  score: number | null; // the source's own 0-100 score, where it gives one
+  detail: string | null;
+  reference: string | null; // public report / pulse / scan page
+  last_seen: string | null;
+  feed_age_days: number | null; // age of the local list this came from
+  stale: boolean;
+  extra: Record<string, string | number | boolean | null>;
+}
+
+export interface ReputationSummary {
+  channels_applicable: number;
+  channels_answered: number;
+  listed_by: string[];
+  verdicts: ReputationVerdict[];
+  popularity_rank: number | null; // Tranco rank — a prior, never a listing
+  feed_ages: Record<string, number | null>; // days since each local list was fetched
+  notes: string[];
+}
+
 // ── Certificate transparency (B3): when certificates were first/recently issued for the host ──
 export interface CtInfo {
   host: string;
@@ -277,6 +302,7 @@ export interface ScanResult {
   rdap?: RdapInfo | null;
   dns?: DnsInfo | null;
   ct?: CtInfo | null; // B3
+  reputation?: ReputationSummary | null; // B2; separate from the maliciousness scores
   exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
   brand_check?: BrandCheck | null; // B4; local, separate from the maliciousness scores
   lookalike_of?: LookalikeMatch | null;

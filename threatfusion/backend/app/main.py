@@ -54,6 +54,12 @@ async def _feed_refresh_loop() -> None:
                 result = await hub.kev().ensure_fresh()
                 if result is not None and not result.ok:
                     logger.warning("KEV refresh failed (%s); keeping the previous copy", result.reason)
+            if not get_settings().USE_MOCK_DATA:
+                s = get_settings()
+                enabled = {"openphish": s.OPENPHISH_ENABLED, "phishtank": s.PHISHTANK_ENABLED, "tranco": s.TRANCO_ENABLED}
+                for feed in hub.reputation().feeds():
+                    if enabled.get(feed.source, True):
+                        await feed._safe_refresh()          # logs its own failure; keeps the previous copy
         except asyncio.CancelledError:
             raise
         except Exception:

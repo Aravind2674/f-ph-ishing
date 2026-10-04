@@ -337,6 +337,20 @@ Making enrichment real (see `threatfusion/docs/ROADMAP.md`). Facts a contributor
 
 ---
 
-## 17. One-paragraph elevator pitch
+## 17. Phase B-intel — independent evidence (2026-10, branch `b-intel-exposure`, stacked on `a1-enrichment`)
+
+B11 (exposure), B4 (brand look-alikes), B3 (certificate transparency), B2 (independent reputation). Facts a contributor/AI must know:
+
+- **Two questions, never blended.** *Maliciousness* (baseline headline + experimental ML + independent channels) vs *exposure* (EPSS/KEV/SSVC score of the host's CVEs). New `ScanResult` fields are additive: `exposure`, `brand_check`, `lookalike_of`, `ct`, `reputation`; `FeatureCoverage.has_ct`. **None of them feeds the 19-column XGBoost vector or the baseline score yet** — that is A2-1 (retrain) / B7 (calibrated fusion). The summary sentence does mention a look-alike or a listing.
+- **Local feeds** (`core/feeds.py`, schema v4): KEV, OpenPhish, PhishTank, Tranco. Never downloaded = `error / feed_unavailable` (unknown, not "not listed") and a **background** download starts (they are tens of MB — never inline in a scan); stale = used but flagged `stale_feed`; a download that shrinks a ≥200-entry list under 25 % or fails to parse is refused. `main._feed_refresh_loop` keeps them fresh in live mode.
+- **Brand check is local and deterministic** (`ml/lookalike.py`); it runs in mock mode too and is *not* a provider outcome (it is not evidence for the verdict). Similarities are rule scores per kind, not probabilities. Official domains: do **not** list user-content hosts (`github.io`, `myshopify.com`…) — a brand in their subdomain is exactly what to flag. Edit-distance typos need 6+ letters (`phase`≠`chase`); 5-letter brands match only by confusable/keyword/subdomain rules. `tests/data/b4_lookalike_cases.csv` is **synthetic**; `test_b4_evaluation.py` pins known misses and false positives by name.
+- **CT** (`ingestion/ct.py`): derived fields are recomputed on read from stored timestamps; `cert_count_30d` is a lower bound when `truncated`.
+- **Reputation channels**: add a source = one `Channel` subclass (`applies / query / request / parse / mock`) + a line in `ReputationSet` / `core/hub.py` / config + the frontend label. Keys live in headers (never URLs, which end up in logs). Verdict rule: any reputation source with a record ⇒ not *unknown*; for B2 channels `not_found` is an answer, an error or a missing key is a gap.
+- **Tests**: conftest turns every new remote switch **off** (`CT_ENABLED`, the ten `*_ENABLED` reputation flags, `EPSS/KEV/VULNRICHMENT`); live-mode wiring tests turn the ones they need on and use respx / pre-seeded feeds. `respx` re-programs a route when you register the *same pattern twice* — pass overrides through the helper instead.
+- **Unverified against the live services** (fixtures from docs): crt.sh JSON shape, URLhaus/ThreatFox/Safe Browsing/AbuseIPDB/urlscan/OTX/GreyNoise response shapes, Tranco zip layout, PhishTank dump keys. Verify with one approved live call each before trusting a field name.
+
+---
+
+## 18. One-paragraph elevator pitch
 
 ThreatFusion fuses VirusTotal reputation, Shodan exposure, CVE severity, and web technology fingerprints into one explainable risk score, comparing a trained XGBoost fusion model against a rule-based baseline, with SHAP explanations and optional EPSS/KEV/Exploit-DB attack-path chaining — delivered via a FastAPI backend, React dashboard, and browser extension for a university research demo.

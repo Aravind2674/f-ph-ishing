@@ -145,7 +145,8 @@ def test_the_outcome_order_in_the_result_is_stable_whatever_finishes_first(world
     resp, _ = _run_scan(client, tracker, scan_id="scan-order-0001")
     sources = [o["source"] for o in resp.json()["result"]["provider_results"]]
     assert sources == ["virustotal", "shodan_internetdb", "nvd", "epss", "kev", "vulnrichment",
-                       "tech_fingerprint", "endoflife", "tls", "rdap", "dns", "ct"]
+                       "tech_fingerprint", "endoflife", "tls", "rdap", "dns", "ct",
+                       "openphish", "phishtank", "urlhaus", "threatfox", "safebrowsing", "urlscan", "otx", "abuseipdb", "greynoise", "tranco"]
 
 
 def test_a_process_wide_gate_bounds_provider_calls_in_flight(world, monkeypatch) -> None:

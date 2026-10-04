@@ -550,6 +550,42 @@ class ExposureAssessment(BaseModel):
     feed_ages: dict[str, Optional[float]] = Field(default_factory=dict, description="Age in days of the local feeds used")
 
 
+# ── Independent reputation channels (B2) ────────────────────────────────────
+class ReputationVerdict(BaseModel):
+    """What one independent reputation source says about the target (``ingestion/reputation.py`` / ``blocklists.py``).
+
+    ``listed`` is only ever ``True`` when the source *positively* says the target is bad (a blocklist hit, an abuse score at
+    or above the threshold, a malicious rating). A source with no record is a ``not_found`` outcome: "not listed" is the
+    absence of evidence, never a clean bill of health. Popularity (Tranco) and scanner context (GreyNoise) are carried in
+    ``category`` / ``extra`` and never set ``listed``.
+    """
+
+    source: str
+    listed: bool = False
+    category: Optional[str] = Field(None, description="phishing | malware | social_engineering | botnet_c2 | abuse | "
+                                                      "threat_intel | scanner | benign | popular")
+    match: Optional[str] = Field(None, description="exact_url | host | ip | ioc: how the record matched the target")
+    score: Optional[float] = Field(None, description="The source's own 0-100 score where it gives one (e.g. AbuseIPDB)")
+    detail: Optional[str] = None
+    reference: Optional[str] = Field(None, description="Public report / pulse / scan page for the record")
+    last_seen: Optional[str] = None
+    feed_age_days: Optional[float] = Field(None, description="Age of the local feed this answer came from")
+    stale: bool = False
+    extra: dict[str, Optional[str | int | float | bool]] = Field(default_factory=dict)
+
+
+class ReputationSummary(BaseModel):
+    """All independent reputation answers for the scan, side by side (B2): kept apart from the maliciousness scores."""
+
+    channels_applicable: int = 0
+    channels_answered: int = Field(0, description="Channels that gave an answer (listed or not found); the rest are gaps")
+    listed_by: list[str] = Field(default_factory=list)
+    verdicts: list[ReputationVerdict] = Field(default_factory=list)
+    popularity_rank: Optional[int] = Field(None, description="Tranco rank of the registered domain (a popularity prior)")
+    feed_ages: dict[str, Optional[float]] = Field(default_factory=dict, description="Days since each local feed was fetched")
+    notes: list[str] = Field(default_factory=list)
+
+
 # ── Brand impersonation (B4) ────────────────────────────────────────────────
 LookalikeKind = Literal["homoglyph", "leetspeak", "typo", "separator", "brand_keyword", "brand_in_subdomain",
                         "same_name_other_tld", "contains_brand"]
@@ -836,6 +872,11 @@ class ScanResult(BaseModel):
         None,
         description="Exploit-informed exposure of the host (EPSS / KEV / SSVC) — deliberately separate from the "
                     "maliciousness scores and never blended into them (B11). None when it could not be assessed at all.",
+    )
+    reputation: Optional[ReputationSummary] = Field(
+        None,
+        description="Independent reputation channels (blocklists, abuse.ch, Safe Browsing, AbuseIPDB, urlscan, OTX, GreyNoise, "
+                    "Tranco) side by side (B2), separate from the maliciousness scores. None when no channel applied.",
     )
     brand_check: Optional[BrandCheck] = Field(
         None,

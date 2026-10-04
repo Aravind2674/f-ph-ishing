@@ -30,6 +30,7 @@ import { RiskScorePanel } from "@/components/RiskScorePanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { ExposurePanel } from "@/components/ExposurePanel";
 import { LookalikePanel } from "@/components/LookalikePanel";
+import { ReputationPanel } from "@/components/ReputationPanel";
 import { FeatureProvenance } from "@/components/FeatureProvenance";
 import { HostSignals } from "@/components/HostSignals";
 import { SourceChips } from "@/components/SourceChip";
@@ -467,6 +468,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
 
       {/* ── Brand impersonation (B4): local look-alike check, kept apart from the maliciousness scores ─ */}
       <LookalikePanel check={result.brand_check} />
+
+      {/* ── Independent reputation (B2): blocklists + abuse feeds side by side — not a score ─ */}
+      <ReputationPanel reputation={result.reputation} />
 
       {/* ── Exploit exposure (B11): likelihood of exploitation, kept apart from the maliciousness scores ─ */}
       <ExposurePanel exposure={result.exposure} />
