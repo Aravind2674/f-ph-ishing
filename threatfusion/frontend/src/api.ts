@@ -381,7 +381,16 @@ export const submitScan = async (request: ScanRequest): Promise<ScanResponse> =>
     body: JSON.stringify(request),
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    // The backend explains validation failures (e.g. unresolvable domain) in
+    // the body as {message} or {detail}; surface that instead of a bare status.
+    let reason = "";
+    try {
+      const body = await res.json();
+      reason = body?.message ?? (typeof body?.detail === "string" ? body.detail : "");
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(reason || `API error: ${res.status}`);
   }
   return res.json();
 };
