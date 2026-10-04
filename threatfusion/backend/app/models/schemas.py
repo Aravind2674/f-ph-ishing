@@ -450,6 +450,71 @@ class DnsInfo(BaseModel):
     failed_types: list[str] = Field(default_factory=list)
 
 
+# ── Exploit-informed exposure (B11) ─────────────────────────────────────────
+class EpssRow(BaseModel):
+    """One EPSS answer (FIRST.org): the 30-day exploitation probability and its percentile."""
+
+    epss: float = Field(..., ge=0.0, le=1.0)
+    percentile: float = Field(..., ge=0.0, le=1.0)
+    date: Optional[str] = Field(None, description="The EPSS model date this score is from (ISO date)")
+
+
+class KevRow(BaseModel):
+    """One CISA Known Exploited Vulnerabilities entry."""
+
+    date_added: Optional[str] = None
+    due_date: Optional[str] = None
+    ransomware: bool = Field(False, description="knownRansomwareCampaignUse == 'Known'")
+    vendor: Optional[str] = None
+    product: Optional[str] = None
+    name: Optional[str] = None
+
+
+class SsvcRow(BaseModel):
+    """CISA Vulnrichment's SSVC decision points for one CVE (CISA-ADP container of the CVE JSON 5 record)."""
+
+    exploitation: Optional[str] = Field(None, description="none | poc | active")
+    automatable: Optional[str] = Field(None, description="yes | no")
+    technical_impact: Optional[str] = Field(None, description="partial | total")
+    timestamp: Optional[str] = None
+
+
+class ExposureCve(BaseModel):
+    """The exploitation evidence for one CVE listed on the host (``None`` = unknown, never 0)."""
+
+    cve_id: str
+    cvss: Optional[float] = Field(None, description="Severity — shown for context, not folded into exposure")
+    epss: Optional[float] = None
+    epss_percentile: Optional[float] = None
+    epss_date: Optional[str] = None
+    in_kev: Optional[bool] = Field(None, description="None = the KEV feed was unavailable")
+    kev_ransomware: Optional[bool] = None
+    kev_date_added: Optional[str] = None
+    ssvc_exploitation: Optional[str] = None
+    ssvc_automatable: Optional[str] = None
+    ssvc_technical_impact: Optional[str] = None
+    category: Optional[str] = Field(None, description="SSVC-style: Track | Track* | Attend | Act (None = not assessable)")
+    probability: Optional[float] = Field(None, description="Estimated probability of exploitation: KEV 0.95/0.99, else EPSS")
+    basis: list[str] = Field(default_factory=list)
+
+
+class ExposureAssessment(BaseModel):
+    """How exposed the host is to *likely-to-be-exploited* vulnerabilities — separate from maliciousness (B11)."""
+
+    score: Optional[float] = Field(None, description="0-100: probability that at least one listed CVE is exploited "
+                                                      "(noisy-OR); None = could not be assessed")
+    category: Optional[str] = Field(None, description="Worst SSVC-style category among the CVEs")
+    cves_total: int = 0
+    cves_assessed: int = Field(0, description="CVEs for which an exploitation probability could be computed")
+    complete: bool = False
+    kev_count: int = 0
+    max_epss: Optional[float] = None
+    cves: list[ExposureCve] = Field(default_factory=list, description="Worst first")
+    notes: list[str] = Field(default_factory=list)
+    method: str = ""
+    feed_ages: dict[str, Optional[float]] = Field(default_factory=dict, description="Age in days of the local feeds used")
+
+
 class FeatureVector(BaseModel):
     """Flat numeric feature vector consumed by both the baseline rule
     scorer and the gradient‑boosted fusion model.
@@ -695,6 +760,11 @@ class ScanResult(BaseModel):
     tls: Optional[TlsInfo] = Field(None, description="TLS certificate facts (None if unavailable; A1-3)")
     rdap: Optional[RdapInfo] = Field(None, description="Registration record incl. the real domain age (A1-3)")
     dns: Optional[DnsInfo] = Field(None, description="DNS records, SPF/DMARC and hosting ASN (A1-3)")
+    exposure: Optional[ExposureAssessment] = Field(
+        None,
+        description="Exploit-informed exposure of the host (EPSS / KEV / SSVC) — deliberately separate from the "
+                    "maliciousness scores and never blended into them (B11). None when it could not be assessed at all.",
+    )
 
     # ── Engineered features ──────────────────────────────────────────
     features: Optional[FeatureVector] = Field(
@@ -847,7 +917,7 @@ class AttackChainNode(BaseModel):
 
     cve_id: str = Field(..., description="CVE ID, e.g. CVE-2021-44228")
     cvss_score: Optional[float] = Field(None, description="CVSS base score")
-    epss_score: float = Field(0.0, description="EPSS exploitation probability score")
+    epss_score: Optional[float] = Field(None, description="EPSS exploitation probability; None = unknown (never an invented 0.0)")
     is_in_kev: bool = Field(False, description="Whether the CVE is in CISA KEV catalog")
     exploit_db_id: Optional[str] = Field(None, description="Exploit-DB script ID if available")
     pre_conditions: list[str] = Field(default_factory=list, description="Conditions required to exploit")

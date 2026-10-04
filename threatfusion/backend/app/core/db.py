@@ -13,6 +13,8 @@ Version history
   ``feature_schema_version``, ``provenance`` (per-provider outcomes), ``status``/``error`` (failed
   scans are recorded too), ``app_version``.
 * v3 – ``provider_cache``: persistent TTL cache of third-party answers (A1-1; see ``core/cache.py``).
+* v4 – ``feed_meta`` / ``feed_entries``: bulk feeds kept locally with their fetch time (KEV, later OpenPhish/PhishTank/
+  Tranco; B11/B2 — see ``core/feeds.py``).
 
 The network layer's tables (``net_*``) and ``verify_audit`` create themselves; they share this file but
 not this version counter.
@@ -89,10 +91,32 @@ async def _migrate_v3(db: aiosqlite.Connection) -> None:
     await db.executescript(_V3_PROVIDER_CACHE)
 
 
+_V4_FEEDS = """
+CREATE TABLE IF NOT EXISTS feed_meta (
+    feed TEXT PRIMARY KEY,
+    fetched_at REAL NOT NULL,        -- epoch seconds of the last successful download
+    source_url TEXT NOT NULL,
+    record_count INTEGER NOT NULL,
+    version TEXT
+);
+CREATE TABLE IF NOT EXISTS feed_entries (
+    feed TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,             -- JSON
+    PRIMARY KEY (feed, key)
+);
+"""
+
+
+async def _migrate_v4(db: aiosqlite.Connection) -> None:
+    await db.executescript(_V4_FEEDS)
+
+
 MIGRATIONS: list[tuple[int, Callable[[aiosqlite.Connection], Awaitable[None]]]] = [
     (1, _migrate_v1),
     (2, _migrate_v2),
     (3, _migrate_v3),
+    (4, _migrate_v4),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

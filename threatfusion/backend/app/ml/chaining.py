@@ -19,7 +19,7 @@ from uuid import uuid4
 import httpx
 import networkx as nx
 from typing import Optional, Any
-from app.models.schemas import AttackChainNode, AttackPath, CVEDetail
+from app.models.schemas import AttackChainNode, AttackPath, CVEDetail, ExposureCve
 
 logger = logging.getLogger(__name__)
 
@@ -37,22 +37,44 @@ class VulnerabilityChainer:
     """The vulnerability chaining logic coordinator."""
 
     def __init__(self) -> None:
-        self.epss_cache: dict[str, float] = {}
+        self.epss_cache: dict[str, float] = {}      # legacy snapshot only; a CVE missing from it is UNKNOWN, not 0.0
         self.kev_cache: set[str] = set()
         self.exploit_db_cache: dict[str, str] = {}
         self._initialized = False
+        self._epss_kev_loaded = False
+        self._exploitdb_loaded = False
         # Ollama is an optional local LLM. When it is unreachable we remember that for a while instead of paying
         # a connection attempt (and its timeout) for every single CVE.
         self._ollama_down_until: float = 0.0
 
-    def initialize(self) -> None:
-        """Parses the threat databases from disk into memory caches."""
+    def initialize(self, *, legacy_epss_kev: bool = True) -> None:
+        """Parse the local threat databases into memory (lazy, once).
+
+        ``legacy_epss_kev=False`` skips the EPSS/KEV CSV *snapshots*: a scan that already holds live EPSS/KEV evidence
+        (B11) passes it to :meth:`build_and_solve_chain` and needs only the Exploit-DB mapping.
+        """
         if self._initialized:
             return
+        if legacy_epss_kev:
+            self._ensure_epss_kev()
+        self._ensure_exploit_db()
+        self._initialized = legacy_epss_kev or self._epss_kev_loaded
 
-        logger.info("Initializing Threat Catalog caches...")
+    def _ensure_epss_kev(self) -> None:
+        if not self._epss_kev_loaded:
+            self._load_epss_kev()
+            self._epss_kev_loaded = True
 
-        # 1. Parse EPSS CSV
+    def _ensure_exploit_db(self) -> None:
+        if not self._exploitdb_loaded:
+            self._load_exploit_db()
+            self._exploitdb_loaded = True
+
+    def _load_epss_kev(self) -> None:
+        """EPSS + KEV from the CSV snapshots in the repo root (legacy / offline fallback)."""
+        logger.info("Loading EPSS/KEV snapshots...")
+
+        # EPSS CSV
         if EPSS_PATH.exists():
             try:
                 with open(EPSS_PATH, "r", encoding="utf-8") as f:
@@ -72,7 +94,7 @@ class VulnerabilityChainer:
         else:
             logger.warning("EPSS catalog not found at %s", EPSS_PATH)
 
-        # 2. Parse CISA KEV CSV
+        # CISA KEV CSV
         if KEV_PATH.exists():
             try:
                 with open(KEV_PATH, "r", encoding="utf-8") as f:
@@ -87,7 +109,10 @@ class VulnerabilityChainer:
         else:
             logger.warning("CISA KEV catalog not found at %s", KEV_PATH)
 
-        # 3. Parse Exploit-DB CSV
+    def _load_exploit_db(self) -> None:
+        """Exploit-DB CVE → exploit id mapping from the CSV in the repo root."""
+        logger.info("Loading the Exploit-DB mapping...")
+
         if EXPLOITDB_PATH.exists():
             try:
                 with open(EXPLOITDB_PATH, "r", encoding="utf-8") as f:
@@ -106,8 +131,6 @@ class VulnerabilityChainer:
                 logger.error("Failed to parse Exploit-DB CSV: %s", e)
         else:
             logger.warning("Exploit-DB catalog not found at %s", EXPLOITDB_PATH)
-
-        self._initialized = True
 
     async def get_pre_and_post_conditions(self, cve_id: str, description: str) -> tuple[list[str], list[str]]:
         """Queries the local Ollama LLM to semantic-parse preconditions and postconditions.
@@ -170,9 +193,15 @@ class VulnerabilityChainer:
 
         return pre, post
 
-    async def build_and_solve_chain(self, cves: list[CVEDetail]) -> list[AttackPath]:
-        """Core chainer solving routing paths using NetworkX directed graph."""
-        self.initialize()
+    async def build_and_solve_chain(self, cves: list[CVEDetail],
+                                    intel: Optional[dict[str, ExposureCve]] = None) -> list[AttackPath]:
+        """Core chainer solving routing paths using NetworkX directed graph.
+
+        ``intel`` is the per-CVE exploitation evidence a scan already collected (EPSS from FIRST.org, KEV from the local
+        catalogue; ``ExposureAssessment.cves``). When given, it replaces the CSV snapshots; without it the snapshots are the
+        (offline) fallback. Either way an unknown EPSS is ``None`` and contributes nothing — never an invented 0.0.
+        """
+        self.initialize(legacy_epss_kev=intel is None)
 
         if not cves:
             return []
@@ -193,8 +222,12 @@ class VulnerabilityChainer:
         hydrated_nodes: list[AttackChainNode] = []
         for cve, (pre_conds, post_conds) in zip(cves, all_conditions):
             cve_id = cve.cve_id.upper()
-            epss = self.epss_cache.get(cve_id, 0.0)
-            in_kev = cve_id in self.kev_cache
+            if intel is not None and cve_id in intel:
+                epss = intel[cve_id].epss                      # None = unknown
+                in_kev = bool(intel[cve_id].in_kev)            # None (feed unavailable) is not "listed"
+            else:
+                epss = self.epss_cache.get(cve_id)             # None = unknown (NOT 0.0)
+                in_kev = cve_id in self.kev_cache
             exploit_db_id = self.exploit_db_cache.get(cve_id)
 
             hydrated_nodes.append(AttackChainNode(
@@ -254,8 +287,8 @@ class VulnerabilityChainer:
                             if n.is_in_kev:
                                 prob = 0.99
                             else:
-                                # Blend CVSS and EPSS
-                                prob = (base_prob * 0.7) + (n.epss_score * 0.3)
+                                # Blend CVSS and EPSS; with no EPSS the severity alone speaks (no invented 0.0 term)
+                                prob = base_prob if n.epss_score is None else (base_prob * 0.7) + (n.epss_score * 0.3)
                             risk_factors.append(prob)
                             
                         # Joint risk: P(A union B union C...)

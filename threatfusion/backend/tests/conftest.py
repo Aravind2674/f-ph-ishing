@@ -64,6 +64,9 @@ os.environ["TLS_ENABLED"] = "false"
 os.environ["RDAP_ENABLED"] = "false"
 os.environ["DNS_ENABLED"] = "false"
 os.environ["EOL_ENABLED"] = "false"       # A1-4: endoflife.date is a remote lookup
+os.environ["EPSS_ENABLED"] = "false"      # B11: EPSS / KEV / Vulnrichment are remote lookups too
+os.environ["KEV_ENABLED"] = "false"
+os.environ["VULNRICHMENT_ENABLED"] = "false"
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +86,8 @@ def _fresh_provider_hub():
             con = sqlite3.connect(db)
             try:
                 con.execute("DELETE FROM provider_cache")
+                con.execute("DELETE FROM feed_entries")
+                con.execute("DELETE FROM feed_meta")
                 con.commit()
             except sqlite3.OperationalError:       # table not created yet (no test has initialised the DB)
                 pass

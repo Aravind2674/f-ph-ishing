@@ -31,7 +31,7 @@ export interface NeuralExplanation {
 export interface AttackChainNode {
   cve_id: string;
   cvss_score: number | null;
-  epss_score: number;
+  epss_score: number | null; // null = unknown (never an invented 0)
   is_in_kev: boolean;
   exploit_db_id: string | null;
   pre_conditions: string[];
@@ -155,6 +155,38 @@ export interface DetectedTechnology {
   latest_version?: string | null;
 }
 
+// ── Exploit-informed exposure (B11): likelihood of exploitation, kept apart from the maliciousness scores ──
+export interface ExposureCve {
+  cve_id: string;
+  cvss: number | null; // severity — shown beside, not folded into, the exposure
+  epss: number | null; // null = unknown (never 0)
+  epss_percentile: number | null;
+  epss_date: string | null;
+  in_kev: boolean | null; // null = the KEV feed was unavailable
+  kev_ransomware: boolean | null;
+  kev_date_added: string | null;
+  ssvc_exploitation: string | null; // none | poc | active
+  ssvc_automatable: string | null; // yes | no
+  ssvc_technical_impact: string | null; // partial | total
+  category: string | null; // SSVC-style: Track | Track* | Attend | Act (null = not assessable)
+  probability: number | null; // KEV 0.95/0.99, else EPSS
+  basis: string[];
+}
+
+export interface ExposureAssessment {
+  score: number | null; // 0-100: chance at least one listed CVE is exploited; null = could not be assessed
+  category: string | null;
+  cves_total: number;
+  cves_assessed: number;
+  complete: boolean;
+  kev_count: number;
+  max_epss: number | null;
+  cves: ExposureCve[]; // worst first
+  notes: string[];
+  method: string;
+  feed_ages: Record<string, number | null>; // days since each local feed was fetched
+}
+
 export interface TechFingerprintResult {
   technologies: DetectedTechnology[];
   headers_analyzed?: number;
@@ -201,6 +233,7 @@ export interface ScanResult {
   tls?: TlsInfo | null;
   rdap?: RdapInfo | null;
   dns?: DnsInfo | null;
+  exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
   // The 19 engineered features; null = unknown (its source did not answer). See lib/evidence.ts for provenance.
   features?: Record<string, number | null> | null;
   cve: any;

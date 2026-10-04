@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from app.ingestion.cve import specific_cpe_names
 from app.ingestion.eol import apply_eol, assessable
+from app.ml.exposure import assess_exposure
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
@@ -132,6 +133,9 @@ _LABEL = {
     "virustotal": "VirusTotal",
     "shodan_internetdb": "Shodan",
     "nvd": "NVD",
+    "epss": "EPSS",
+    "kev": "KEV",
+    "vulnrichment": "Vulnrichment",
     "tech_fingerprint": "TechFingerprint",
     "endoflife": "EndOfLife",
     "tls": "TLS",
@@ -361,10 +365,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 return await _track("virustotal", lambda: vt_client.lookup_file_hash(target.hash))
             return None
 
-        async def shodan_chain() -> tuple[ProviderResult | None, ProviderResult | None]:
+        async def shodan_chain() -> tuple[ProviderResult | None, ProviderResult | None, list[ProviderResult], object]:
             # Shodan InternetDB (only relevant for IPs and Domains) …
             if tt not in (TargetType.IP, TargetType.DOMAIN):
-                return None, None
+                return None, None, [], None
             _emit({"type": "provider", "source": "shodan_internetdb", "status": "running"})
             ip_target = outbound_host
             dns_failure: ProviderResult | None = None
@@ -405,7 +409,36 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                     cve_res = _done(prov.not_configured("nvd"))
                 else:
                     cve_res = await _track("nvd", lambda: cve_client.lookup_for_host(shodan_data.vulns, cpes))
-            return shodan_res, cve_res
+
+            # … then the exploit-informed exposure (B11): EPSS (likelihood), KEV (observed exploitation) and CISA's SSVC
+            # decision points for the host's CVEs, all asked together. Only when InternetDB answered: otherwise "this host
+            # has no CVEs" is unknown, and so is its exposure. Kept apart from the maliciousness scores.
+            intel: list[ProviderResult] = []
+            exposure_data = None
+            if shodan_data is not None:
+                cve_data = cve_res.data if cve_res is not None and cve_res.ok else None
+                cvss_by_id = {d.cve_id.upper(): d.cvss_v3_score for d in (cve_data.cves if cve_data else [])}
+                listed = list(dict.fromkeys([v.upper() for v in shodan_data.vulns] + list(cvss_by_id)))
+                listed.sort(key=lambda c: -(cvss_by_id.get(c) or 0.0))              # highest severity first when capped
+                listed = listed[: settings.EXPOSURE_MAX_CVES]
+                epss_rows = kev_rows = ssvc_rows = None
+                ages: dict[str, float | None] = {}
+                if listed:
+                    epss_res, kev_res, vr_res = await asyncio.gather(
+                        _track("epss", lambda: hub.epss().lookup(listed), enabled=settings.EPSS_ENABLED),
+                        _track("kev", lambda: hub.kev().lookup(listed), enabled=settings.KEV_ENABLED),
+                        _track("vulnrichment", lambda: hub.vulnrichment().lookup(listed), enabled=settings.VULNRICHMENT_ENABLED),
+                    )
+                    intel = [epss_res, kev_res, vr_res]
+                    # three-state: ok -> the rows; "answered, nothing" -> {}; failed / skipped / disabled -> None (unknown)
+                    epss_rows = (epss_res.data.rows if epss_res.ok else {} if epss_res.status == ProviderStatus.NOT_FOUND else None)
+                    ssvc_rows = (vr_res.data.rows if vr_res.ok else {} if vr_res.status == ProviderStatus.NOT_FOUND else None)
+                    if kev_res.ok:
+                        kev_rows = kev_res.data.entries
+                        ages["kev"] = kev_res.data.age_days
+                exposure_data = assess_exposure(listed, cvss=cvss_by_id, epss=epss_rows, kev=kev_rows, ssvc=ssvc_rows,
+                                                cves_listed_by_host=True, feed_ages=ages)
+            return shodan_res, cve_res, intel, exposure_data
 
         async def tech_chain() -> tuple[ProviderResult | None, ProviderResult | None, object]:
             # Technology fingerprinting (URLs/Domains) …
@@ -431,7 +464,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 return None
             return await _track(source, make_call, enabled=enabled)
 
-        (vt_res, (shodan_res, cve_res), (tech_res, eol_res, tech),
+        (vt_res, (shodan_res, cve_res, intel_res, exposure), (tech_res, eol_res, tech),
          tls_res, rdap_res, dns_res) = await asyncio.gather(
             vt_chain(),
             shodan_chain(),
@@ -441,7 +474,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             host_signal("dns", settings.DNS_ENABLED, lambda: hub.dns().lookup(target.host, target.registered_domain)),
         )
         # A stable provenance order, whatever finished first.
-        outcomes = [r for r in (vt_res, shodan_res, cve_res, tech_res, eol_res, tls_res, rdap_res, dns_res)
+        outcomes = [r for r in (vt_res, shodan_res, cve_res, *intel_res, tech_res, eol_res, tls_res, rdap_res, dns_res)
                     if r is not None]
         vt = vt_res.data if vt_res is not None and vt_res.ok else None
         shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None
@@ -456,10 +489,11 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             try:
                 # First use parses the EPSS/KEV/Exploit-DB CSVs (hundreds of thousands of rows): do that in a
                 # worker thread so the event loop (SSE heartbeats, other requests) keeps ticking (A0-9).
-                await asyncio.to_thread(_chainer.initialize)
+                intel = {c.cve_id: c for c in exposure.cves} if exposure is not None else None      # live EPSS/KEV (B11)
+                await asyncio.to_thread(_chainer.initialize, legacy_epss_kev=intel is None)
                 # Bounded by what is left of the scan's deadline: attack paths are a bonus, never a reason to hold the
                 # scan (and a worker) open — a hung or slow chainer just yields no paths.
-                attack_paths = await asyncio.wait_for(_chainer.build_and_solve_chain(cve.cves),
+                attack_paths = await asyncio.wait_for(_chainer.build_and_solve_chain(cve.cves, intel=intel),
                                                       timeout=max(0.5, deadline - loop.time()))
             except Exception as e:
                 logger.warning("Vulnerability chaining failed or ran out of time: %s", e)
@@ -532,6 +566,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             tls=tls,
             rdap=rdap,
             dns=dns,
+            exposure=exposure,
             features=features,
             feature_coverage=coverage,
             baseline_score=b_score,

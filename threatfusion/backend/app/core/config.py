@@ -195,6 +195,21 @@ class Settings(BaseSettings):
     NVD_MAX_CPES: int = 5                            # CPEs per host
     NVD_MAX_PAGES: int = 3                           # pages per CPE query (2000 CVEs/page)
 
+    # Exploit-informed exposure (B11). All keyless. Only CVE ids are sent to EPSS / Vulnrichment; KEV is a bulk
+    # download kept locally (looking up costs nothing and every answer carries the feed's age).
+    EXPOSURE_MAX_CVES: int = 50                      # CVEs per host that are assessed (highest CVSS first)
+    EPSS_ENABLED: bool = True
+    EPSS_API_BASE: str = "https://api.first.org/data/v1/epss"
+    EPSS_REQUESTS_PER_MINUTE: int = 60
+    EPSS_CACHE_TTL_SECONDS: int = 24 * 3600          # scores refresh daily
+    KEV_ENABLED: bool = True
+    KEV_FEED_URL: str = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    KEV_MAX_AGE_HOURS: int = 24
+    VULNRICHMENT_ENABLED: bool = True
+    VULNRICHMENT_API_BASE: str = "https://cveawg.mitre.org/api/cve"
+    VULNRICHMENT_REQUESTS_PER_MINUTE: int = 120
+    VULNRICHMENT_MAX_CVES: int = 25
+
     # Technology fingerprinting (A1-4). Optional path to a newer Wappalyzer ``technologies.json`` (same format) to use
     # instead of the data bundled with the engine; end-of-life data comes from endoflife.date (keyless, cached a week).
     WAPPALYZER_DATA_FILE: str = ""
@@ -336,6 +351,9 @@ class Settings(BaseSettings):
             "rdap": status("rdap", True, "keyless"),
             "dns": status("dns", True, "keyless"),
             "endoflife": status("endoflife", True, "keyless"),
+            "epss": status("epss", True, "keyless"),
+            "kev": status("kev", True, "keyless"),
+            "vulnrichment": status("vulnrichment", True, "keyless"),
             "wigle": status("wigle", wigle_ok, wigle_state),
         }
 

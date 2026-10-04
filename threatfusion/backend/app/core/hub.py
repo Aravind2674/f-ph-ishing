@@ -22,7 +22,11 @@ from app.core.config import get_settings
 from app.core.quota import QuotaLimiter
 from app.ingestion.cve import CVEClient
 from app.ingestion.dns_records import DnsClient
+from app.core.feeds import FeedStore
 from app.ingestion.eol import EolClient
+from app.ingestion.epss import EpssClient
+from app.ingestion.kev import KevFeed
+from app.ingestion.vulnrichment import VulnrichmentClient
 from app.ingestion.rdap import RdapClient
 from app.ingestion.tls import TlsClient
 from app.ingestion.virustotal import VirusTotalClient
@@ -34,6 +38,7 @@ class ProviderHub:
     def __init__(self) -> None:
         # The cache reads the DB path from settings on every call, like ScanStore.
         self.cache = ProviderCache(path_provider=lambda: get_settings().database_path)
+        self.feeds = FeedStore(path_provider=lambda: get_settings().database_path)      # bulk feeds (KEV, B2 feeds)
         self._vt: Optional[VirusTotalClient] = None
         self._vt_key: Optional[tuple] = None
         self._nvd: Optional[CVEClient] = None
@@ -46,6 +51,12 @@ class ProviderHub:
         self._dns_key: Optional[tuple] = None
         self._eol: Optional[EolClient] = None
         self._eol_key: Optional[tuple] = None
+        self._epss: Optional[EpssClient] = None
+        self._epss_key: Optional[tuple] = None
+        self._kev: Optional[KevFeed] = None
+        self._kev_key: Optional[tuple] = None
+        self._vuln: Optional[VulnrichmentClient] = None
+        self._vuln_key: Optional[tuple] = None
 
     def virustotal(self) -> VirusTotalClient:
         s = get_settings()
@@ -134,12 +145,42 @@ class ProviderHub:
             self._eol_key = key
         return self._eol
 
+    def epss(self) -> EpssClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.EPSS_API_BASE, s.EPSS_REQUESTS_PER_MINUTE, s.EPSS_CACHE_TTL_SECONDS)
+        if self._epss is None or key != self._epss_key:
+            self._epss = EpssClient(use_mock=s.USE_MOCK_DATA, base_url=s.EPSS_API_BASE, cache=self.cache,
+                                    cache_ttl=s.EPSS_CACHE_TTL_SECONDS, limiter=QuotaLimiter(s.EPSS_REQUESTS_PER_MINUTE, 0))
+            self._epss_key = key
+        return self._epss
+
+    def kev(self) -> KevFeed:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.KEV_FEED_URL, s.KEV_MAX_AGE_HOURS)
+        if self._kev is None or key != self._kev_key:
+            self._kev = KevFeed(use_mock=s.USE_MOCK_DATA, store=self.feeds, url=s.KEV_FEED_URL, max_age_hours=s.KEV_MAX_AGE_HOURS)
+            self._kev_key = key
+        return self._kev
+
+    def vulnrichment(self) -> VulnrichmentClient:
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.VULNRICHMENT_API_BASE, s.VULNRICHMENT_REQUESTS_PER_MINUTE, s.VULNRICHMENT_MAX_CVES)
+        if self._vuln is None or key != self._vuln_key:
+            self._vuln = VulnrichmentClient(use_mock=s.USE_MOCK_DATA, base_url=s.VULNRICHMENT_API_BASE, cache=self.cache,
+                                            limiter=QuotaLimiter(s.VULNRICHMENT_REQUESTS_PER_MINUTE, 0),
+                                            max_cves=s.VULNRICHMENT_MAX_CVES)
+            self._vuln_key = key
+        return self._vuln
+
     async def close(self) -> None:
         """Release connections (process shutdown)."""
         if self._vt is not None:
             await self._vt.close()
         if self._nvd is not None:
             await self._nvd.close()
+        for client in (self._epss, self._vuln):
+            if client is not None:
+                await client.close()
 
     def reset(self) -> None:
         """Forget the clients (tests): the next access builds fresh ones with a fresh quota window."""
@@ -149,6 +190,8 @@ class ProviderHub:
         self._nvd_key = None
         self._tls = self._rdap = self._dns = self._eol = None
         self._tls_key = self._rdap_key = self._dns_key = self._eol_key = None
+        self._epss = self._kev = self._vuln = None
+        self._epss_key = self._kev_key = self._vuln_key = None
 
 
 hub = ProviderHub()
