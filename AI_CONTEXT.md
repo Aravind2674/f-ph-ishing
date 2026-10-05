@@ -374,6 +374,14 @@ B11 (exposure), B4 (brand look-alikes), B3 (certificate transparency), B2 (indep
 
 ---
 
-## 20. One-paragraph elevator pitch
+## 20. Phase A3 — network layer (PARTIAL; branch `a3-network`, stacked on `b-fast-tier`)
+
+- Done: `network/preflight.py` (capture states + fixes), `network/sensor/{base,capture,packets,dns_sensor,tls_sensor,arp_sensor,dot11_sensor}.py` on `AsyncSniffer`, `network/tls_hello.py` (SNI / JA3 / JA4), the two-engine corroboration rule in `AppLayerScorer`. All tested with **synthetic** PCAP fixtures (`tests/test_a3_capture.py`) — there is no Npcap on the dev machine, so real capture was never exercised.
+- Not done: service wiring, correlation of DNS responses / SNI, the reputation fan-out gate (A3-4), rogue-AP precision (B14) and WiGLE 412, B13 (known-bad JA3, DGA, beaconing, Zeek / Suricata), scope text in the UI. The full list is in `IMPLEMENTATION_REPORT.md` §5.
+- JA4 is implemented from the public FoxIO layout and has **not** been cross-checked against the reference library.
+
+---
+
+## 21. One-paragraph elevator pitch
 
 ThreatFusion fuses VirusTotal reputation, Shodan exposure, CVE severity, and web technology fingerprints into one explainable risk score, comparing a trained XGBoost fusion model against a rule-based baseline, with SHAP explanations and optional EPSS/KEV/Exploit-DB attack-path chaining — delivered via a FastAPI backend, React dashboard, and browser extension for a university research demo.

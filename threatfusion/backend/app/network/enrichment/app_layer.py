@@ -48,6 +48,8 @@ from app.network.models import AppLayerSubScore
 
 logger = logging.getLogger(__name__)
 
+MIN_CORROBORATING_ENGINES = 2
+
 
 def _ml_label(score: float) -> str:
     """Severity band of a score: the URL models' operating-point bands; the plain quartiles for the baseline fallback."""
@@ -179,9 +181,10 @@ class AppLayerScorer:
             malicious = getattr(vt, "malicious_count", 0) or 0
             suspicious = getattr(vt, "suspicious_count", 0) or 0
             total = getattr(vt, "total_engines", 0) or 0
-            # "flagged" mirrors the App-Layer's own notion of a bad verdict:
-            # any AV engine flags it, or the fused ML score crosses High.
-            flagged = malicious > 0 or suspicious > 0 or url_flagged or m_score >= 0.5
+            # A3: one engine out of ~70 flagging a domain is the commonest kind of false positive, and a URL-text score alone is
+            # weak (FPR ≈ 1 % per name, on thousands of names a day).  A cross-layer claim needs corroboration: at least TWO
+            # engines (malicious + suspicious).  The URL-text score is still reported, and still adds points when corroborated.
+            flagged = (malicious + suspicious) >= MIN_CORROBORATING_ENGINES
 
             return AppLayerSubScore(
                 available=True,
@@ -195,6 +198,8 @@ class AppLayerScorer:
                 flagged=flagged,
                 top_explanations=top,
                 live=not use_mock,
+                source="virustotal",
+                corroborated=flagged,
             )
         finally:
             await shodan_client.close()

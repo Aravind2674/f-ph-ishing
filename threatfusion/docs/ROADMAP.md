@@ -53,8 +53,14 @@
 - [x] B20 Feedback loop (minimal): reports with provenance, **pending until a person accepts them**, accepted-only export for training (`ml/feedback_export.py`); schema v5
 - [ ] Not done: B17 – B19, richer review UI for B20
 
+### Phase A3 — network layer (branch `a3-network`, stacked on `b-fast-tier`) — **PARTIAL**
+- [x] A3-1 (module) Capture preflight with explicit states (`no_scapy · no_npcap · not_elevated · no_interface · ready · running · no_packets_seen · error`), each with a reason and a fix — *not yet wired into the service / UI*
+- [x] A3-2 Sensor lifecycle on `AsyncSniffer`: idempotent start/stop, start/stop ×10 leaves no thread, open failures reported verbatim, packet-time timestamps, IPv4 + IPv6
+- [x] A3-3 (parsing) DNS responses (rcode, A/AAAA/CNAME + TTL), mDNS / PTR / `.local` / single-label filtering, TLS ClientHello SNI + JA3 / JA4 with multi-segment reassembly — verified by PCAP-fixture replay (synthetic packets) — *correlation does not consume them yet*
+- [x] Cross-layer flag needs ≥ 2 VirusTotal engines (a single engine or the URL-text model alone no longer flags a domain)
+- [ ] A3-1 wiring · A3-3 correlation (resolution map, SNI path) · **A3-4 reputation fan-out control** · **A3-5 / B14 rogue-AP precision (+ WiGLE 412)** · A3-6 scope docs/UI · `baseline.py` port-22 rule · B13 (known-bad JA3 list, DGA, beaconing / entropy heuristics, Zeek / Suricata ingestion)
+
 ### Next
-- [ ] **A3** (+ B13 / B14) Passive network monitoring: capture preflight, sensor lifecycle, DNS responses / SNI, reputation fan-out control, rogue-AP precision, JA3 / JA4, DGA / beaconing heuristics, Zeek / Suricata ingestion
 - [ ] **A4** Attack chains, reports, history UX, repo hygiene *[ASK]*
 - [ ] **Part B (rest)** B5, B6, B8, B10 (remainder), B17 – B19
 

@@ -4,14 +4,15 @@ ThreatFusion – Sensor Base + scapy availability probe
 
 Common scaffolding for capture sensors. Every sensor:
 
-* runs its (blocking) capture loop off the event loop,
+* runs its capture off the event loop (a polling thread, or scapy's ``AsyncSniffer`` thread — see ``capture.py``),
 * pushes :class:`SensorEvent` objects through a thread-safe ``emit`` callback,
-* tracks its own ``available`` / ``reason`` / ``running`` state so the
-  service can report honest, per-sensor health via ``MonitorStatus``.
+* tracks its own ``available`` / ``reason`` / ``running`` state so the service can report honest, per-sensor health.
 
-The scapy import is deferred to runtime (``load_scapy``) so the API process
-boots cleanly even when scapy/Npcap are not installed — in that case the
-sensor simply reports why it is unavailable.
+Lifecycle contract (A3-2, each point has a test): ``start()`` and ``stop()`` are **idempotent**; ``stop()`` waits for the worker
+to finish (bounded), so a start/stop loop leaves no thread behind; a start after a stop works.
+
+The scapy import is deferred to runtime (``load_scapy``) so the API process boots cleanly even when scapy/Npcap are not
+installed — in that case the sensor simply reports why it is unavailable.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ from app.network.models import SensorEvent
 logger = logging.getLogger(__name__)
 
 EmitFn = Callable[[SensorEvent], None]
+
+STOP_JOIN_SECONDS = 5.0
 
 
 def load_scapy() -> Any:
@@ -44,7 +47,7 @@ def load_scapy() -> Any:
 
 
 class BaseSensor:
-    """Lifecycle + health bookkeeping shared by all sensors."""
+    """Lifecycle + health bookkeeping shared by all sensors (polling-thread flavour)."""
 
     name: str = "base"
 
@@ -53,25 +56,29 @@ class BaseSensor:
         self.available: bool = True
         self.reason: Optional[str] = None
         self.running: bool = False
+        self.packets_seen: int = 0              # capture sensors count what they receive; polling sensors leave it at 0
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._lock = threading.RLock()
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Start the sensor in a background daemon thread.
+        """Start the sensor in a background daemon thread (no-op while it is already running).
 
-        Any failure to initialise the real capture backend is captured and
-        reflected in ``available`` / ``reason``; it never crashes the app.
+        Any failure to initialise the real capture backend is captured and reflected in ``available`` / ``reason``;
+        it never crashes the app.
         """
-        if self.running:
-            return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._safe_run, name=f"sensor-{self.name}", daemon=True)
-        self._thread.start()
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self.available, self.reason = True, None
+            self.running = True
+            self._thread = threading.Thread(target=self._safe_run, name=f"sensor-{self.name}", daemon=True)
+            self._thread.start()
 
     def _safe_run(self) -> None:
-        self.running = True
         try:
             self._run()
         except Exception as e:  # degrade honestly; do not fake events
@@ -84,15 +91,26 @@ class BaseSensor:
     def _run(self) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    def stop(self) -> None:
-        """Signal the capture loop to stop."""
-        self._stop_event.set()
+    def stop(self, timeout: float = STOP_JOIN_SECONDS) -> None:
+        """Signal the worker to stop and wait (bounded) for it to finish. Safe to call repeatedly or when never started."""
+        with self._lock:
+            thread = self._thread
+            self._stop_event.set()
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout)
+        with self._lock:
+            if thread is not None and not thread.is_alive():
+                self._thread = None
+                self.running = False
+            elif thread is not None:
+                logger.warning("Sensor '%s' did not stop within %.0fs", self.name, timeout)
 
     def status(self) -> dict[str, Any]:
         return {
             "available": self.available,
             "running": self.running,
             "reason": self.reason,
+            "packets_seen": self.packets_seen,
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────

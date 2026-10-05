@@ -248,6 +248,24 @@ POST /scan {mode:"async"} ──► fast verdict + scan_id (immediately)
 - **Feedback** (`api/feedback.py`, table `feedback`): reports are `pending` until a person reviews them; only `accepted` rows can leave through
   `ml/feedback_export.py`. Anyone able to reach the API could otherwise poison a label.
 
+## Network capture foundations (Phase A3, partial)
+
+```
+scapy AsyncSniffer ──► CaptureSensor.handle(pkt) ──► SensorEvent (timestamp = the packet's capture time)
+  live (iface, BPF)        │  counts packets, never dies on a handler error, start/stop idempotent
+  or offline (PCAP)        ├─ DnsSensor   DNS_QUERY + DNS_RESPONSE (rcode, A/AAAA/CNAME + TTL); mDNS / PTR / .local / single-label dropped and counted
+                           ├─ TlsSensor   TLS_CLIENT_HELLO: SNI + JA3 + JA4 (tls_hello.py, bounded multi-segment reassembly)
+                           ├─ ArpSensor   ARP_OBSERVED / ARP_CONFLICT (IPv4 only; IPv6 NDP spoofing is not detected)
+                           └─ Dot11Sensor DEAUTH_FLOOD from counted frames on their capture times (monitor mode required)
+preflight.run_preflight() ──► no_scapy | no_npcap | not_elevated | no_interface | ready  (+ running | no_packets_seen once live)
+```
+
+- **Scope (stated, not hidden):** a sensor on one computer sees that computer's own traffic plus broadcast / multicast on its segment, not other
+  devices'. Watching other devices needs a sensor at the gateway or on a mirror port, or Zeek / Suricata logs (planned, B13).
+- A PCAP replay (`offline=`) runs the very same handlers, which is how parsing is tested without a network card or Npcap.
+- **Not wired yet:** the service does not call the preflight or register the TLS sensor, and the correlation engine does not consume
+  `DNS_RESPONSE` / `TLS_CLIENT_HELLO` — see `IMPLEMENTATION_REPORT.md` §5.1.
+
 ## Evaluation Results
 
 > ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,

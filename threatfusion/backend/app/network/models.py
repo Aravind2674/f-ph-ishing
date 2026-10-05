@@ -48,6 +48,10 @@ class AlertType(str, Enum):
     CROSS_LAYER_HIT = "cross_layer_hit"
     BEHAVIORAL_DEVIATION = "behavioral_deviation"
     ARP_SPOOF = "arp_spoof"
+    TLS_FINGERPRINT = "tls_fingerprint"        # B13: a client TLS fingerprint listed for malware
+    DGA_SUSPECT = "dga_suspect"                # B13: machine-generated-looking domain names / NXDOMAIN bursts
+    BEACONING = "beaconing"                    # B13: periodic connections to one destination
+    DNS_ANOMALY = "dns_anomaly"                # B13: very long / high-entropy names, TXT volume
 
 
 class EventType(str, Enum):
@@ -57,6 +61,9 @@ class EventType(str, Enum):
     ARP_CONFLICT = "arp_conflict"
     NEW_DEVICE = "new_device"
     DNS_QUERY = "dns_query"
+    DNS_RESPONSE = "dns_response"              # A3-3: rcode + answers (domain → IPs, TTL)
+    TLS_CLIENT_HELLO = "tls_client_hello"      # A3-3: SNI + JA3/JA4 from the unencrypted ClientHello
+    AP_OBSERVED = "ap_observed"                # B14: an access point seen in a Wi-Fi scan (the correlator decides what it means)
     WIFI_AP = "wifi_ap"
     EVIL_TWIN = "evil_twin"
     ROGUE_AP = "rogue_ap"
@@ -157,6 +164,14 @@ class AppLayerSubScore(BaseModel):
     live: bool = Field(
         False, description="True if the VirusTotal lookup used live data (not mock)"
     )
+    # ── Additive (A3-4): where the answer came from, and whether it is corroborated ──
+    source: Optional[str] = Field(
+        None, description="virustotal | local_blocklist | popular_domain | url_model_only | budget_exhausted | cache — what produced this sub-score")
+    corroborated: bool = Field(
+        False, description="True only when the evidence is a blocklist hit or at least two VirusTotal engines; "
+                           "a URL-text model score alone never raises a cross-layer alert")
+    blocklists: list[str] = Field(default_factory=list, description="Local lists that name this domain")
+    popularity_rank: Optional[int] = Field(None, description="Tranco rank (a prior, not a verdict)")
 
 
 class WigleResult(BaseModel):
@@ -291,3 +306,12 @@ class MonitorStatus(BaseModel):
     alert_count: int = Field(0, description="Total alerts raised this session")
     device_count: int = Field(0, description="Distinct devices profiled")
     started_at: Optional[datetime] = Field(None, description="When monitoring started")
+    # ── Additive (A3): why capture can or cannot work, and what it can see ──
+    capture: Optional[dict[str, Any]] = Field(
+        None, description="Capture preflight + live state: {state, ok, reason, fix, selected_interface, interfaces, details, packets_seen}. "
+                          "state is one of no_scapy | no_npcap | not_elevated | no_interface | ready | running | no_packets_seen | error")
+    scope_note: str = Field(
+        "A sensor on one computer sees that computer's own traffic plus broadcast / multicast traffic on its network segment — not the "
+        "traffic of other devices. Watching other devices needs a sensor at the gateway or on a mirror port, or Zeek / Suricata logs.",
+        description="What the sensor can and cannot see (A3-6)")
+    dropped_events: int = Field(0, description="Sensor events discarded because the processing queue was full (never silent)")
