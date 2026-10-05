@@ -61,6 +61,9 @@ npm run dev
 ```bash
 cd backend
 pytest -v
+
+cd ../frontend
+npm test          # evidence / host-signal view models (Node's built-in runner, no extra dependency)
 ```
 
 ## Going Live
@@ -81,6 +84,22 @@ To switch from demo mode (mock data) to live mode with real threat intelligence:
 
 That's it. No code changes needed — the same function signatures and response
 shapes are used in both modes.
+
+### What live mode contacts (and what it never sends)
+
+| Source | Needs a key? | Contacted with | Notes |
+|---|---|---|---|
+| VirusTotal | yes | the host / IP / URL (`scheme://host/path` unless you tick *send full URL*) / hash | one shared client; free tier **4/min, 500/day** enforced by one limiter shared with the network layer (`VIRUSTOTAL_REQUESTS_PER_MINUTE/DAY`, `0` = premium); answers cached in SQLite (`VIRUSTOTAL_CACHE_TTL_SECONDS`); a 429's `Retry-After` is honoured |
+| Shodan InternetDB | no | the resolved public IPv4 | |
+| NVD | yes | CVE ids and **versioned** CPEs InternetDB lists | 50 requests / rolling 30 s (`NVD_REQUESTS_PER_WINDOW`, `NVD_WINDOW_SECONDS`), 403/429/503 retried with backoff, 15 s deadline that keeps partial results, week-long CVE cache; `NVD_LOOKUP_BY_CPE=false` switches CPE lookups off |
+| TLS | no | opens `host:443` and reads the certificate (nothing is sent over the handshake) | `TLS_ENABLED` |
+| RDAP / WHOIS | no | the **registered domain** to the TLD registry's public RDAP service; WHOIS only where a TLD has no RDAP | `RDAP_ENABLED`, `RDAP_WHOIS_FALLBACK` |
+| DNS | no | A/AAAA/MX/NS/TXT/CAA/DMARC through the system resolver (or `DNS_NAMESERVERS`) and Team Cymru's DNS ASN map | `DNS_ENABLED` |
+| endoflife.date | no | a product slug such as `php` — nothing about the target | `EOL_ENABLED` |
+
+Private / local / single-label names and internal addresses are never sent to any third party. **Mock mode touches
+no network at all** (no DNS lookups either). Every scan shows which sources answered ("Based on 4 of 7 sources"),
+which did not and why, and where each feature came from.
 
 ## Network Layer (real-time defensive monitoring)
 

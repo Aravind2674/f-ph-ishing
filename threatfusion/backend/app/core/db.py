@@ -12,6 +12,7 @@ Version history
 * v2 – scan provenance: ``mock``, ``verdict_status``, ``baseline_label``, ``model_versions``,
   ``feature_schema_version``, ``provenance`` (per-provider outcomes), ``status``/``error`` (failed
   scans are recorded too), ``app_version``.
+* v3 – ``provider_cache``: persistent TTL cache of third-party answers (A1-1; see ``core/cache.py``).
 
 The network layer's tables (``net_*``) and ``verify_audit`` create themselves; they share this file but
 not this version counter.
@@ -70,9 +71,28 @@ async def _migrate_v2(db: aiosqlite.Connection) -> None:
     await db.execute("CREATE INDEX IF NOT EXISTS idx_scans_status_ts ON scans(status, timestamp)")
 
 
+_V3_PROVIDER_CACHE = """
+CREATE TABLE IF NOT EXISTS provider_cache (
+    source TEXT NOT NULL,
+    cache_key TEXT NOT NULL,
+    status TEXT NOT NULL,            -- 'ok' | 'not_found' (failures are never cached)
+    payload TEXT NOT NULL,           -- the ProviderResult as JSON (keeps its original fetched_at)
+    fetched_at TEXT NOT NULL,
+    expires_at REAL NOT NULL,        -- epoch seconds
+    PRIMARY KEY (source, cache_key)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_cache_expires ON provider_cache(expires_at);
+"""
+
+
+async def _migrate_v3(db: aiosqlite.Connection) -> None:
+    await db.executescript(_V3_PROVIDER_CACHE)
+
+
 MIGRATIONS: list[tuple[int, Callable[[aiosqlite.Connection], Awaitable[None]]]] = [
     (1, _migrate_v1),
     (2, _migrate_v2),
+    (3, _migrate_v3),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

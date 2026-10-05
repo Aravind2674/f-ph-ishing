@@ -100,9 +100,13 @@ async def get_device(mac: str) -> DeviceProfile:
 async def delete_network_data() -> dict:
     """Erase every stored device profile, per-device domain history and alert (irreversible).
 
+    Also clears the cached third-party lookups (A1-1): that cache holds every hostname the network layer looked up.
     Requires the API token and a JSON content type like every mutating route.
     """
-    return await get_service().delete_all_data()
+    from app.core.hub import hub
+    counts = await get_service().delete_all_data()
+    counts["cached_lookups"] = await hub.cache.clear()
+    return counts
 
 
 @router.post("/stream-ticket", summary="Issue a single-use ticket for the SSE stream")

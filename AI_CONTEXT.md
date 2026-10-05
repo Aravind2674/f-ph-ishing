@@ -323,6 +323,20 @@ Audit remediation (see `AUDIT_REPORT.md`). Facts a contributor/AI must know:
 
 ---
 
-## 16. One-paragraph elevator pitch
+## 16. Phase A1 — what changed (2026-10, branch `a1-enrichment`, stacked on `a0-remediation`)
+
+Making enrichment real (see `threatfusion/docs/ROADMAP.md`). Facts a contributor/AI must know:
+
+- **Targets are canonicalised once** (`core/targets.py`); `ScanResult.canonical` shows what was actually looked up. Invalid IP/hash targets are a 400 `stage: "format"` before any provider is called. The char-CNN still gets the string *as typed* (userinfo/odd casing are its signal).
+- **Provider clients are process-wide** (`core/hub.py`); never construct or close one per request. VirusTotal and NVD go through `core/quota.py` (free-tier VT: 4/min, 500/day; NVD: 50 per 30 s) and `core/cache.py` (SQLite `provider_cache`, schema v3, answers only). `ProviderResult`/`ProviderOutcome` gained `retry_after`.
+- **New keyless signals** — `ingestion/tls.py` (`ssl_cert_valid`), `rdap.py` (`domain_age_days`, from the registration *date*; WHOIS only where a TLD has no RDAP), `dns_records.py`, `eol.py` (endoflife.date). Each can be switched off (`TLS_ENABLED`, `RDAP_ENABLED`, `DNS_ENABLED`, `EOL_ENABLED`); tests turn them **off by default** (they open sockets respx cannot intercept) and swap in stubs/local servers. `FEATURE_SCHEMA_VERSION` is 3. `ScanResult` gained `tls`, `rdap`, `dns`; `FeatureCoverage` gained `has_tls/has_rdap/has_dns`; `DetectedTechnology` gained `eol*`, `implied`, real `confidence`.
+- **`EOL_SET` is gone.** `tech_has_known_eol_component` / `tech_has_eol_cms_version` are 1.0 if any release is end-of-life per endoflife.date, 0.0 if assessed-and-supported (or nothing detected), `None` when techs were found but none could be assessed. The Wappalyzer engine's shared state is reset per page under a lock; `wappalyzer_tech.json` was measured and deleted (see `techfingerprint.py` docstring).
+- **Scans run concurrently** (`api/scan.py`): chains `[VT] [InternetDB→NVD] [tech→EOL] [TLS] [RDAP] [DNS]`, gated by `SCAN_MAX_CONCURRENT_PROVIDERS`; `provider_results` keeps a stable order. Progress is published to `core/scan_events.py` and streamed at `GET /scan/{id}/events` (token or single-use ticket from `POST /scan/events-ticket`); a client may choose the `scan_id` so it can subscribe *before* POSTing. Events never contain the target or findings.
+- **Mock mode touches no network** (it used to resolve the typed host through the real resolver); the scan `summary` now follows the headline baseline label, not the experimental model's.
+- **Frontend:** evidence-first UI (`lib/evidence.ts`, `lib/hostsignals.ts` + components); `npm test` runs the pure view-model tests with Node's built-in runner (CI runs it).
+
+---
+
+## 17. One-paragraph elevator pitch
 
 ThreatFusion fuses VirusTotal reputation, Shodan exposure, CVE severity, and web technology fingerprints into one explainable risk score, comparing a trained XGBoost fusion model against a rule-based baseline, with SHAP explanations and optional EPSS/KEV/Exploit-DB attack-path chaining — delivered via a FastAPI backend, React dashboard, and browser extension for a university research demo.

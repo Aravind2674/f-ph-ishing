@@ -10,8 +10,10 @@ This module implements the logical chainer that maps vulnerabilities to attack g
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import logging
+import time
 from pathlib import Path
 from uuid import uuid4
 import httpx
@@ -27,6 +29,8 @@ EPSS_PATH = BASE_DIR / "epss_scores-2026-07-12.csv"
 KEV_PATH = BASE_DIR / "known_exploited_vulnerabilities.csv"
 EXPLOITDB_PATH = BASE_DIR / "files_exploits.csv"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
+_OLLAMA_RETRY_SECONDS = 60.0     # how long a failed Ollama probe is remembered
+_CONDITION_LOOKUPS = 4           # concurrent per-CVE condition lookups
 
 
 class VulnerabilityChainer:
@@ -37,6 +41,9 @@ class VulnerabilityChainer:
         self.kev_cache: set[str] = set()
         self.exploit_db_cache: dict[str, str] = {}
         self._initialized = False
+        # Ollama is an optional local LLM. When it is unreachable we remember that for a while instead of paying
+        # a connection attempt (and its timeout) for every single CVE.
+        self._ollama_down_until: float = 0.0
 
     def initialize(self) -> None:
         """Parses the threat databases from disk into memory caches."""
@@ -118,26 +125,29 @@ class VulnerabilityChainer:
             f"Ensure the list items are single-word keys (like 'network_access', 'auth_required', 'local_file_read', 'remote_code_execution', 'privilege_escalation')."
         )
         
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(
-                    OLLAMA_API_URL,
-                    json={
-                        "model": "llama3",
-                        "prompt": prompt,
-                        "stream": False,
-                        "format": "json"
-                    }
-                )
-                if response.status_code == 200:
-                    payload = response.json()
-                    import json
-                    text_response = payload.get("response", "{}")
-                    parsed = json.loads(text_response)
-                    return parsed.get("pre_conditions", []), parsed.get("post_conditions", [])
-        except Exception:
-            # Silent fallback if Ollama is not running or times out
-            pass
+        if time.monotonic() >= self._ollama_down_until:
+            try:
+                # A *connect* failure (nothing listening) should cost milliseconds, not the 5 s read budget.
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=0.5)) as client:
+                    response = await client.post(
+                        OLLAMA_API_URL,
+                        json={
+                            "model": "llama3",
+                            "prompt": prompt,
+                            "stream": False,
+                            "format": "json"
+                        }
+                    )
+                    if response.status_code == 200:
+                        payload = response.json()
+                        import json
+                        text_response = payload.get("response", "{}")
+                        parsed = json.loads(text_response)
+                        return parsed.get("pre_conditions", []), parsed.get("post_conditions", [])
+            except Exception:
+                # Ollama is not running / timed out: remember it for a minute so the remaining CVEs go straight to
+                # the heuristic below instead of each paying for the same failed attempt.
+                self._ollama_down_until = time.monotonic() + _OLLAMA_RETRY_SECONDS
 
         # Heuristic rules mapping typical keyword signatures in vulnerability summaries
         desc_lower = description.lower()
@@ -168,14 +178,24 @@ class VulnerabilityChainer:
             return []
 
         # Hydrate raw NVD CVEs with local threat intelligence details
+        gate = asyncio.Semaphore(_CONDITION_LOOKUPS)
+
+        async def conditions(cve: CVEDetail) -> tuple[list[str], list[str]]:
+            async with gate:
+                return await self.get_pre_and_post_conditions(cve.cve_id.upper(), cve.description)
+
+        # The first lookup runs alone: it finds out whether Ollama is reachable, so a failure is already known (and the
+        # heuristic used straight away) when the remaining CVEs are looked up together.
+        first = await conditions(cves[0])
+        rest = await asyncio.gather(*(conditions(c) for c in cves[1:]))
+        all_conditions = [first, *rest]
+
         hydrated_nodes: list[AttackChainNode] = []
-        for cve in cves:
+        for cve, (pre_conds, post_conds) in zip(cves, all_conditions):
             cve_id = cve.cve_id.upper()
             epss = self.epss_cache.get(cve_id, 0.0)
             in_kev = cve_id in self.kev_cache
             exploit_db_id = self.exploit_db_cache.get(cve_id)
-            
-            pre_conds, post_conds = await self.get_pre_and_post_conditions(cve_id, cve.description)
 
             hydrated_nodes.append(AttackChainNode(
                 cve_id=cve_id,

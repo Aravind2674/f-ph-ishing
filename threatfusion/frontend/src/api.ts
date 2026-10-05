@@ -1,9 +1,14 @@
+import type { ScanEvent } from "./lib/evidence.ts";
+
 export interface ScanRequest {
   target: string;
   target_type: "domain" | "ip" | "url" | "file_hash";
   // Privacy opt-in (A0-10): by default a URL scan sends third parties only scheme://host/path
   // (query string, fragment and credentials are dropped). true = send the URL exactly as typed.
   send_full_url?: boolean;
+  // Optional client-chosen id (8-64 chars of A-Z a-z 0-9 _ -). Lets the dashboard open the live progress stream
+  // (GET /scan/{id}/events) BEFORE it POSTs the scan. The server generates one when omitted; reuse -> 409.
+  scan_id?: string;
 }
 
 export interface RiskExplanation {
@@ -54,6 +59,22 @@ export interface ProviderOutcome {
   cached: boolean;
   latency_ms?: number | null;
   mock: boolean;
+  retry_after?: number | null; // seconds until the provider's quota allows another call (rate_limited)
+}
+
+// What the scanner actually looked up after canonicalisation (A1-6). `url` is the public form (no query/credentials).
+export interface CanonicalTarget {
+  kind: string;
+  host?: string | null;
+  registered_domain?: string | null;
+  subdomain?: string;
+  ip?: string | null;
+  port?: number | null;
+  scheme?: string | null;
+  url?: string | null;
+  has_userinfo?: boolean;
+  hash?: string | null;
+  hash_type?: string | null;
 }
 
 export interface FeatureCoverage {
@@ -61,6 +82,84 @@ export interface FeatureCoverage {
   has_shodan: boolean;
   has_cve: boolean;
   has_tech: boolean;
+  // Host signals (A1-3); absent on scans stored before they existed.
+  has_tls?: boolean;
+  has_rdap?: boolean;
+  has_dns?: boolean;
+}
+
+// ── Host signals & technologies (A1-3 / A1-4). `null` anywhere = unknown, never "none/false". ──
+export interface TlsInfo {
+  host: string;
+  has_tls: boolean; // false = nothing on :443 speaks TLS (refused / plain HTTP)
+  chain_valid?: boolean | null;
+  verify_error?: string | null; // expired | self_signed | self_signed_in_chain | unknown_issuer | hostname_mismatch | verify_failed:<code>
+  not_before?: string | null;
+  not_after?: string | null;
+  san_matches_host?: boolean | null;
+  san_names?: string[];
+  self_signed?: boolean | null;
+  subject_cn?: string | null;
+  issuer_cn?: string | null;
+  issuer_org?: string | null;
+  validation_level?: string | null; // dv | ov | ev | iv
+  issuer_type?: string | null; // free_dv | paid_dv | ov | ev | unknown
+  tls_version?: string | null;
+  key_type?: string | null;
+  key_bits?: number | null;
+}
+
+export interface RdapInfo {
+  domain: string;
+  registered_at?: string | null; // null = the registry publishes no registration date (age unknown, not 0)
+  expires_at?: string | null;
+  last_changed_at?: string | null;
+  registrar?: string | null;
+  statuses?: string[];
+  nameservers?: string[];
+  source?: string; // rdap | whois
+  server?: string | null;
+}
+
+export interface DnsInfo {
+  host: string;
+  lookup_domain: string;
+  // Three-state per family: a list (possibly empty = none exist) or null = the lookup failed.
+  a?: string[] | null;
+  aaaa?: string[] | null;
+  mx?: string[] | null;
+  ns?: string[] | null;
+  txt?: string[] | null;
+  caa?: string[] | null;
+  spf?: boolean | null;
+  spf_record?: string | null;
+  dmarc?: boolean | null;
+  dmarc_policy?: string | null;
+  asn?: number | null;
+  asn_org?: string | null;
+  asn_prefix?: string | null;
+  asn_country?: string | null;
+  failed_types?: string[];
+}
+
+export interface DetectedTechnology {
+  name: string;
+  version?: string | null;
+  categories: string[];
+  confidence: number; // Wappalyzer's real confidence (50 for an implied technology)
+  implied?: boolean;
+  // Lifecycle from endoflife.date: true = end-of-life, false = supported, null/absent = unknown.
+  eol?: boolean | null;
+  eol_date?: string | null;
+  eol_cycle?: string | null;
+  latest_version?: string | null;
+}
+
+export interface TechFingerprintResult {
+  technologies: DetectedTechnology[];
+  headers_analyzed?: number;
+  scripts_analyzed?: number;
+  eol_assessed?: number;
 }
 
 export interface ScanResult {
@@ -68,6 +167,7 @@ export interface ScanResult {
   target: string;
   target_type: string;
   timestamp: string;
+  canonical?: CanonicalTarget | null; // absent on scans stored before A1-6
   // null = not computed (no evidence / model not loaded) — never shown as 0.
   baseline_score: number | null;
   // Band of baseline_score ("Unknown" if no evidence). The baseline is the headline score:
@@ -97,7 +197,12 @@ export interface ScanResult {
   summary: string;
   virustotal: any;
   shodan: any;
-  tech_fingerprint: any;
+  tech_fingerprint: TechFingerprintResult | null;
+  tls?: TlsInfo | null;
+  rdap?: RdapInfo | null;
+  dns?: DnsInfo | null;
+  // The 19 engineered features; null = unknown (its source did not answer). See lib/evidence.ts for provenance.
+  features?: Record<string, number | null> | null;
   cve: any;
   data_sources_succeeded: string[];
   data_sources_failed: string[];
@@ -372,6 +477,65 @@ const apiError = async (res: Response): Promise<Error> => {
     );
   }
   return new Error(detail || `API error: ${res.status}`);
+};
+
+/** A fresh client-side scan id (a UUID satisfies the server's `[A-Za-z0-9_-]{8,64}` rule). */
+export const newScanId = (): string => crypto.randomUUID();
+
+/**
+ * Follow one scan live: per-provider status events from GET /scan/{id}/events (Server-Sent Events).
+ *
+ * Open it BEFORE POSTing the scan (pass the same `scan_id`). Like the alert stream it trades the Bearer token for a
+ * single-use ticket (POST /scan/events-ticket) because EventSource cannot send headers. Progress is a nicety: if the
+ * stream cannot be opened the scan still completes through the POST response, so failures only call `onClose`.
+ */
+export const subscribeScanEvents = (
+  scanId: string,
+  onEvent: (event: ScanEvent) => void,
+  onClose?: () => void,
+): { close: () => void } => {
+  let es: EventSource | null = null;
+  let closed = false;
+  const finish = () => {
+    es?.close();
+    es = null;
+    if (!closed) onClose?.();
+  };
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/scan/events-ticket`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: "{}",
+      });
+      if (!res.ok) throw await apiError(res);
+      const { ticket } = (await res.json()) as { ticket: string };
+      if (closed) return;
+      es = new EventSource(`${API_BASE}/scan/${encodeURIComponent(scanId)}/events?ticket=${encodeURIComponent(ticket)}`);
+      for (const type of ["start", "provider", "stage", "done", "error", "timeout"] as const) {
+        es.addEventListener(type, (ev) => {
+          try {
+            onEvent(JSON.parse((ev as MessageEvent).data) as ScanEvent);
+          } catch {
+            /* malformed frame — the next one will arrive */
+          }
+          if (type === "done" || type === "error" || type === "timeout") finish();
+        });
+      }
+      es.onerror = finish; // tickets are single-use: no auto-reconnect, the POST response is authoritative
+    } catch {
+      finish();
+    }
+  })();
+
+  return {
+    close: () => {
+      closed = true;
+      es?.close();
+      es = null;
+    },
+  };
 };
 
 export const submitScan = async (request: ScanRequest): Promise<ScanResponse> => {

@@ -196,6 +196,20 @@ The post-audit hardening added these cross-cutting components (all under `backen
 | Model integrity | `artifacts.py`, `ml/models/manifest.json` | Model files verified by SHA-256 before loading; `weights_only=True`. |
 | Limits | `ratelimit.py`, `config.py` | Per-client `/scan` rate limit, request caps, per-scan deadline, inference in worker threads. |
 
+## Enrichment architecture (Phase A1)
+
+| Concern | Component (`backend/app/…`) | Behaviour |
+|---|---|---|
+| One parser | `core/targets.py` | `canonicalize(raw, declared) → Target` (punycode host, eTLD+1 via an offline PSL, IP/hash validation, public URL form). Every component consumes the `Target`, never the typed string. |
+| Shared provider clients | `core/hub.py` | One client per provider for the whole process (VirusTotal, NVD, TLS, RDAP, DNS, endoflife) built from settings; scans and the network layer share them. |
+| Quota | `core/quota.py` | Sliding-window limiter with *slot reservation* (exact under concurrency, FIFO), bounded queueing (`rate_limited` + `retry_after` instead of hanging), `penalize()` to honour `Retry-After`/backoff. Arbitrary windows (NVD: 50 / 30 s). |
+| Cache | `core/cache.py`, `provider_cache` (schema v3) | SQLite TTL cache. Only answers (`ok`, `not_found`) are stored — never failures; the original `fetched_at` is kept; URLs keyed by SHA-256; erased by `DELETE /network/data`. |
+| Host signals | `ingestion/tls.py`, `rdap.py`, `dns_records.py` | Keyless, three-state, cached. TLS: verified handshake + an unverified second read so an expired/self-signed certificate is still parsed and explained. RDAP via the IANA bootstrap (WHOIS only where a TLD has no RDAP). DNS per-family `list \| [] \| None` (none exist ≠ lookup failed). |
+| Lifecycle | `ingestion/eol.py`, `techfingerprint.py` | endoflife.date by release cycle; Wappalyzer's real confidence; analysis state reset per page under a lock, run in a worker thread; fingerprint data loaded lazily and warning-free. |
+| Concurrency | `api/scan.py` | Chains run together: `[VirusTotal] [InternetDB → NVD] [tech → endoflife] [TLS] [RDAP] [DNS]`; a process-wide gate (`SCAN_MAX_CONCURRENT_PROVIDERS`) bounds calls in flight; outcomes keep a stable order. |
+| Live progress | `core/scan_events.py`, `GET /scan/{id}/events` | Replay + live SSE bus (thread/loop-safe, bounded). Events carry provider names, statuses, reasons and timings only — never the target or any finding. Token or single-use ticket. |
+| Evidence UI | `frontend/src/lib/evidence.ts`, `hostsignals.ts`, `components/{SourceChip,EvidencePanel,FeatureProvenance,HostSignals,LiveSources}.tsx` | Pure view models (unit-tested with `npm test`) rendered monochrome: state is carried by icon + wording + border style, never colour. |
+
 ## Evaluation Results
 
 > ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,

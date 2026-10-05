@@ -51,6 +51,49 @@ def _testclient_init(self, *args, **kwargs):
 
 TestClient.__init__ = _testclient_init
 
+# VirusTotal quota (A1-1): the free-tier limiter (4/min) is OFF by default in tests so unrelated tests aren't
+# throttled; tests/test_a1_1_virustotal.py turns it on explicitly.
+os.environ["VIRUSTOTAL_REQUESTS_PER_MINUTE"] = "0"
+os.environ["VIRUSTOTAL_REQUESTS_PER_DAY"] = "0"
+# NVD (A1-2): no real waiting when a scan-level test makes NVD answer 403/429/503 (the retry delays are tested
+# with a fake clock in test_a1_2_nvd.py).
+os.environ["NVD_BACKOFF_BASE_SECONDS"] = "0.01"
+# Host signals (A1-3) open real sockets (TLS to :443, WHOIS, DNS) — respx cannot intercept those, so they are OFF
+# by default in tests (a test that exercises them swaps in stubs/local servers and enables them explicitly).
+os.environ["TLS_ENABLED"] = "false"
+os.environ["RDAP_ENABLED"] = "false"
+os.environ["DNS_ENABLED"] = "false"
+os.environ["EOL_ENABLED"] = "false"       # A1-4: endoflife.date is a remote lookup
+
+
+@pytest.fixture(autouse=True)
+def _fresh_provider_hub():
+    """Each test gets a fresh process-wide client/limiter and an empty provider cache (the session DB is shared)."""
+    import sqlite3
+    from app.core.config import Settings
+    from app.core.hub import hub
+
+    from app.core.ratelimit import SCAN_LIMITER
+
+    hub.reset()
+    SCAN_LIMITER.clear()                   # the per-client /scan limit is process-global: don't leak hits between tests
+    try:
+        db = Settings(_env_file=None).database_path
+        if db.exists():
+            con = sqlite3.connect(db)
+            try:
+                con.execute("DELETE FROM provider_cache")
+                con.commit()
+            except sqlite3.OperationalError:       # table not created yet (no test has initialised the DB)
+                pass
+            finally:
+                con.close()
+    except Exception:
+        pass
+    yield
+    hub.reset()
+
+
 # Force mock mode for all tests
 os.environ['USE_MOCK_DATA'] = 'true'
 os.environ['VIRUSTOTAL_API_KEY'] = 'test-key'

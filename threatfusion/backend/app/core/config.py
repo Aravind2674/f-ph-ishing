@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     MAX_TRAFFIC_REQUESTS: int = 500                  # requests (+ HAR entries) per /traffic/analyze call
     SCAN_DEADLINE_SECONDS: int = 45                  # overall time budget for a scan's provider lookups
     PROVIDER_TIMEOUT_SECONDS: int = 20               # cap for one provider lookup (also bounded by the deadline)
+    # A1-5: a scan runs its independent providers concurrently; this process-wide gate bounds how many provider
+    # calls are in flight at once across ALL scans (sockets, provider quotas, event-loop fairness).
+    SCAN_MAX_CONCURRENT_PROVIDERS: int = 8
+    SCAN_EVENTS_WAIT_SECONDS: int = 30               # how long GET /scan/{id}/events waits for a scan that has not started
 
     # ── Access control (A0-8) ───────────────────────────────────────────
     # Every route except /health needs `Authorization: Bearer <token>`. API_TOKEN (env) wins;
@@ -168,9 +172,56 @@ class Settings(BaseSettings):
 
     # ── Rate limiting ───────────────────────────────────────────────────
     # Per-CLIENT cap on POST /scan (sliding 60 s window; 0 = off). This protects the process and the
-    # shared provider quota from one noisy client; honouring each provider's own limit (VirusTotal
-    # free tier: 4/min, 500/day) is the provider clients' job (A1-1).
+    # shared provider quota from one noisy client.
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 30
+
+    # ── Provider quotas & cache (A1-1) ──────────────────────────────────
+    # VirusTotal's *own* limits, enforced by one process-wide limiter that scans and the network layer share
+    # (core/quota.py). Defaults are the free tier; set both to 0 for a premium key.
+    VIRUSTOTAL_REQUESTS_PER_MINUTE: int = 4
+    VIRUSTOTAL_REQUESTS_PER_DAY: int = 500
+    # How long a scan will queue for a quota slot before reporting the provider as `rate_limited`.
+    VIRUSTOTAL_MAX_QUEUE_SECONDS: float = 15.0
+    # NVD (A1-2): its published window with a key is 50 requests / rolling 30 s (5 without). Read from config so a
+    # change on NVD's side doesn't need a code change.
+    NVD_REQUESTS_PER_WINDOW: int = 50
+    NVD_WINDOW_SECONDS: float = 30.0
+    NVD_MAX_CONCURRENCY: int = 5                     # CVE lookups in flight at once
+    NVD_DEADLINE_SECONDS: float = 15.0               # budget for one scan's NVD work; finished lookups are kept
+    NVD_MAX_RETRIES: int = 3                         # 403/429/503 are retried with exponential backoff
+    NVD_BACKOFF_BASE_SECONDS: float = 1.0
+    NVD_CACHE_TTL_SECONDS: int = 7 * 24 * 3600       # CVE records (answers only; failures are never cached)
+    NVD_LOOKUP_BY_CPE: bool = True                   # also look up the (versioned) CPEs InternetDB reports
+    NVD_MAX_CPES: int = 5                            # CPEs per host
+    NVD_MAX_PAGES: int = 3                           # pages per CPE query (2000 CVEs/page)
+
+    # Technology fingerprinting (A1-4). Optional path to a newer Wappalyzer ``technologies.json`` (same format) to use
+    # instead of the data bundled with the engine; end-of-life data comes from endoflife.date (keyless, cached a week).
+    WAPPALYZER_DATA_FILE: str = ""
+    EOL_ENABLED: bool = True
+    EOL_API_BASE: str = "https://endoflife.date/api"
+    EOL_CACHE_TTL_SECONDS: int = 7 * 24 * 3600
+    EOL_REQUESTS_PER_MINUTE: int = 60
+
+    # Host signals (A1-3). Each can be switched off; all are keyless.
+    #   TLS  — connects to <host>:443 (the *target's own* server; nothing is sent over the handshake)
+    #   RDAP — asks the TLD registry's public RDAP service about the *registered domain* (WHOIS only where a TLD
+    #          has no RDAP); never a URL, never a private/local name
+    #   DNS  — A/AAAA/MX/NS/TXT/CAA/DMARC via the system resolver (or DNS_NAMESERVERS) + Team Cymru's DNS ASN map
+    TLS_ENABLED: bool = True
+    TLS_TIMEOUT_SECONDS: float = 6.0
+    TLS_CACHE_TTL_SECONDS: int = 3600
+    RDAP_ENABLED: bool = True
+    RDAP_REQUESTS_PER_MINUTE: int = 30
+    RDAP_CACHE_TTL_SECONDS: int = 24 * 3600
+    RDAP_WHOIS_FALLBACK: bool = True
+    DNS_ENABLED: bool = True
+    DNS_TIMEOUT_SECONDS: float = 4.0
+    DNS_CACHE_TTL_SECONDS: int = 900
+    DNS_NAMESERVERS: str = ""                        # comma-separated resolver IPs; empty = the system resolver
+    # Persistent cache of provider answers (SQLite `provider_cache`). Failures are never cached.
+    VIRUSTOTAL_CACHE_TTL_SECONDS: int = 6 * 3600     # an answer (VT re-analyses at most daily)
+    PROVIDER_CACHE_NOT_FOUND_TTL_SECONDS: int = 15 * 60   # "no record" — may be submitted soon after
 
     # ── Network Layer — capture & monitoring ────────────────────────────
     # Interface names are passed straight to scapy. Empty string means
@@ -281,6 +332,10 @@ class Settings(BaseSettings):
             "shodan_internetdb": status("shodan_internetdb", True, "keyless"),
             "nvd": status("nvd", nvd_ok, nvd_state),
             "tech_fingerprint": status("tech_fingerprint", True, "local"),
+            "tls": status("tls", True, "keyless"),
+            "rdap": status("rdap", True, "keyless"),
+            "dns": status("dns", True, "keyless"),
+            "endoflife": status("endoflife", True, "keyless"),
             "wigle": status("wigle", wigle_ok, wigle_state),
         }
 

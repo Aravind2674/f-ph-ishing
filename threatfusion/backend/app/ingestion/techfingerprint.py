@@ -2,18 +2,49 @@
 ThreatFusion – Technology Fingerprinting Client
 ================================================
 
-Detects web technologies (frameworks, CMS, servers, analytics, CDNs, …)
-using the industry-standard python-Wappalyzer library.
+Detects web technologies (frameworks, CMS, servers, analytics, CDNs, …) with the open-source Wappalyzer
+fingerprint rules, through the ``python-Wappalyzer`` engine.
+
+What A1-4 fixed
+---------------
+* **Data.**  The repo carried an unused 1.2 MB ``wappalyzer_tech.json`` ("3,965 technologies").  It was measured
+  and **deleted**: it cannot be loaded as-is (absent fields are ``null``, which crashes the engine), and once
+  repaired it detects *less* than the engine's own bundled data — most of its 3,965 names have no pattern this
+  engine can use (1,186 technologies / 1,732 usable patterns vs the bundled 1,137 / 1,884), and it lacks the
+  ``scripts`` version patterns for jQuery and AngularJS that end-of-life checks depend on.  The bundled data is used;
+  ``WAPPALYZER_DATA_FILE`` can point at a newer file in the same format.
+* **Warnings.**  Loading used to print a flood of "unbalanced parenthesis / Possible nested set" warnings, because the
+  fingerprints are written for JavaScript regexes.  :func:`load_wappalyzer` translates the JS-only syntax
+  (``[^]``, named groups, inline flags, nested sets), validates every pattern *before* handing it to the engine, and
+  replaces the few that cannot be expressed in Python with a never-matching pattern — counted in :class:`LoadStats`,
+  never silently.
+* **Confidence.**  Every technology used to get ``confidence=100``.  It is now Wappalyzer's real confidence (the sum
+  of the matching patterns' confidences, capped at 100); an *implied* technology (inferred from another) is flagged
+  ``implied`` with confidence 50.
+* **State leak.**  The engine stores detected versions/confidence *on the shared technology records*, so a version
+  seen on site A showed up on site B.  :func:`analyze_page` resets that state under a lock for every page (and runs in
+  a worker thread — analysis is CPU-heavy and used to block the event loop).
+* **Laziness.**  The 4k-technology data is loaded on first use (or warmed at start-up), not at import time.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
-from typing import Optional
+import sys
+import threading
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
 
 import httpx
-from Wappalyzer import Wappalyzer, WebPage
+
+with warnings.catch_warnings():                       # python-Wappalyzer imports pkg_resources (setuptools deprecation)
+    warnings.simplefilter("ignore")
+    from Wappalyzer import Wappalyzer, WebPage
 
 from app.core import providers as prov
 from app.core.safe_http import FetchError, FetchPolicy, SafeFetcher, UnsafeTargetError
@@ -24,13 +55,197 @@ logger = logging.getLogger(__name__)
 SOURCE = "tech_fingerprint"
 _USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                "Chrome/120.0.0.0 Safari/537.36")
+_LIB_DATA = Path(sys.modules[Wappalyzer.__module__.split(".")[0]].__file__).parent / "data" / "technologies.json"
+_NEVER_MATCHES = "(?!x)x"
+_IMPLIED_CONFIDENCE = 50
+_PATTERN_FIELDS = ("url", "html", "scripts")          # string / list of strings
+_MAPPED_FIELDS = ("headers", "meta")                   # {name: string}
 
-# Initialize Wappalyzer globally
-try:
-    _WAPPALYZER = Wappalyzer.latest()
-except Exception as e:
-    logger.error("Failed to load Wappalyzer: %s", e)
-    _WAPPALYZER = None
+
+# ── loading & sanitising the fingerprint data ───────────────────────────────
+@dataclass(frozen=True)
+class LoadStats:
+    source: str
+    technologies: int
+    patterns: int
+    fixed_patterns: int               # JS-only syntax translated to Python (e.g. ``[^]`` -> ``[\s\S]``)
+    unusable_patterns: int            # JS-only syntax Python's ``re`` cannot express (replaced by a never-match)
+
+
+def _escape_class_specials(expr: str) -> str:
+    """Inside ``[...]`` escape ``[`` and doubled ``&&`` ``||`` ``~~`` ``--`` (JS treats them literally; Python's
+    ``re`` warns about "possible nested set / set operation")."""
+    out: list[str] = []
+    in_class = False
+    i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "\\" and i + 1 < len(expr):
+            out.append(expr[i:i + 2]); i += 2; continue
+        if not in_class:
+            if c == "[":
+                in_class = True
+                out.append(c)
+                if expr[i + 1:i + 2] == "^":
+                    out.append("^"); i += 1
+                if expr[i + 1:i + 2] == "]":              # a leading ']' is a literal in POSIX but not in JS: keep as-is
+                    pass
+            else:
+                out.append(c)
+        else:
+            if c == "]":
+                in_class = False
+                out.append(c)
+            elif c == "[":
+                out.append("\\[")
+            elif c in "&|~-" and expr[i + 1:i + 2] == c:
+                out.append("\\" + c)
+            else:
+                out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _fix_js_regex(expr: str) -> str:
+    expr = expr.replace("[^]", r"[\s\S]").replace("[]", "(?!x)x")
+    expr = re.sub(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>", r"(?P<\1>", expr)         # JS named groups
+    expr = re.sub(r"\(\?[imsx]+\)", "", expr)                                    # inline flags are not JS
+    expr = re.sub(r"\\u\{([0-9A-Fa-f]+)\}", lambda m: chr(int(m.group(1), 16)), expr)
+    return _escape_class_specials(expr)
+
+
+def _compiles(expr: str) -> bool:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")                  # a FutureWarning counts as "not clean"
+        try:
+            re.compile(expr, re.IGNORECASE)
+            return True
+        except (re.error, Warning, RecursionError, OverflowError):
+            return False
+
+
+def _sanitise_pattern(raw: str, counter: list[int]) -> str:
+    """``regex\\;attr:value\\;…`` → the same with a Python-valid regex (or a never-match)."""
+    counter[0] += 1
+    regex, sep, attrs = raw.partition("\\;")
+    if not _compiles(regex):
+        fixed = _fix_js_regex(regex)
+        if _compiles(fixed):
+            counter[2] += 1
+            regex = fixed
+        else:
+            counter[1] += 1
+            regex = _NEVER_MATCHES
+    return regex + sep + attrs
+
+
+def build_wappalyzer(technologies: dict[str, dict[str, Any]], categories: dict[str, Any],
+                     source: str = "memory") -> tuple[Wappalyzer, LoadStats]:
+    """Sanitise every pattern, then construct the engine (which then has nothing to warn about)."""
+    counter = [0, 0, 0]                                 # patterns seen, unusable, fixed
+    for tech in technologies.values():
+        # The repo's file writes absent fields as ``null`` (the engine only copes with a missing key) — that alone is
+        # why it could never be loaded. Drop the nulls.
+        for key in [k for k, v in tech.items() if v is None]:
+            del tech[key]
+        for key in _PATTERN_FIELDS:
+            value = tech.get(key)
+            if isinstance(value, str):
+                tech[key] = _sanitise_pattern(value, counter)
+            elif isinstance(value, list):
+                tech[key] = [_sanitise_pattern(v, counter) for v in value if isinstance(v, str)]
+        for key in _MAPPED_FIELDS:
+            value = tech.get(key)
+            if isinstance(value, dict):
+                # The engine takes ONE pattern per header/meta name; newer data files may give a list (keep the first).
+                tech[key] = {k: _sanitise_pattern(v if isinstance(v, str) else v[0], counter)
+                             for k, v in value.items()
+                             if isinstance(v, str) or (isinstance(v, list) and v and isinstance(v[0], str))}
+            elif value is not None:
+                tech.pop(key, None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wapp = Wappalyzer(categories=categories, technologies=technologies)
+    return wapp, LoadStats(source=source, technologies=len(technologies), patterns=counter[0],
+                           fixed_patterns=counter[2], unusable_patterns=counter[1])
+
+
+def load_wappalyzer(path: Optional[Path] = None) -> tuple[Wappalyzer, LoadStats]:
+    """Load the fingerprint data (``path``/``WAPPALYZER_DATA_FILE`` first, else the engine's bundled data) without
+    emitting warnings."""
+    if path is None:
+        from app.core.config import get_settings
+        path = get_settings().WAPPALYZER_DATA_FILE or None
+    candidates = ([Path(path)] if path else []) + [_LIB_DATA]
+    last: Optional[Exception] = None
+    for candidate in candidates:
+        try:
+            doc = json.loads(candidate.read_text(encoding="utf-8"))
+            wapp, stats = build_wappalyzer(doc["technologies"], doc["categories"], source=str(candidate))
+            logger.info("Wappalyzer data loaded from %s: %d technologies, %d patterns (%d JS patterns translated, "
+                        "%d unusable)", candidate.name, stats.technologies, stats.patterns, stats.fixed_patterns,
+                        stats.unusable_patterns)
+            return wapp, stats
+        except Exception as exc:                        # missing/corrupt file: try the next source
+            last = exc
+            logger.warning("Could not load Wappalyzer data from %s: %s", candidate, exc)
+    raise RuntimeError(f"no usable Wappalyzer data: {last}")
+
+
+_LOAD_LOCK = threading.Lock()
+_LOADED: Optional[tuple[Wappalyzer, LoadStats]] = None
+_ANALYZE_LOCK = threading.Lock()
+
+
+def get_wappalyzer() -> Optional[Wappalyzer]:
+    """The process-wide engine, loaded on first use (thread-safe). ``None`` if no data could be loaded."""
+    global _LOADED
+    with _LOAD_LOCK:
+        if _LOADED is None:
+            try:
+                _LOADED = load_wappalyzer()
+            except Exception:
+                logger.exception("Failed to load Wappalyzer")
+                return None
+        return _LOADED[0]
+
+
+def warm_up() -> None:
+    """Load the fingerprint data now (called off the event loop at start-up)."""
+    get_wappalyzer()
+
+
+# ── analysis ────────────────────────────────────────────────────────────────
+_STATE_KEYS = ("detected", "confidence", "confidenceTotal", "versions")
+
+
+def analyze_page(wapp: Wappalyzer, url: str, html: str, headers: dict[str, str]) -> list[DetectedTechnology]:
+    """Fingerprint one page. Synchronous and CPU-heavy: call it from a worker thread.
+
+    The engine records its findings *on the shared technology dicts*; they are cleared first, under a lock, so one
+    page can never inherit another's versions or confidence (and concurrent analyses cannot interleave).
+    """
+    lowered = {str(k).lower(): v for k, v in headers.items()}
+    with _ANALYZE_LOCK:
+        for tech in wapp.technologies.values():
+            for key in _STATE_KEYS:
+                tech.pop(key, None)
+        page = WebPage(url=url, html=html, headers=lowered)
+        detected = wapp.analyze(page)                    # direct detections plus implied technologies
+        out: list[DetectedTechnology] = []
+        for name in sorted(detected):
+            record = wapp.technologies.get(name, {})
+            total = record.get("confidenceTotal")
+            implied = total is None                      # never matched a pattern itself: inferred from another tech
+            versions = wapp.get_versions(name) if name in wapp.technologies else []
+            out.append(DetectedTechnology(
+                name=name,
+                version=versions[0] if versions else None,
+                categories=[c for c in wapp.get_categories(name) if c],
+                confidence=_IMPLIED_CONFIDENCE if implied else max(0, min(100, int(total))),
+                implied=implied,
+            ))
+        return out
 
 
 class TechFingerprintClient:
@@ -116,10 +331,11 @@ class TechFingerprintClient:
         if self._use_mock:
             return prov.ok(SOURCE, self._generate_mock(url), http_status=None, mock=True)
 
-        if not _WAPPALYZER:
-            return prov.error(SOURCE, "wappalyzer_unavailable")
-
         started = prov.start_timer()
+        # Load (first use) / look up the engine in a worker thread: 4k technologies, regex-heavy, must not block the loop.
+        wapp = await asyncio.to_thread(get_wappalyzer)
+        if wapp is None:
+            return prov.error(SOURCE, "wappalyzer_unavailable", started=started)
         try:
             fetched = await self._get_fetcher().fetch(url, headers={"User-Agent": _USER_AGENT})
         except (UnsafeTargetError, FetchError) as e:
@@ -140,24 +356,8 @@ class TechFingerprintClient:
             return prov.error(SOURCE, "bot_challenge", http_status=fetched.status_code, started=started)
 
         try:
-            # Prepare headers for Wappalyzer
             headers = {k: v for k, v in fetched.headers.items()}
-
-            # Create WebPage object and analyze
-            page = WebPage(url=url, html=html, headers=headers)
-            analysis = _WAPPALYZER.analyze_with_versions_and_categories(page)
-
-            # Convert analysis to DetectedTechnology objects
-            detected = []
-            for tech_name, tech_data in analysis.items():
-                version = tech_data['versions'][0] if tech_data.get('versions') else None
-                detected.append(DetectedTechnology(
-                    name=tech_name,
-                    version=version,
-                    categories=tech_data.get('categories', []),
-                    confidence=100
-                ))
-
+            detected = await asyncio.to_thread(analyze_page, wapp, url, html, headers)
             scripts_count = len(re.findall(r'<script', html, re.IGNORECASE))
         except Exception as e:  # Wappalyzer rule/regex failures must not look like "no tech"
             logger.warning("Tech fingerprint analysis failed for %s: %s", url, e)
