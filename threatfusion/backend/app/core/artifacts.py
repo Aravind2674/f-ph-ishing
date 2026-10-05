@@ -89,8 +89,17 @@ def model_version(filename: str) -> str:
 
 
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
-    """Hex SHA-256 of a file, read in chunks (model files can be large)."""
+    """Hex SHA-256 of a file, read in chunks (model files can be large).
+
+    **Text artifacts (``.json``) are hashed with line endings normalised to LF.**  Git stores text files with LF and a Windows
+    checkout (``core.autocrlf``) writes them back with CRLF: a manifest computed on one platform then failed on the other
+    (the CI runner is Linux), and every model refused to load.  A model's weights are binary and are hashed byte for byte; a
+    JSON file means the same thing with either line ending, so the hash must not depend on which one a checkout produced.
+    """
     h = hashlib.sha256()
+    if Path(path).suffix.lower() == ".json":
+        h.update(Path(path).read_bytes().replace(b"\r\n", b"\n"))
+        return h.hexdigest()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(chunk_size), b""):
             h.update(chunk)

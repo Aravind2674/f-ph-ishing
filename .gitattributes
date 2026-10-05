@@ -1,0 +1,3 @@
+# Text model artifacts are stored and checked out with LF whatever the platform (their SHA-256 also ignores the line ending: see
+# app/core/artifacts.py::sha256_file), so a Windows checkout and the Linux CI runner see the same bytes.
+threatfusion/ml/models/*.json text eol=lf
