@@ -156,4 +156,11 @@ API + export is done).
 5. Install **Npcap** and run the backend elevated if you want to see real capture (preflight will tell you if something is missing).
 
 ## 6. Test status of the A3 commit
-See the final line of this file, filled in after the last run.
+Final run on the tip of `a3-network` (2026-10-05, Python 3.12, `backend/venv312`): **`pytest` — 1,292 passed, 1 skipped, 0 failed** (101 s).
+Breakdown of the A3 additions: 16 preflight + 22 TLS/JA3/JA4 + 30 capture/lifecycle/PCAP-replay tests.
+Frontend (82 tests, `tsc`, `oxlint`) and the extension (9 tests) were last run on `b-fast-tier`; nothing under `frontend/` or `extension/`
+changed afterwards.
+
+One latent bug found and fixed along the way: `tests/test_b3_ct.py` dated a scan-level fixture from a hard-coded 2026-10-04 clock while
+the scan used the real clock, so it passed only on the day it was written (it failed on 2026-10-05). The fix lives in the
+`b-intel-exposure` branch, where the test was introduced.
