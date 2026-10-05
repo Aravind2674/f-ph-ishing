@@ -16,6 +16,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openPorts = document.getElementById('open-ports');
 
   let targetUrl = '';
+  let apiToken = '';
+  let fullUrl = false; // privacy opt-in: send the whole URL instead of just the hostname
+
+  // ── API token (A0-8) ────────────────────────────────────────────────────
+  // The backend needs `Authorization: Bearer <token>` on every request except /health. The user pastes
+  // it once; it is kept in chrome.storage.local (this browser profile only).
+  const tokenInput = document.getElementById('token-input');
+  const tokenSave = document.getElementById('token-save');
+  const fullUrlBox = document.getElementById('full-url');
+  chrome.storage.local.get(['tfApiToken', 'tfFullUrl'], (v) => {
+    apiToken = v.tfApiToken || '';
+    if (apiToken) tokenInput.placeholder = '•••••••• (saved)';
+    fullUrl = !!v.tfFullUrl;
+    fullUrlBox.checked = fullUrl;
+  });
+  fullUrlBox.addEventListener('change', () => {
+    fullUrl = fullUrlBox.checked;
+    chrome.storage.local.set({ tfFullUrl: fullUrl });
+  });
+  tokenSave.addEventListener('click', () => {
+    const t = tokenInput.value.trim();
+    apiToken = t;
+    chrome.storage.local.set({ tfApiToken: t }, () => {
+      tokenInput.value = '';
+      tokenInput.placeholder = t ? '•••••••• (saved)' : 'Paste token';
+    });
+  });
 
   // ── Monochrome severity mapping ─────────────────────────────────────────
   // Mirrors the dashboard's lib/severity: risk is encoded via bar density and
@@ -49,12 +76,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs.length > 0 && tabs[0].url) {
       targetUrl = tabs[0].url;
+      let parsed = null;
       try {
-        urlText.textContent = new URL(targetUrl).hostname;
+        parsed = new URL(targetUrl);
       } catch {
-        urlText.textContent = targetUrl;
+        parsed = null;
       }
-      scanBtn.disabled = false;
+      // Only ordinary web pages are ever scanned. chrome://, file://, about: … are never sent anywhere.
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+        urlText.textContent = 'This page cannot be scanned';
+        targetUrl = '';
+      } else {
+        urlText.textContent = parsed.hostname;
+        scanBtn.disabled = false;
+      }
     } else {
       urlText.textContent = 'Could not determine URL';
     }
@@ -73,28 +108,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const response = await fetch('http://127.0.0.1:8000/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: targetUrl, target_type: 'url' })
+        headers: apiToken
+          ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiToken }
+          : { 'Content-Type': 'application/json' },
+        // Default: ONLY the hostname leaves the browser (as a domain scan). The full URL — whose path and
+        // query often carry tokens — is sent only if the user ticked the opt-in.
+        body: JSON.stringify(
+          fullUrl
+            ? { target: targetUrl, target_type: 'url', send_full_url: true }
+            : { target: new URL(targetUrl).hostname, target_type: 'domain' }
+        )
       });
 
       const data = await response.json();
 
+      if (response.status === 401) {
+        throw new Error('API token missing or invalid — paste it under "API token" above (python -m app.core.auth).');
+      }
       if (!response.ok || !data.success) {
-        throw new Error(data.error || `Server error: ${response.status}`);
+        throw new Error(data.error || data.detail || data.message || `Server error: ${response.status}`);
       }
 
       const res = data.result;
-      const score01 = res.ml_score || 0;
-      const sev = severity(score01);
+      // A null score means "no evidence" (provider outage / model unavailable). Never show it as 0
+      // or "MINIMAL": that would read as a clean target.
+      // Headline = transparent baseline score. The XGBoost score is experimental (VirusTotal-only
+      // model) and is shown as the secondary stat.
+      const hasScore = res.baseline_score !== null && res.baseline_score !== undefined;
+      const score01 = hasScore ? res.baseline_score : 0;
+      const sev = hasScore
+        ? severity(score01)
+        : { label: 'UNKNOWN', bars: 0, weight: 400 };
 
-      mlScore.textContent = Math.round(score01 * 100);
+      mlScore.textContent = hasScore ? Math.round(score01 * 100) : '—';
       riskLabel.textContent = sev.label;
       riskLabel.style.fontWeight = String(sev.weight);
       riskLabel.style.color =
-        score01 >= 0.6 ? 'var(--foreground)' : 'var(--muted)';
+        hasScore && score01 >= 0.6 ? 'var(--foreground)' : 'var(--muted)';
       paintMeter(sev.bars);
 
-      baselineScore.textContent = Math.round((res.baseline_score || 0) * 100);
+      // (element id kept as 'baseline-score'; it now shows the experimental ML score)
+      baselineScore.textContent =
+        res.ml_score === null || res.ml_score === undefined
+          ? '—'
+          : Math.round(res.ml_score * 100);
 
       avDetects.textContent = res.virustotal
         ? `${res.virustotal.malicious_count}/${res.virustotal.total_engines}`

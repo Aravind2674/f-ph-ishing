@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.ingestion.cve import CVEClient
-from app.models.schemas import CVEResult
+from app.models.schemas import CVEResult, ProviderStatus
 
 
 @pytest.fixture
@@ -18,7 +18,9 @@ def cve_client() -> CVEClient:
 async def test_lookup_cves(cve_client: CVEClient) -> None:
     """Test looking up specific CVE IDs."""
     # Log4Shell is hardcoded in the mock to return a 10.0 score
-    result = await cve_client.lookup_cves(["CVE-2021-44228", "CVE-2021-41773"])
+    res = await cve_client.lookup_cves(["CVE-2021-44228", "CVE-2021-41773"])
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, CVEResult)
     assert result.total_cves == 2
     assert result.max_cvss_score == 10.0
@@ -31,7 +33,9 @@ async def test_lookup_cves(cve_client: CVEClient) -> None:
 @pytest.mark.asyncio
 async def test_lookup_by_cpe(cve_client: CVEClient) -> None:
     """Test looking up CVEs for a CPE string."""
-    result = await cve_client.lookup_by_cpe("cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*")
+    res = await cve_client.lookup_by_cpe("cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, CVEResult)
     # The mock returns a couple of hardcoded CVEs for any CPE
     assert result.total_cves > 0

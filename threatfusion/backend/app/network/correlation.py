@@ -35,7 +35,7 @@ from uuid import uuid4
 
 from app.network.baseline_store import BaselineStore
 from app.network.enrichment.app_layer import AppLayerScorer
-from app.network.enrichment.wigle import WigleClient
+from app.network.enrichment.wigle import WigleClient, to_evidence
 from app.network.models import (
     AlertEvidence,
     AlertType,
@@ -333,7 +333,7 @@ class CorrelationEngine:
                 f"which has never carried that network name before."
             ),
         )]
-        wigle = await self._wigle.lookup_bssid(event.bssid) if event.bssid else None
+        wigle = await self._wigle_evidence(event.bssid)
         self._apply_wigle(signals, wigle)
 
         score = _sum_points(signals)
@@ -364,7 +364,7 @@ class CorrelationEngine:
             points=ROGUE_AP_BASE,
             detail=f"BSSID {event.bssid} (SSID '{event.ssid}') appeared after the RF baseline was learned.",
         )]
-        wigle = await self._wigle.lookup_bssid(event.bssid) if event.bssid else None
+        wigle = await self._wigle_evidence(event.bssid)
         self._apply_wigle(signals, wigle)
 
         score = _sum_points(signals)
@@ -442,6 +442,12 @@ class CorrelationEngine:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _wigle_evidence(self, bssid: Optional[str]) -> Optional[WigleResult]:
+        """Look the BSSID up and return the alert-evidence view (None if there is no BSSID)."""
+        if not bssid:
+            return None
+        return to_evidence(await self._wigle.lookup_bssid(bssid), bssid)
 
     def _apply_wigle(self, signals: list[SignalContribution], wigle: Optional[WigleResult]) -> None:
         """Fold a real WiGLE result into an AP alert's signals."""

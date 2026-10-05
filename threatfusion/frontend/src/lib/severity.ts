@@ -18,6 +18,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldX,
+  ShieldQuestion,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,7 +27,8 @@ export type SeverityLevel =
   | "high"
   | "medium"
   | "low"
-  | "minimal";
+  | "minimal"
+  | "unknown"; // no usable evidence — deliberately NOT a low level
 
 export interface Severity {
   level: SeverityLevel;
@@ -50,6 +52,8 @@ const LEVELS: Record<SeverityLevel, Omit<Severity, "level">> = {
   medium: { label: "MEDIUM", bars: 3, intensity: 0.65, weight: "font-medium", icon: Shield },
   low: { label: "LOW", bars: 2, intensity: 0.45, weight: "font-normal", icon: ShieldCheck },
   minimal: { label: "MINIMAL", bars: 1, intensity: 0.32, weight: "font-normal", icon: ShieldCheck },
+  // 0 bars + a question-mark glyph: absence of evidence is never drawn like a low score.
+  unknown: { label: "UNKNOWN", bars: 0, intensity: 0.3, weight: "font-normal", icon: ShieldQuestion },
 };
 
 /**
@@ -72,6 +76,7 @@ export function levelFromLabel(label?: string | null): SeverityLevel | null {
   if (k === "high") return "high";
   if (k === "medium" || k === "moderate") return "medium";
   if (k === "low") return "low";
+  if (k === "unknown") return "unknown";
   if (k === "minimal" || k === "safe" || k === "secure" || k === "benign") return "minimal";
   return null;
 }
@@ -80,7 +85,7 @@ export function levelFromLabel(label?: string | null): SeverityLevel | null {
  * Resolve a full Severity bundle. Prefers the backend-provided label when it is
  * recognised, otherwise derives the band from the numeric score.
  */
-export function resolveSeverity(score01: number, label?: string | null): Severity {
-  const level = levelFromLabel(label) ?? levelFromScore(score01);
+export function resolveSeverity(score01: number | null | undefined, label?: string | null): Severity {
+  const level = levelFromLabel(label) ?? (score01 == null ? "unknown" : levelFromScore(score01));
   return { level, ...LEVELS[level] };
 }

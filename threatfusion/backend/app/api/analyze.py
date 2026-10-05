@@ -19,25 +19,28 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 
+from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
 from app.models.schemas import AnalyzeRequest, AnalyzeResponse, PayloadFinding
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analyze", tags=["analyze"])
+from app.core.auth import require_token  # noqa: E402
+
+router = APIRouter(prefix="/analyze", tags=["analyze"], dependencies=[Depends(require_token)])
 
 # ── Model init (graceful — endpoint still responds if checkpoint is missing) ──
 _clf = VulnClassifier()
-for _p in (Path("ml/models/vuln_classifier.pt"), Path("../ml/models/vuln_classifier.pt")):
-    if _p.exists():
-        try:
-            _clf.load(_p)
-            logger.info("Vuln classifier loaded from %s", _p)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to load vuln classifier: %s", exc)
-        break
+_p = model_path("vuln_classifier.pt")  # configured model dir (absolute), not the CWD
+if _p is not None:
+    try:
+        _clf.load(_p)
+        logger.info("Vuln classifier loaded from %s", _p)
+    except Exception as exc:  # incl. ArtifactIntegrityError  # pragma: no cover - defensive
+        logger.warning("Failed to load vuln classifier: %s", exc)
 
 
 # A query string looks like ``key=value(&key=value)*`` with well-formed keys.
@@ -86,20 +89,10 @@ def _candidates(text: str) -> list[tuple[str, str]]:
 _SEVERITY = {"cmdi": 4, "sqli": 3, "xss": 2, "path-traversal": 1, "benign": 0}
 
 
-@router.post("", response_model=AnalyzeResponse, summary="Classify request text for injection attacks")
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    """Classify a payload / query string / URL for injection patterns."""
-    if not _clf.is_loaded:
-        return AnalyzeResponse(
-            success=False,
-            model_loaded=False,
-            findings=[],
-            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
-            error="model_not_loaded",
-        )
-
+def _classify_all(text: str) -> list[PayloadFinding]:
+    """Classify every candidate value in ``text`` (blocking; call via ``run_in_threadpool``)."""
     findings: list[PayloadFinding] = []
-    for location, value in _candidates(request.text):
+    for location, value in _candidates(text):
         result = _clf.classify(value)
         is_attack = result["class_id"] != 0
         span = None
@@ -117,6 +110,24 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 probs={k: round(v, 4) for k, v in result["probs"].items()},
             )
         )
+    return findings
+
+
+@router.post("", response_model=AnalyzeResponse, summary="Classify request text for injection attacks")
+async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+    """Classify a payload / query string / URL for injection patterns."""
+    if not _clf.is_loaded:
+        return AnalyzeResponse(
+            success=False,
+            model_loaded=False,
+            findings=[],
+            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
+            error="model_not_loaded",
+        )
+
+    # CNN inference is CPU-bound and synchronous: run it in a worker thread so the event loop (and
+    # with it the SSE heartbeat and every other request) keeps running.
+    findings = await run_in_threadpool(_classify_all, request.text)
 
     # Most severe first, then by confidence.
     findings.sort(key=lambda f: (_SEVERITY.get(f.label, 0), f.confidence), reverse=True)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.ingestion.techfingerprint import TechFingerprintClient
-from app.models.schemas import TechFingerprintResult
+from app.models.schemas import TechFingerprintResult, ProviderStatus
 
 
 @pytest.fixture
@@ -17,7 +17,9 @@ def tech_client() -> TechFingerprintClient:
 @pytest.mark.asyncio
 async def test_fingerprint_url_wordpress(tech_client: TechFingerprintClient) -> None:
     """Test the WordPress mock profile."""
-    result = await tech_client.fingerprint_url("https://example.com/wordpress/blog")
+    res = await tech_client.fingerprint_url("https://example.com/wordpress/blog")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, TechFingerprintResult)
     
     names = [t.name for t in result.technologies]
@@ -29,7 +31,9 @@ async def test_fingerprint_url_wordpress(tech_client: TechFingerprintClient) -> 
 @pytest.mark.asyncio
 async def test_fingerprint_url_react(tech_client: TechFingerprintClient) -> None:
     """Test the React/Vercel mock profile."""
-    result = await tech_client.fingerprint_url("https://my-react-app.vercel.app")
+    res = await tech_client.fingerprint_url("https://my-react-app.vercel.app")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, TechFingerprintResult)
     
     names = [t.name for t in result.technologies]
@@ -41,7 +45,9 @@ async def test_fingerprint_url_react(tech_client: TechFingerprintClient) -> None
 @pytest.mark.asyncio
 async def test_fingerprint_url_default(tech_client: TechFingerprintClient) -> None:
     """Test the default mock profile."""
-    result = await tech_client.fingerprint_url("https://unknown-stack.com")
+    res = await tech_client.fingerprint_url("https://unknown-stack.com")
+    assert res.status == ProviderStatus.OK and res.mock, res
+    result = res.data
     assert isinstance(result, TechFingerprintResult)
     
     names = [t.name for t in result.technologies]

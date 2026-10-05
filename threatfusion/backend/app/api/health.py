@@ -17,6 +17,17 @@ router = APIRouter(tags=["ops"])
 
 
 # ── Response model ──────────────────────────────────────────────────────
+class ProviderHealth(BaseModel):
+    """Readiness of one data provider. Labels and booleans only — never credential values."""
+
+    configured: bool = Field(..., description="True if the provider can be called")
+    mock: bool = Field(..., description="True if served by the mock layer")
+    state: str = Field(
+        ...,
+        description="configured | placeholder | missing | keyless | local | mock",
+    )
+
+
 class HealthResponse(BaseModel):
     """Schema returned by ``GET /health``.
 
@@ -39,6 +50,11 @@ class HealthResponse(BaseModel):
         ...,
         description="True when the API is returning mock/synthetic data.",
     )
+    providers: dict[str, ProviderHealth] = Field(
+        default_factory=dict,
+        description="Per-provider readiness (A0-5). A provider that is not configured is "
+                    "never called; scans list it under data_sources_skipped.",
+    )
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────
@@ -55,4 +71,8 @@ async def health_check() -> HealthResponse:
         status="healthy",
         version="0.1.0",
         mock_mode=settings.USE_MOCK_DATA,
+        providers={
+            name: ProviderHealth(configured=st.configured, mock=st.mock, state=st.state)
+            for name, st in settings.provider_statuses().items()
+        },
     )

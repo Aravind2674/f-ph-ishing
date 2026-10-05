@@ -1,0 +1,6 @@
+# Offline training / evaluation tooling (ml/*.py). Not needed to run the API.
+-r requirements.in
+scikit-learn
+pandas
+matplotlib
+joblib

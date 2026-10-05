@@ -1,0 +1,30 @@
+# ThreatFusion — runtime dependency *inputs* (hand-edited).
+#
+# Why two files?  `requirements.in` lists only what the app imports; the compiled
+# `requirements.txt` is the exact, reproducible lock (every transitive pin).  The
+# audit (AUDIT_REPORT.md §F.3) found two of three interpreters could not even
+# `import app.main` because unpinned `>=` ranges let numba and NumPy drift apart.
+#
+# Regenerate the lock (Python 3.12, all platforms) with:
+#     uv pip compile requirements.in -o requirements.txt --python-version 3.12 --universal
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+aiosqlite
+networkx
+numpy
+xgboost
+shap
+# shap pulls numba. Old numba caps NumPy (<=2.4) and breaks `import shap` once NumPy 2.5 is
+# installed (the audit's failure on the global interpreter), so require a current numba.
+numba>=0.61
+# CPU build is enough (tiny char-CNNs). On Linux install it from the CPU index first:
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+# Real packet capture; also needs Npcap on Windows (see README "Network Layer").
+scapy
+python-Wappalyzer
+# python-Wappalyzer still imports pkg_resources, which setuptools>=82 removed.
+setuptools<82

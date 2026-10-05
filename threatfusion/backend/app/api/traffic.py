@@ -17,8 +17,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 
+from app.core.artifacts import model_path
 from app.ml.vuln_classifier import VulnClassifier
 from app.models.schemas import (
     RequestFindingModel,
@@ -30,45 +32,25 @@ from app.recon.traffic import CapturedRequest, analyze_request, parse_har
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/traffic", tags=["traffic"])
+from app.core.auth import require_token  # noqa: E402
+from app.core import privacy
+from app.core.config import get_settings
+
+router = APIRouter(prefix="/traffic", tags=["traffic"], dependencies=[Depends(require_token)])
 
 # Reuse the same classifier the /analyze endpoint uses (graceful if untrained).
 _clf = VulnClassifier()
-for _p in (Path("ml/models/vuln_classifier.pt"), Path("../ml/models/vuln_classifier.pt")):
-    if _p.exists():
-        try:
-            _clf.load(_p)
-            logger.info("Traffic analyzer loaded classifier from %s", _p)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to load vuln classifier for traffic: %s", exc)
-        break
+_p = model_path("vuln_classifier.pt")  # configured model dir (absolute), not the CWD
+if _p is not None:
+    try:
+        _clf.load(_p)
+        logger.info("Traffic analyzer loaded classifier from %s", _p)
+    except Exception as exc:  # incl. ArtifactIntegrityError  # pragma: no cover - defensive
+        logger.warning("Failed to load vuln classifier: %s", exc)
 
 
-@router.post("/analyze", response_model=TrafficAnalyzeResponse,
-             summary="Score captured HTTP traffic (HAR or batch) for injection attacks")
-async def analyze_traffic(request: TrafficAnalyzeRequest) -> TrafficAnalyzeResponse:
-    """Classify every attacker-controlled value across a batch of captured requests."""
-    if not _clf.is_loaded:
-        return TrafficAnalyzeResponse(
-            success=False, model_loaded=False,
-            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
-            error="model_not_loaded",
-        )
-
-    # Normalise both input shapes to CapturedRequest.
-    captured: list[CapturedRequest] = [
-        CapturedRequest(method=r.method, url=r.url, headers=r.headers, body=r.body)
-        for r in request.requests
-    ]
-    if request.har:
-        captured.extend(parse_har(request.har))
-
-    if not captured:
-        return TrafficAnalyzeResponse(
-            success=True, analyzed=0, flagged=0,
-            summary="No requests supplied. Provide 'requests' or a 'har' export.",
-        )
-
+def _analyze_all(captured: list[CapturedRequest]) -> list[RequestFindingModel]:
+    """Classify every captured request (blocking; call via ``run_in_threadpool``)."""
     findings: list[RequestFindingModel] = []
     for req in captured:
         rf = analyze_request(_clf, req)
@@ -86,6 +68,55 @@ async def analyze_traffic(request: TrafficAnalyzeRequest) -> TrafficAnalyzeRespo
                 details=[ValueFindingModel(**vars(d)) for d in rf.details],
             )
         )
+    return findings
+
+
+@router.post("/analyze", response_model=TrafficAnalyzeResponse,
+             summary="Score captured HTTP traffic (HAR or batch) for injection attacks")
+async def analyze_traffic(request: TrafficAnalyzeRequest) -> TrafficAnalyzeResponse:
+    """Classify every attacker-controlled value across a batch of captured requests."""
+    if not _clf.is_loaded:
+        return TrafficAnalyzeResponse(
+            success=False, model_loaded=False,
+            summary="Neural HTTP attack classifier is not loaded (train ml/train_vuln.py).",
+            error="model_not_loaded",
+        )
+
+    # Cap the amount of work BEFORE parsing/classifying anything (A0-9): a single call could otherwise
+    # queue unbounded CNN inference. Requests in the batch and HAR entries count together.
+    limit = get_settings().MAX_TRAFFIC_REQUESTS
+    har_entries = []
+    if isinstance(request.har, dict):
+        log = request.har.get("log")
+        har_entries = (log.get("entries") if isinstance(log, dict) else None) or []
+    total = len(request.requests) + (len(har_entries) if isinstance(har_entries, list) else 0)
+    if total > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many requests in one call ({total}); the limit is {limit} (MAX_TRAFFIC_REQUESTS).",
+        )
+
+    # Normalise both input shapes to CapturedRequest.
+    captured: list[CapturedRequest] = [
+        CapturedRequest(method=r.method, url=r.url, headers=privacy.redact_headers(r.headers), body=r.body)
+        for r in request.requests
+    ]
+    if request.har:
+        captured.extend(parse_har(request.har))
+    # Cookies / Authorization / API-key headers are never needed for classification: drop their values
+    # before anything else touches the requests (A0-10; the mitm addon redacts them at the source too).
+    for c in captured:
+        c.headers = privacy.redact_headers(c.headers)
+
+    if not captured:
+        return TrafficAnalyzeResponse(
+            success=True, analyzed=0, flagged=0,
+            summary="No requests supplied. Provide 'requests' or a 'har' export.",
+        )
+
+    # CNN inference is CPU-bound and synchronous: run the whole batch in a worker thread so the event
+    # loop (SSE heartbeat, other requests) is not stalled.
+    findings = await run_in_threadpool(_analyze_all, captured)
 
     # Most severe requests first.
     from app.recon.traffic import SEVERITY

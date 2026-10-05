@@ -22,6 +22,7 @@ The wrapper degrades gracefully: if the checkpoint is missing it simply reports
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -29,6 +30,7 @@ from urllib.parse import urlparse
 import numpy as np
 import torch
 
+from app.core.artifacts import verify_artifact
 from app.models.schemas import FeatureVector, NeuralExplanation
 from app.ml.url_model import (
     UrlFusionConfig,
@@ -92,6 +94,9 @@ class NeuralFusionModel:
         self._config: Optional[UrlFusionConfig] = None
         self._model_path: Optional[Path] = None
         self._allowlist: frozenset = _load_allowlist()
+        # Saliency back-propagates through shared parameters; inference may run in worker threads
+        # (A0-9), so explanations are serialised. (Plain forward passes are safe to run concurrently.)
+        self._saliency_lock = threading.Lock()
         logger.info(
             "NeuralFusionModel instance created (model not yet loaded; "
             "%d allowlisted domains)",
@@ -112,6 +117,10 @@ class NeuralFusionModel:
         path = Path(weights_path)
         if not path.exists():
             raise FileNotFoundError(f"Neural model file not found at {path}")
+        # Verify the weights *and* their config (vocab/normalisation constants) against the
+        # SHA-256 manifest before anything is deserialised (A0-7).
+        verify_artifact(path)
+        verify_artifact(path.with_name(path.stem + "_config.json"))
         self._model, self._config = load_checkpoint(path)
         self._model_path = path
         logger.info("Neural fusion model successfully loaded from %s", path)
@@ -135,12 +144,19 @@ class NeuralFusionModel:
         so inference reproduces training pre-processing exactly.
         """
         assert self._config is not None
-        names = self._config.feature_names or list(features.model_fields)
+        names = self._config.feature_names or list(type(features).model_fields)
+        raw = [getattr(features, n) for n in names]
         values = np.array(
-            [float(getattr(features, n)) for n in names], dtype=np.float64
+            [np.nan if v is None else float(v) for v in raw], dtype=np.float64
         )
         mean = np.array(self._config.tab_mean, dtype=np.float64)
         std = np.array(self._config.tab_std, dtype=np.float64)
+        # Unknown (None) features take the training mean, i.e. a standardised value of 0 —
+        # "no information", the neutral input the branch was trained on. (A0-1)
+        if mean.size == values.size:
+            values = np.where(np.isnan(values), mean, values)
+        else:
+            values = np.nan_to_num(values, nan=0.0)
         if mean.size == values.size and std.size == values.size:
             # Guard against divide-by-zero for constant columns.
             std = np.where(std < 1e-8, 1.0, std)
@@ -211,7 +227,8 @@ class NeuralFusionModel:
             return []
 
         char_ids = self._char_tensor(url)
-        saliency = self._model.text_saliency(char_ids)[:n].cpu().numpy()
+        with self._saliency_lock:
+            saliency = self._model.text_saliency(char_ids)[:n].cpu().numpy()
 
         # Normalise to [0, 1] for a stable, comparable importance scale.
         s_max = float(saliency.max()) if saliency.size else 0.0

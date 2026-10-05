@@ -52,10 +52,13 @@ from typing import Any
 
 import httpx
 
+from app.core import providers as prov
 from app.core.logging import get_logger
-from app.models.schemas import CVEDetail, CVEResult
+from app.models.schemas import CVEDetail, CVEResult, ProviderResult, ProviderStatus
 
 logger = get_logger(__name__)
+
+SOURCE = "nvd"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -356,75 +359,42 @@ class CVEClient:
     async def _rate_limited_request(
         self,
         params: dict[str, str],
-    ) -> httpx.Response | None:
-        """Execute a rate-limited GET request against the NVD API.
+    ) -> tuple[httpx.Response | None, ProviderResult | None]:
+        """Execute a rate-limited GET against NVD → ``(response, None)`` or ``(None, failure)``.
 
-        The semaphore ensures we never exceed NVD's published rate
-        limits.  After acquiring the semaphore we schedule a delayed
-        release (after ``_rate_limit_window`` seconds) so that the slot
+        The semaphore ensures we never exceed NVD's published rate limits.  After acquiring
+        it we schedule a delayed release (after ``_rate_limit_window`` seconds) so the slot
         becomes available again once the rolling window has elapsed.
 
-        Returns
-        -------
-        httpx.Response or None
-            The HTTP response, or ``None`` if the request failed.
+        A non-200 answer is classified, not swallowed (A0-1): 404 → ``not_found``;
+        403 → ``error/auth_or_rate_limited`` (NVD uses 403 for an invalid key *and* for
+        throttling); 429 → ``rate_limited``; 5xx → ``server_error``; timeout/connect errors
+        → ``timeout`` / ``network``.
         """
         await self._semaphore.acquire()
 
-        # Schedule the semaphore release after the rate-limit window.
-        # This is the key trick: instead of releasing immediately, we
-        # hold the slot for the full 30-second window so that at most
-        # N requests can be in-flight within any 30-second period.
+        # Hold the slot for the full rate-limit window so that at most N requests can be
+        # in flight within any 30-second period.
         loop = asyncio.get_running_loop()
         loop.call_later(self._rate_limit_window, self._semaphore.release)
 
         client = self._get_http_client()
+        started = prov.start_timer()
 
         try:
             logger.debug("NVD API request: params=%s", params)
             response = await client.get(self._base_url, params=params)
+        except Exception as exc:
+            logger.error("NVD API request failed for params=%s: %s", params, exc)
+            return None, prov.from_exception(SOURCE, exc, started=started)
 
-            if response.status_code == 200:
-                return response
-
-            if response.status_code == 404:
-                logger.warning(
-                    "NVD API returned 404 for params=%s — CVE not found",
-                    params,
-                )
-                return None
-
-            if response.status_code == 403:
-                logger.warning(
-                    "NVD API returned 403 (rate limited) for params=%s. "
-                    "Consider adding an NVD API key to increase limits.",
-                    params,
-                )
-                return None
-
-            # Any other unexpected status code.
-            logger.error(
-                "NVD API returned unexpected status %d for params=%s: %s",
-                response.status_code,
-                params,
-                response.text[:200],
-            )
-            return None
-
-        except httpx.TimeoutException:
-            logger.error(
-                "NVD API request timed out after %.1fs for params=%s",
-                _REQUEST_TIMEOUT_SECONDS,
-                params,
-            )
-            return None
-        except httpx.HTTPError as exc:
-            logger.error(
-                "NVD API HTTP error for params=%s: %s",
-                params,
-                str(exc),
-            )
-            return None
+        failure = prov.from_http_status(
+            SOURCE, response.status_code, started=started, forbidden_reason="auth_or_rate_limited",
+        )
+        if failure is not None:
+            logger.warning("NVD API returned HTTP %d for params=%s", response.status_code, params)
+            return None, failure
+        return response, None
 
     @staticmethod
     def _parse_nvd_cve_item(cve_item: dict[str, Any]) -> CVEDetail:
@@ -583,108 +553,73 @@ class CVEClient:
     # Live API helpers
     # ------------------------------------------------------------------
 
-    async def _live_lookup_single(self, cve_id: str) -> CVEDetail | None:
-        """Fetch a single CVE from the live NVD API.
+    async def _live_lookup_single(self, cve_id: str) -> tuple[CVEDetail | None, ProviderResult | None]:
+        """Fetch one CVE → ``(detail, None)`` or ``(None, why-not)``.
 
-        Returns ``None`` if the API call fails so that the caller can
-        skip this CVE without aborting the entire batch.
+        The failure result lets the caller tell "NVD has no such CVE" from "the request failed"
+        — the old code returned a bare ``None`` for both.
         """
-        response = await self._rate_limited_request({"cveId": cve_id})
-        if response is None:
-            return None
+        response, failure = await self._rate_limited_request({"cveId": cve_id})
+        if failure is not None:
+            return None, failure
 
         try:
             payload: dict[str, Any] = response.json()
-            vulnerabilities: list[dict[str, Any]] = payload.get(
-                "vulnerabilities", []
-            )
+            vulnerabilities: list[dict[str, Any]] = payload.get("vulnerabilities", [])
             if not vulnerabilities:
-                logger.warning(
-                    "NVD returned empty vulnerabilities array for %s", cve_id
-                )
-                return None
+                logger.warning("NVD returned empty vulnerabilities array for %s", cve_id)
+                return None, prov.not_found(SOURCE, http_status=response.status_code)
+            return self._parse_nvd_cve_item(vulnerabilities[0]), None
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as exc:
+            logger.error("Failed to parse NVD response for %s: %s", cve_id, exc)
+            return None, prov.error(SOURCE, "parse_error", http_status=response.status_code)
 
-            detail = self._parse_nvd_cve_item(vulnerabilities[0])
-            return detail
+    async def _live_lookup_by_cpe(self, cpe: str) -> tuple[list[CVEDetail], ProviderResult | None]:
+        """Fetch all CVEs matching a CPE → ``(details, None)`` or ``([], failure)``.
 
-        except (KeyError, IndexError, ValueError) as exc:
-            logger.error(
-                "Failed to parse NVD response for %s: %s", cve_id, exc
-            )
-            return None
-
-    async def _live_lookup_by_cpe(self, cpe: str) -> list[CVEDetail]:
-        """Fetch all CVEs matching a CPE string from the live NVD API.
-
-        NVD paginates results (default 2000 per page).  For a university
-        project we only fetch the first page to keep things simple.  In
-        production you'd loop over ``startIndex`` until
-        ``startIndex >= totalResults``.
+        NVD paginates (default 2000/page); only the first page is fetched (pagination: A1-2).
+        An empty list with no failure is a genuine answer ("no CVEs for this CPE").
         """
-        response = await self._rate_limited_request({"cpeName": cpe})
-        if response is None:
-            return []
+        response, failure = await self._rate_limited_request({"cpeName": cpe})
+        if failure is not None:
+            return [], failure
 
         try:
             payload: dict[str, Any] = response.json()
-            vulnerabilities: list[dict[str, Any]] = payload.get(
-                "vulnerabilities", []
-            )
-
-            results: list[CVEDetail] = []
-            for vuln_item in vulnerabilities:
-                detail = self._parse_nvd_cve_item(vuln_item)
-                results.append(detail)
-
+            vulnerabilities: list[dict[str, Any]] = payload.get("vulnerabilities", [])
+            results = [self._parse_nvd_cve_item(v) for v in vulnerabilities]
             total = payload.get("totalResults", len(results))
             if total > len(results):
                 logger.info(
-                    "NVD reported %d total CVEs for CPE=%s, but only "
-                    "fetched first page (%d results). Pagination not "
-                    "implemented for this project scope.",
-                    total,
-                    cpe,
-                    len(results),
+                    "NVD reported %d total CVEs for CPE=%s, but only fetched first page (%d results).",
+                    total, cpe, len(results),
                 )
-
-            return results
-
-        except (KeyError, IndexError, ValueError) as exc:
-            logger.error(
-                "Failed to parse NVD CPE response for %s: %s", cpe, exc
-            )
-            return []
+            return results, None
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as exc:
+            logger.error("Failed to parse NVD CPE response for %s: %s", cpe, exc)
+            return [], prov.error(SOURCE, "parse_error", http_status=response.status_code)
 
     # ------------------------------------------------------------------
     # Public async methods
     # ------------------------------------------------------------------
 
-    async def lookup_cves(self, cve_ids: list[str]) -> CVEResult:
+    async def lookup_cves(self, cve_ids: list[str]) -> ProviderResult[CVEResult]:
         """Fetch full details for a list of CVE IDs.
 
-        Each CVE ID (e.g. ``"CVE-2021-44228"``) is looked up individually
-        against the NVD API (or mock database).  Results are aggregated
-        into a single ``CVEResult`` with pre-computed ``total_cves`` and
-        ``max_cvss_score``.
+        Each ID (e.g. ``"CVE-2021-44228"``) is looked up individually against NVD (or the
+        mock database).  Returns a ``ProviderResult[CVEResult]``:
 
-        Invalid CVE IDs are logged and skipped — this is intentional so
-        that a single malformed ID from Shodan doesn't abort the entire
-        enrichment step.
+        * ``ok`` – at least one CVE was retrieved (``reason="partial:n/m"`` if some failed);
+        * ``not_found`` – NVD answered but knows none of the IDs;
+        * ``error`` – nothing could be retrieved because requests failed (reason says why);
+        * ``skipped`` – no valid CVE IDs were supplied.
 
-        Parameters
-        ----------
-        cve_ids : list[str]
-            One or more CVE identifiers to look up.
-
-        Returns
-        -------
-        CVEResult
-            Aggregated CVE details with summary statistics.  Returns an
-            empty ``CVEResult`` if all lookups fail or the input is empty.
+        Crucially, "NVD failed" is **never** reported as ``CVEResult(max_cvss_score=0.0)`` —
+        that made an unreachable NVD look like "no critical vulnerabilities".
         """
         if not cve_ids:
-            logger.debug("lookup_cves called with empty list — returning empty result")
-            return CVEResult()
+            logger.debug("lookup_cves called with empty list")
+            return prov.skipped(SOURCE, "no_cve_ids")
 
         # ── Deduplicate and validate ─────────────────────────────────
         seen: set[str] = set()
@@ -695,15 +630,13 @@ class CVEClient:
                 continue
             seen.add(normalised)
             if not _CVE_ID_PATTERN.match(normalised):
-                logger.warning(
-                    "Skipping invalid CVE ID format: '%s'", raw_id
-                )
+                logger.warning("Skipping invalid CVE ID format: '%s'", raw_id)
                 continue
             valid_ids.append(normalised)
 
         if not valid_ids:
-            logger.warning("No valid CVE IDs after filtering — returning empty result")
-            return CVEResult()
+            logger.warning("No valid CVE IDs after filtering")
+            return prov.skipped(SOURCE, "no_valid_cve_ids")
 
         logger.info(
             "Looking up %d CVE(s) (mode=%s): %s",
@@ -713,115 +646,84 @@ class CVEClient:
         )
 
         # ── Perform lookups (with cache) ─────────────────────────────
+        started = prov.start_timer()
         details: list[CVEDetail] = []
+        failures: list[ProviderResult] = []
+        from_cache = 0
 
         for cve_id in valid_ids:
-            # Check cache first (works for both mock and live modes).
             cached = self._cache_get(cve_id)
             if cached is not None:
                 details.append(cached)
+                from_cache += 1
                 continue
 
-            # Fetch from source.
             if self._use_mock:
-                detail = await self._mock_lookup_single(cve_id)
+                detail, failure = await self._mock_lookup_single(cve_id), None
             else:
-                detail = await self._live_lookup_single(cve_id)
+                detail, failure = await self._live_lookup_single(cve_id)
 
             if detail is not None:
                 self._cache_set(cve_id, detail)
                 details.append(detail)
             else:
-                logger.warning("Failed to retrieve data for %s — skipping", cve_id)
+                failure = failure or prov.error(SOURCE, "unknown")
+                logger.warning("No data for %s (%s)", cve_id, failure.reason or failure.status.value)
+                failures.append(failure)
 
-        # ── Aggregate into CVEResult ─────────────────────────────────
-        max_score: float = 0.0
-        for d in details:
-            if d.cvss_v3_score is not None and d.cvss_v3_score > max_score:
-                max_score = d.cvss_v3_score
+        # ── Aggregate ────────────────────────────────────────────────
+        if details:
+            max_score = max((d.cvss_v3_score for d in details if d.cvss_v3_score is not None), default=0.0)
+            result = CVEResult(cves=details, total_cves=len(details), max_cvss_score=max_score)
+            logger.info("CVE lookup complete: %d/%d succeeded, max_cvss=%.1f",
+                        len(details), len(valid_ids), max_score)
+            partial = f"partial:{len(details)}/{len(valid_ids)}" if len(details) < len(valid_ids) else None
+            all_cached = from_cache == len(details) and not self._use_mock
+            out = prov.ok(SOURCE, result, http_status=None if (self._use_mock or all_cached) else 200,
+                          started=None if all_cached else started, reason=partial, mock=self._use_mock)
+            return out.model_copy(update={"cached": True}) if all_cached else out
 
-        result = CVEResult(
-            cves=details,
-            total_cves=len(details),
-            max_cvss_score=max_score,
-        )
+        # Nothing retrieved: report the most informative failure (errors outrank not_found).
+        errors = [f for f in failures if f.status == ProviderStatus.ERROR]
+        chosen = errors[0] if errors else failures[0]
+        return chosen.model_copy(update={"latency_ms": prov._latency_ms(started)})
 
-        logger.info(
-            "CVE lookup complete: %d/%d succeeded, max_cvss=%.1f",
-            len(details),
-            len(valid_ids),
-            max_score,
-        )
-
-        return result
-
-    async def lookup_by_cpe(self, cpe: str) -> CVEResult:
+    async def lookup_by_cpe(self, cpe: str) -> ProviderResult[CVEResult]:
         """Find all CVEs associated with a **CPE** string.
 
-        This is useful for discovering vulnerabilities in a specific
-        software product/version detected by Shodan or the tech
-        fingerprinter.
+        Useful for discovering vulnerabilities in a specific software product/version detected
+        by Shodan or the tech fingerprinter.  An empty list from NVD is a genuine ``ok`` answer
+        ("no known CVEs"); a failed request is an ``error`` — never an empty ``CVEResult``.
 
         Parameters
         ----------
         cpe : str
             CPE 2.3 formatted string
             (e.g. ``"cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"``).
-
-        Returns
-        -------
-        CVEResult
-            All CVEs matching the given CPE, with summary statistics.
-            Returns an empty ``CVEResult`` if the lookup fails.
         """
         if not cpe or not cpe.strip():
-            logger.warning("lookup_by_cpe called with empty CPE — returning empty result")
-            return CVEResult()
+            logger.warning("lookup_by_cpe called with empty CPE")
+            return prov.skipped(SOURCE, "no_cpe")
 
         cpe = cpe.strip()
+        logger.info("Looking up CVEs for CPE=%s (mode=%s)", cpe, "mock" if self._use_mock else "live")
 
-        logger.info(
-            "Looking up CVEs for CPE=%s (mode=%s)",
-            cpe,
-            "mock" if self._use_mock else "live",
-        )
-
-        # ── Check cache (keyed by full CPE string) ───────────────────
-        # CPE lookups can return multiple CVEs, so we cache the
-        # aggregated result as a special key.  We prepend "cpe:" to
-        # avoid collisions with CVE ID cache keys.
-        cache_key: str = f"cpe:{cpe}"
-        # We don't cache CPE results as CVEDetail; instead we cache at
-        # the result level.  But since our cache stores CVEDetail, we
-        # skip caching for CPE lookups and just fetch directly.
-        # (A production system would cache the full result object.)
-
-        # ── Fetch ────────────────────────────────────────────────────
+        # CPE lookups return many CVEs; the cache holds single CVEDetail objects, so CPE
+        # results are not cached yet (A1-2 adds a persistent provider cache).
+        started = prov.start_timer()
         if self._use_mock:
-            cve_details = await self._mock_lookup_by_cpe(cpe)
+            cve_details, failure = await self._mock_lookup_by_cpe(cpe), None
         else:
-            cve_details = await self._live_lookup_by_cpe(cpe)
+            cve_details, failure = await self._live_lookup_by_cpe(cpe)
 
-        # ── Aggregate ────────────────────────────────────────────────
-        max_score: float = 0.0
-        for d in cve_details:
-            if d.cvss_v3_score is not None and d.cvss_v3_score > max_score:
-                max_score = d.cvss_v3_score
+        if failure is not None:
+            return failure
 
-        result = CVEResult(
-            cves=cve_details,
-            total_cves=len(cve_details),
-            max_cvss_score=max_score,
-        )
-
-        logger.info(
-            "CPE lookup complete for %s: %d CVEs found, max_cvss=%.1f",
-            cpe,
-            len(cve_details),
-            max_score,
-        )
-
-        return result
+        max_score = max((d.cvss_v3_score for d in cve_details if d.cvss_v3_score is not None), default=0.0)
+        result = CVEResult(cves=cve_details, total_cves=len(cve_details), max_cvss_score=max_score)
+        logger.info("CPE lookup complete for %s: %d CVEs found, max_cvss=%.1f", cpe, len(cve_details), max_score)
+        return prov.ok(SOURCE, result, http_status=None if self._use_mock else 200,
+                       started=started, mock=self._use_mock)
 
     async def close(self) -> None:
         """Close the underlying HTTP client and release resources.

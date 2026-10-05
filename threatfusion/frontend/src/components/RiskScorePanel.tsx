@@ -2,7 +2,7 @@
  * RiskScorePanel — quiet side-by-side score comparison for the scan verdict.
  *
  * Replaces the radar/HUD scope experiment with two equal cards (Baseline vs
- * ML Fusion), each with a large count-up numeral and a thin linear progress
+ * experimental ML), each with a large count-up numeral and a thin linear progress
  * bar. A single verdict row underneath carries severity + Δ vs baseline.
  * Strictly monochrome; prefers-reduced-motion snaps to final values.
  */
@@ -50,11 +50,11 @@ function useSyncedReveal(
 }
 
 export interface RiskScorePanelProps {
-  /** Baseline heuristic score, 0..100. */
-  baselineScore: number;
-  /** ML fusion score, 0..100. */
-  mlScore: number;
-  /** Optional backend severity label (preferred over numeric band). */
+  /** Baseline heuristic score, 0..100; null = not computed (no evidence). */
+  baselineScore: number | null;
+  /** ML fusion score, 0..100; null = not computed (no evidence / model unavailable). */
+  mlScore: number | null;
+  /** Backend label of the BASELINE score (preferred over the numeric band). */
   severityLabel?: string | null;
   /** Remount / re-key to replay the reveal (e.g. scan_id). */
   revealKey?: string | number;
@@ -69,31 +69,35 @@ export function RiskScorePanel({
   className,
 }: RiskScorePanelProps) {
   const reduced = useReducedMotion();
-  const sev = resolveSeverity(mlScore / 100, severityLabel);
-  const delta = Math.round(mlScore - baselineScore);
+  // Severity follows the baseline (the headline), not the experimental model.
+  const sev = resolveSeverity(baselineScore == null ? null : baselineScore / 100, severityLabel);
+  const delta = mlScore != null && baselineScore != null ? Math.round(mlScore - baselineScore) : null;
 
   const baselineAnim = useSyncedReveal(
-    baselineScore,
+    baselineScore ?? 0,
     FILL_MS,
     reduced,
     revealKey
   );
-  const mlAnim = useSyncedReveal(mlScore, FILL_MS, reduced, revealKey);
+  const mlAnim = useSyncedReveal(mlScore ?? 0, FILL_MS, reduced, revealKey);
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* The transparent baseline is the headline. The XGBoost model is experimental: it
+            currently reads VirusTotal features only (audit §E), so it is labelled as such. */}
         <ScoreCard
           label="Baseline Heuristic"
-          subtitle="Weighted-sum rule score"
-          value={baselineAnim}
-          primary={false}
+          subtitle="Transparent weighted-sum rules — evidence below"
+          value={baselineScore == null ? null : baselineAnim}
+          primary
         />
         <ScoreCard
-          label="ML Fusion (XGBoost)"
-          subtitle="Learned multi-source score"
-          value={mlAnim}
-          primary
+          label="Experimental model"
+          subtitle="XGBoost · VirusTotal signals only · not yet validated"
+          value={mlScore == null ? null : mlAnim}
+          primary={false}
+          experimental
         />
       </div>
 
@@ -111,8 +115,7 @@ export function RiskScorePanel({
         <span className="font-mono text-[11px] uppercase tracking-wide2 text-subtle">
           Δ vs baseline{" "}
           <span className="text-foreground">
-            {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
-            {Math.abs(delta)}
+            {delta == null ? "n/a" : `${delta > 0 ? "+" : delta < 0 ? "−" : "±"}${Math.abs(delta)}`}
           </span>
         </span>
       </div>
@@ -125,14 +128,17 @@ function ScoreCard({
   subtitle,
   value,
   primary,
+  experimental = false,
 }: {
   label: string;
   subtitle: string;
-  value: number;
+  value: number | null;
   primary: boolean;
+  experimental?: boolean;
 }) {
-  const display = Math.round(value);
-  const fill = Math.max(0, Math.min(100, value));
+  const unavailable = value == null;
+  const display = unavailable ? null : Math.round(value);
+  const fill = unavailable ? 0 : Math.max(0, Math.min(100, value));
 
   return (
     <Card
@@ -154,7 +160,8 @@ function ScoreCard({
             >
               {label}
             </span>
-            {primary && <Badge variant="solid">Primary</Badge>}
+            {primary && <Badge variant="solid">Headline</Badge>}
+            {experimental && <Badge variant="outline">Experimental</Badge>}
           </div>
           <p className="mt-0.5 text-xs text-subtle">{subtitle}</p>
         </div>
@@ -163,10 +170,10 @@ function ScoreCard({
       <div>
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-4xl font-semibold tabular-nums leading-none text-foreground">
-            {display}
+            {unavailable ? "—" : display}
           </span>
           <span className="font-mono text-xs uppercase tracking-wide2 text-subtle">
-            / 100
+            {unavailable ? "unavailable" : "/ 100"}
           </span>
         </div>
         <Progress value={fill} className="mt-4" aria-label={`${label} score`} />

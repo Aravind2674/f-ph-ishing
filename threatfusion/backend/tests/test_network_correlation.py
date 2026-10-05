@@ -30,7 +30,7 @@ from app.network.correlation import (
     severity_from_score,
 )
 from app.network.enrichment.app_layer import AppLayerScorer
-from app.network.enrichment.wigle import WigleClient
+from app.network.enrichment.wigle import WigleClient, to_evidence
 from app.network.models import (
     AlertType,
     EventType,
@@ -255,6 +255,8 @@ async def test_deauth_flood_scores_high(tmp_path) -> None:
 async def test_wigle_client_reports_missing_credentials() -> None:
     client = WigleClient("", "")
     assert client.configured is False
-    result = await client.lookup_bssid("aa:bb:cc:dd:ee:ff")
+    res = await client.lookup_bssid("aa:bb:cc:dd:ee:ff")
+    assert res.status.value == "not_configured" and res.data is None
+    result = to_evidence(res, "aa:bb:cc:dd:ee:ff")   # the alert-evidence view the UI shows
     assert result.available is False
     assert "credentials" in (result.reason or "").lower()

@@ -14,3 +14,5 @@ app/
 ├── services/     ← Business logic: enrichment, ML scoring, caching
 └── main.py       ← Application entry-point & lifespan setup
 """
+
+APP_VERSION = "0.1.0"

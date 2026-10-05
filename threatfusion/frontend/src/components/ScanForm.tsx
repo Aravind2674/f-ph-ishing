@@ -30,13 +30,18 @@ const TARGET_TYPES: {
 export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
   const [target, setTarget] = useState("");
   const [type, setType] = useState<TargetType>("domain");
+  const [fullUrl, setFullUrl] = useState(false);
 
   const active = TARGET_TYPES.find((t) => t.id === type)!;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!target.trim() || loading) return;
-    onSubmit({ target: target.trim(), target_type: type });
+    onSubmit({
+      target: target.trim(),
+      target_type: type,
+      ...(type === "url" && fullUrl ? { send_full_url: true } : {}),
+    });
   };
 
   return (
@@ -147,6 +152,21 @@ export const ScanForm: React.FC<ScanFormProps> = ({ onSubmit, loading }) => {
               )}
             </Button>
           </div>
+          {type === "url" && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={fullUrl}
+                onChange={(e) => setFullUrl(e.target.checked)}
+                className="mt-0.5 size-3.5 accent-foreground"
+              />
+              <span>
+                Send the <strong className="text-foreground">full URL</strong> (query string &amp; fragment) to
+                analysers. Off by default: only <code className="font-mono">scheme://host/path</code> leaves this
+                machine, because query strings often carry session tokens and personal data.
+              </span>
+            </label>
+          )}
         </form>
       </div>
     </motion.section>

@@ -26,12 +26,13 @@ Usage
 
    Point your browser/tool at the proxy (default http://127.0.0.1:8080) and
    install mitmproxy's CA to intercept HTTPS. Set TF_BACKEND to override the
-   backend URL.
+   backend URL and TF_API_TOKEN to the token printed by `python -m app.core.auth`.
 
 Scope & safety
 --------------
 Only run this against traffic you are authorised to test. The addon is passive —
-it observes and scores; it neither blocks nor modifies requests.
+it observes and scores; it neither blocks nor modifies requests. Cookie, Authorization and
+API-key style headers are redacted before anything is sent to the backend.
 """
 
 from __future__ import annotations
@@ -42,18 +43,45 @@ import json
 
 BACKEND = os.environ.get("TF_BACKEND", "http://127.0.0.1:8000").rstrip("/")
 ANALYZE_URL = f"{BACKEND}/traffic/analyze"
+# The backend requires a Bearer token (A0-8): `python -m app.core.auth` prints it.
+API_TOKEN = os.environ.get("TF_API_TOKEN", "")
 # Skip static asset noise — these rarely carry injection and flood the log.
 _SKIP_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff",
              ".woff2", ".ico", ".map", ".mp4", ".webp")
 
 
+# Credential-bearing headers are never forwarded to the backend (A0-10). Kept dependency-free on purpose:
+# this file runs inside mitmproxy's own Python environment, not the backend's.
+_REDACTED = "[redacted]"
+_SENSITIVE_HEADERS = {
+    "cookie", "cookie2", "set-cookie", "set-cookie2", "authorization", "proxy-authorization",
+    "x-api-key", "apikey", "api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token",
+    "x-amz-security-token", "x-goog-api-key",
+}
+_SENSITIVE_FRAGMENTS = ("token", "secret", "apikey", "api-key", "api_key", "session", "password",
+                        "passwd", "credential", "signature")
+
+
+def redact_headers(headers: dict) -> dict:
+    """Replace the values of credential-bearing headers (case-insensitive)."""
+    out = {}
+    for k, v in (headers or {}).items():
+        name = str(k).strip().lower()
+        sensitive = name in _SENSITIVE_HEADERS or any(f in name for f in _SENSITIVE_FRAGMENTS)
+        out[k] = _REDACTED if sensitive else v
+    return out
+
+
 def _score(method: str, url: str, headers: dict, body: str | None) -> dict | None:
+    headers = redact_headers(headers)
     payload = json.dumps({
         "requests": [{"method": method, "url": url, "headers": headers, "body": body}]
     }).encode("utf-8")
     req = urllib.request.Request(
         ANALYZE_URL, data=payload,
-        headers={"Content-Type": "application/json"}, method="POST",
+        headers={"Content-Type": "application/json",
+                 **({"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {})},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:

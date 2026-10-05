@@ -9,16 +9,44 @@ uses a trained ML model to fuse these into a single explainable risk score.
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 18+ (for frontend)
+- **Python 3.12** (the version the dependency lock and CI are built for)
+- Node.js 22+ (for frontend)
 
 ### Backend Setup
+Dependencies are **exactly pinned** (`requirements.txt` is a compiled lock; the
+hand-edited inputs are `requirements.in`, `requirements-ml.in`, `requirements-dev.in`).
+Use a virtual environment — mixing in other packages is what previously broke
+`import shap` (numba vs NumPy).
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install uv                          # or use plain pip + venv
+uv venv --python 3.12 venv              # creates backend/venv (git-ignored)
+uv pip sync requirements-dev.txt --python venv/Scripts/python.exe   # Windows
+#   Linux/macOS: --python venv/bin/python
 # The app runs in mock mode by default — no API keys needed
-uvicorn app.main:app --reload
+venv/Scripts/python.exe -m uvicorn app.main:app --reload   # run from backend/
 ```
+- `requirements.txt` = runtime only · `requirements-ml.txt` = + training/eval tooling ·
+  `requirements-dev.txt` = + tests and audit tools.
+- Regenerate a lock after editing an `.in` file, e.g.
+  `uv pip compile requirements.in -o requirements.txt --python-version 3.12 --universal`
+  (see the header of each lock file for its exact command).
+- Linux CI/servers: install CPU `torch` first
+  (`pip install torch==<pin> --index-url https://download.pytorch.org/whl/cpu`); the lock
+  intentionally omits the CUDA wheels.
+- Run the server **from `backend/`**: `.env`, the SQLite path and model paths are currently
+  relative to the working directory (made absolute in a later hardening step).
+- **API token.** Every route except `/health` needs `Authorization: Bearer <token>`. The token is
+  generated on first start and stored outside the repo (Windows: `%APPDATA%\ThreatFusion\api_token`;
+  else `~/.config/threatfusion/api_token`). Print it with `python -m app.core.auth`, then paste it on the
+  dashboard's **Settings** page and in the extension popup (**API token**); for the mitmproxy addon set
+  `TF_API_TOKEN`. Requests must also use a local `Host` header (`ALLOWED_HOSTS`) and mutating requests must
+  be `Content-Type: application/json`.
+- Active verification (`POST /verify`) is **off by default** — see `VERIFY_ENABLED` / `VERIFY_ALLOWED_HOSTS`
+  in `.env.example`.
+- Model files are checked against `ml/models/manifest.json` (SHA-256) at load time.
+  After retraining run `python -m ml.hash_models` from `threatfusion/` and commit the
+  new manifest; `MODEL_HASH_STRICT=false` relaxes only the "unlisted file" rule.
 
 Visit `http://localhost:8000/docs` for the interactive API documentation.
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import string
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -37,6 +38,8 @@ from urllib.parse import unquote_plus
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from app.core.artifacts import verify_artifact
 
 # ---------------------------------------------------------------------------
 # Vocabulary — printable ASCII covers SQL/HTML/shell metacharacters
@@ -168,7 +171,8 @@ def load_checkpoint(weights_path: str | Path, map_location: str = "cpu"):
         weights_path.with_name(weights_path.stem + "_config.json")
     )
     model = PayloadCNN(config)
-    model.load_state_dict(torch.load(weights_path, map_location=map_location))
+    # weights_only=True: a .pt is a pickle container — never allow it to run arbitrary code.
+    model.load_state_dict(torch.load(weights_path, map_location=map_location, weights_only=True))
     model.eval()
     return model, config
 
@@ -182,11 +186,16 @@ class VulnClassifier:
     def __init__(self) -> None:
         self._model: Optional[PayloadCNN] = None
         self._config: Optional[PayloadCNNConfig] = None
+        # Saliency back-propagates through shared parameters; serialise it (inference runs in worker threads).
+        self._saliency_lock = threading.Lock()
 
     def load(self, weights_path: str | Path) -> None:
         path = Path(weights_path)
         if not path.exists():
             raise FileNotFoundError(f"Vuln classifier not found at {path}")
+        # Integrity check of weights + config before deserialising (A0-7).
+        verify_artifact(path)
+        verify_artifact(path.with_name(path.stem + "_config.json"))
         self._model, self._config = load_checkpoint(path)
 
     @property
@@ -240,7 +249,8 @@ class VulnClassifier:
         n = min(len(clean), self._config.max_len)
         if n == 0:
             return []
-        sal = self._model.token_saliency(self._char_tensor(text), class_id)[:n].cpu().numpy()
+        with self._saliency_lock:
+            sal = self._model.token_saliency(self._char_tensor(text), class_id)[:n].cpu().numpy()
         s_max = float(sal.max()) if sal.size else 0.0
         if s_max <= 0:
             return []

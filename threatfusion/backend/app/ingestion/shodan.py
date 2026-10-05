@@ -25,9 +25,14 @@ from typing import Optional, Dict, Tuple, Any
 
 import httpx
 
-from app.models.schemas import ShodanResult
+from app.core import privacy
+from app.core import providers as prov
+from app.models.schemas import ProviderResult, ProviderStatus, ShodanResult
 
 logger = logging.getLogger(__name__)
+
+SOURCE = "shodan_internetdb"
+SOURCE_FULL = "shodan_full"
 
 
 class ShodanClient:
@@ -49,8 +54,9 @@ class ShodanClient:
         self._internetdb_url: str = "https://internetdb.shodan.io"
         self._full_api_url: str = "https://api.shodan.io"
         
-        # Simple in-memory cache to reduce network latency for identical IPs
-        self._cache: Dict[str, Tuple[ShodanResult, float]] = {}
+        # Simple in-memory cache to reduce network latency for identical IPs.
+        # Only answers (ok / not_found) are cached — a failed lookup must be retried.
+        self._cache: Dict[str, Tuple[ProviderResult[ShodanResult], float]] = {}
         self._cache_ttl = 3600  # 1 hour
         
         self._client: Optional[httpx.AsyncClient] = None
@@ -72,22 +78,22 @@ class ShodanClient:
             await self._client.aclose()
             self._client = None
             
-    def _check_cache(self, key: str) -> Optional[ShodanResult]:
-        """Check cache for fresh data."""
+    def _check_cache(self, key: str) -> Optional[ProviderResult[ShodanResult]]:
+        """Return a fresh cached answer (marked ``cached=True``), else None."""
         if self._use_mock:
             return None
         if key in self._cache:
             result, timestamp = self._cache[key]
             if time.time() - timestamp < self._cache_ttl:
                 logger.debug("Cache hit for %s", key)
-                return result
+                return result.model_copy(update={"cached": True})
             else:
                 del self._cache[key]
         return None
 
-    def _set_cache(self, key: str, result: ShodanResult) -> None:
-        """Store data in cache."""
-        if not self._use_mock:
+    def _set_cache(self, key: str, result: ProviderResult[ShodanResult]) -> None:
+        """Store an answer in cache (never an error)."""
+        if not self._use_mock and result.status in (ProviderStatus.OK, ProviderStatus.NOT_FOUND):
             self._cache[key] = (result, time.time())
 
     def _generate_mock(self, ip: str, is_full: bool) -> ShodanResult:
@@ -169,28 +175,40 @@ class ShodanClient:
     # Public async methods
     # ------------------------------------------------------------------
 
-    async def lookup_ip(self, ip: str) -> ShodanResult:
-        """Query InternetDB for basic port / CVE data on an IP."""
+    async def lookup_ip(self, ip: str) -> ProviderResult[ShodanResult]:
+        """Query InternetDB for basic port / CVE data on an IP.
+
+        InternetDB answers 404 for IPs it has never indexed.  That is ``not_found`` — "no
+        record", *not* "no open ports" — so it must not become an empty (all-zero) result.
+        """
         if self._use_mock:
-            return self._generate_mock(ip, is_full=False)
-            
+            return prov.ok(SOURCE, self._generate_mock(ip, is_full=False), http_status=None, mock=True)
+
+        blocked = privacy.provider_block_reason(ip)   # private addresses are never sent out (A0-10)
+        if blocked:
+            return prov.skipped(SOURCE, blocked)
+
         cache_key = f"internetdb:{ip}"
         cached = self._check_cache(cache_key)
-        if cached:
+        if cached is not None:
             return cached
-            
+
         client = await self._get_client()
+        started = prov.start_timer()
         try:
             response = await client.get(f"{self._internetdb_url}/{ip}")
-            if response.status_code == 404:
-                # 404 is a valid response meaning the IP has no open ports known
-                result = ShodanResult()
-                self._set_cache(cache_key, result)
-                return result
-                
-            response.raise_for_status()
+        except Exception as e:
+            logger.warning("InternetDB request failed for %s: %s", ip, e)
+            return prov.from_exception(SOURCE, e, started=started)
+
+        failure = prov.from_http_status(SOURCE, response.status_code, started=started)
+        if failure is not None:
+            self._set_cache(cache_key, failure)
+            if failure.status == ProviderStatus.ERROR:
+                logger.warning("InternetDB returned HTTP %s for %s", response.status_code, ip)
+            return failure
+        try:
             data = response.json()
-            
             result = ShodanResult(
                 open_ports=data.get("ports", []),
                 hostnames=data.get("hostnames", []),
@@ -198,40 +216,45 @@ class ShodanClient:
                 vulns=data.get("vulns", []),
                 tags=data.get("tags", [])
             )
-            self._set_cache(cache_key, result)
-            return result
-        except httpx.HTTPError as e:
-            logger.warning("InternetDB API error for %s: %s", ip, e)
-            return ShodanResult()
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning("InternetDB payload unusable for %s: %s", ip, e)
+            return prov.error(SOURCE, "parse_error", http_status=response.status_code, started=started)
+        final = prov.ok(SOURCE, result, http_status=response.status_code, started=started)
+        self._set_cache(cache_key, final)
+        return final
 
-    async def lookup_ip_full(self, ip: str) -> ShodanResult:
-        """Query the full Shodan REST API for rich service data."""
+    async def lookup_ip_full(self, ip: str) -> ProviderResult[ShodanResult]:
+        """Query the full Shodan REST API for rich service data (not used by /scan today)."""
         if self._use_mock:
-            return self._generate_mock(ip, is_full=True)
-            
+            return prov.ok(SOURCE_FULL, self._generate_mock(ip, is_full=True), http_status=None, mock=True)
+
         if not self._api_key:
             logger.info("No Shodan API key provided, falling back to InternetDB for %s", ip)
             return await self.lookup_ip(ip)
-            
+
         cache_key = f"full:{ip}"
         cached = self._check_cache(cache_key)
-        if cached:
+        if cached is not None:
             return cached
-            
+
         client = await self._get_client()
+        started = prov.start_timer()
         try:
             response = await client.get(
                 f"{self._full_api_url}/shodan/host/{ip}",
                 params={"key": self._api_key}
             )
-            if response.status_code == 404:
-                result = ShodanResult()
-                self._set_cache(cache_key, result)
-                return result
-                
-            response.raise_for_status()
+        except Exception as e:
+            logger.warning("Shodan Full API request failed for %s: %s", ip, e)
+            return prov.from_exception(SOURCE_FULL, e, started=started)
+
+        failure = prov.from_http_status(SOURCE_FULL, response.status_code, started=started)
+        if failure is not None:
+            self._set_cache(cache_key, failure)
+            return failure
+        try:
             data = response.json()
-            
+
             result = ShodanResult(
                 open_ports=data.get("ports", []),
                 hostnames=data.get("hostnames", []),
@@ -267,9 +290,10 @@ class ShodanClient:
             result.cpes = list(cpes)
             result.vulns = list(vulns)
             result.banner_data = banners
-            
-            self._set_cache(cache_key, result)
-            return result
-        except httpx.HTTPError as e:
-            logger.warning("Shodan Full API error for %s: %s", ip, e)
-            return ShodanResult()
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning("Shodan Full API payload unusable for %s: %s", ip, e)
+            return prov.error(SOURCE_FULL, "parse_error", http_status=response.status_code, started=started)
+
+        final = prov.ok(SOURCE_FULL, result, http_status=response.status_code, started=started)
+        self._set_cache(cache_key, final)
+        return final

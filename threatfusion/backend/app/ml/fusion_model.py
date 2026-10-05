@@ -33,6 +33,7 @@ from typing import Optional
 import numpy as np
 import xgboost as xgb
 
+from app.core.artifacts import verify_artifact
 from app.models.schemas import FeatureVector
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,10 @@ class FusionModel:
         path = Path(model_path)
         if not path.exists():
             raise FileNotFoundError(f"Model file not found at {path}")
-            
+
+        # Integrity first: refuse a file that differs from the SHA-256 manifest (A0-7).
+        verify_artifact(path)
+
         self._model = xgb.XGBClassifier()
         self._model.load_model(str(path))
         self._model_path = path
@@ -157,5 +161,8 @@ class FusionModel:
             Shape ``(1, 13)`` float64 array.
         """
         # Ensure ordering matches exactly what XGBoost expects based on schemas.py
-        values = [getattr(features, name) for name in features.model_fields]
+        # Unknown (None) -> NaN: XGBoost treats NaN as 'missing' and routes it down the learned
+        # default branch, instead of being fed a made-up 0.0 / neutral constant (A0-1).
+        values = [np.nan if getattr(features, name) is None else getattr(features, name)
+                  for name in type(features).model_fields]
         return np.array([values], dtype=np.float64)

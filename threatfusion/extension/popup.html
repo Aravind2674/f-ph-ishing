@@ -37,6 +37,22 @@
       <div id="target-url" class="target-url">Loading…</div>
     </section>
 
+    <!-- API token (A0-8): the backend requires it on every request except /health. -->
+    <details class="token">
+      <summary>API token</summary>
+      <div class="token-row">
+        <input id="token-input" type="password" autocomplete="off" placeholder="Paste token" />
+        <button id="token-save" type="button">Save</button>
+      </div>
+      <p class="token-hint">Print it with <code>python -m app.core.auth</code>. Stored in this browser profile only.</p>
+    </details>
+
+    <!-- Privacy (A0-10): by default only the hostname leaves the browser. -->
+    <label class="privacy">
+      <input id="full-url" type="checkbox" />
+      <span>Send full URL (path &amp; query) to analysers. Off by default: only the <b>hostname</b> is sent.</span>
+    </label>
+
     <button id="scan-btn" class="btn" disabled>
       <span id="btn-text">Scan This Page</span>
       <span id="btn-loader" class="loader hidden" aria-hidden="true"></span>
@@ -48,7 +64,7 @@
     <section id="result-box" class="result hidden">
       <div class="result-head">
         <div>
-          <span class="eyebrow">ML Fusion Score</span>
+          <span class="eyebrow">Baseline Score</span>
           <div id="ml-score" class="score">0</div>
         </div>
         <div class="sev">
@@ -63,7 +79,7 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-label">Baseline</span>
+          <span class="stat-label">Experimental ML</span>
           <span id="baseline-score" class="stat-value">0</span>
         </div>
         <div class="stat">

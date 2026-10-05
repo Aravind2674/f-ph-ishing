@@ -23,15 +23,16 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from app.core.auth import issue_stream_ticket, require_token, require_token_or_ticket, STREAM_TICKET_TTL_SECONDS
 from app.network.models import DeviceProfile, MonitorStatus, NetworkAlert
 from app.network.service import get_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/network", tags=["network"])
+router = APIRouter(prefix="/network", tags=["network"], dependencies=[Depends(require_token)])
 
 
 @router.get("/status", response_model=MonitorStatus, summary="Monitor health")
@@ -95,7 +96,27 @@ async def get_device(mac: str) -> DeviceProfile:
     return profile
 
 
-@router.get("/stream", summary="Live alert stream (SSE)")
+@router.delete("/data", summary="Erase all stored network data")
+async def delete_network_data() -> dict:
+    """Erase every stored device profile, per-device domain history and alert (irreversible).
+
+    Requires the API token and a JSON content type like every mutating route.
+    """
+    return await get_service().delete_all_data()
+
+
+@router.post("/stream-ticket", summary="Issue a single-use ticket for the SSE stream")
+async def stream_ticket() -> dict:
+    """EventSource cannot send an Authorization header; trade the token for a 30 s one-time ticket."""
+    return {"ticket": issue_stream_ticket(), "expires_in": STREAM_TICKET_TTL_SECONDS}
+
+
+# The SSE stream authenticates with a Bearer token OR a ticket, so it lives on its own router
+# (the main router above requires the Bearer token on every route).
+stream_router = APIRouter(prefix="/network", tags=["network"], dependencies=[Depends(require_token_or_ticket)])
+
+
+@stream_router.get("/stream", summary="Live alert stream (SSE)")
 async def stream_alerts(request: Request) -> StreamingResponse:
     """Server-Sent Events stream that pushes each new alert as it is scored."""
     svc = get_service()

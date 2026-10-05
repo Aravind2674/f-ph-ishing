@@ -15,14 +15,17 @@ from app.ml.features import extract_features
 
 
 def test_extract_features_all_none() -> None:
-    """Test that graceful degradation works when all sources fail."""
+    """When all sources fail, every feature is *unknown* (None) — not 0.0 and not a neutral constant.
+
+    (This test used to assert 0.0 for the counts and the constants ssl_cert_valid=1.0 /
+    domain_age_days=365.0.  Those were fabricated evidence: a failed lookup read as "clean" and
+    every target looked like a one-year-old domain with a valid certificate. See A0-1.)
+    """
     vec = extract_features(None, None, None, None)
-    # Most values should default to 0.0
-    assert vec.vt_malicious_ratio == 0.0
-    assert vec.shodan_open_port_count == 0.0
-    # Placeholders should have their default values
-    assert vec.ssl_cert_valid == 1.0
-    assert vec.domain_age_days == 365.0
+    assert vec.vt_malicious_ratio is None
+    assert vec.shodan_open_port_count is None
+    assert vec.ssl_cert_valid is None
+    assert vec.domain_age_days is None
 
 
 def test_extract_features_with_data() -> None:

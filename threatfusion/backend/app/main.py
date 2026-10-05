@@ -11,37 +11,35 @@ The app supports two modes controlled by USE_MOCK_DATA in .env:
 - false: Makes real HTTP calls to external threat intelligence APIs
 """
 
+import asyncio
 from contextlib import asynccontextmanager
-import aiosqlite
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings, startup_warnings
+from app.core.config import get_settings, log_provider_table, startup_warnings
+from app.core.auth import get_api_token, log_token_location
+from app.core.db import init_db
+from app.core.security import SecurityMiddleware
 from app.core.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
 
-# SQL schema for scan history persistence.
-# Using SQLite for development simplicity — PostgreSQL migration is a
-# documented TODO (see docs/ARCHITECTURE.md). The schema stores serialized
-# JSON for flexibility during rapid iteration; a normalized schema would
-# be appropriate for production.
-CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS scans (
-    scan_id TEXT PRIMARY KEY,
-    target TEXT NOT NULL,
-    target_type TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    baseline_score REAL,
-    ml_score REAL,
-    ml_label TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
+_RETENTION_INTERVAL_SECONDS = 6 * 3600
 
-CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target);
-CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp);
-"""
+
+async def _retention_loop(service) -> None:
+    """Purge network data older than NETWORK_RETENTION_DAYS (at startup, then periodically)."""
+    while True:
+        try:
+            days = get_settings().NETWORK_RETENTION_DAYS
+            counts = await service.purge(days)
+            if any(counts.values()):
+                logger.info("Retention purge (%d days): removed %s", days, counts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Retention purge failed")
+        await asyncio.sleep(_RETENTION_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -63,14 +61,19 @@ async def lifespan(app: FastAPI):
     # Step 2: Make it loud and clear which mode we're running in —
     # this prevents confusion during demos and development
     startup_warnings()
+    # Which providers can actually be called (configured / placeholder / missing) — never values.
+    log_provider_table(settings)
     
-    # Step 3: Initialize the database — create tables if they don't exist.
-    # aiosqlite gives us async SQLite access without blocking the event loop.
-    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-    async with aiosqlite.connect(db_path) as db:
-        await db.executescript(CREATE_TABLES_SQL)
-        await db.commit()
-    logger.info("Database initialized: %s", db_path)
+    # Step 2b: make sure an API token exists (generated once, stored outside the repo) and tell the
+    # operator WHERE it is — never what it is.
+    get_api_token()
+    log_token_location()
+
+    # Step 3: Initialize the database — create/upgrade the schema with versioned, in-place
+    # migrations (core/db.py). The path is absolute (see Settings.database_path).
+    db_path = settings.database_path
+    await init_db(db_path)
+    logger.info("Database ready: %s", db_path)
 
     # Step 4: Initialize the Network Layer (baseline store + alert tables).
     # This is always initialised so the API can serve status/history even
@@ -80,6 +83,9 @@ async def lifespan(app: FastAPI):
     from app.network.service import get_service
     net_service = get_service()
     await net_service.init()
+    # Retention (A0-10): purge old per-device browsing history now and every few hours.
+    retention_task = asyncio.create_task(_retention_loop(net_service), name="net-retention")
+
     if settings.NETWORK_AUTO_START:
         logger.info("NETWORK_AUTO_START=true — starting capture")
         await net_service.start()
@@ -89,6 +95,7 @@ async def lifespan(app: FastAPI):
     yield  # Application runs here
 
     # Shutdown cleanup — stop capture threads if running.
+    retention_task.cancel()
     try:
         await net_service.stop()
     except Exception:
@@ -111,6 +118,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request guards (Host allow-list, JSON-only mutations) — added BEFORE CORS so that CORS is the outermost
+# layer and its headers are present on 400/415 responses too.
+app.add_middleware(SecurityMiddleware)
+
 # CORS middleware — allow Vite/React dev origins.
 # Note: allow_origins=["*"] is incompatible with allow_credentials=True
 # in browsers, which surfaces as a CORS failure on fetch.
@@ -122,9 +133,10 @@ app.add_middleware(
         "http://localhost:4173",
         "http://127.0.0.1:4173",
     ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # No cookies/credentials are used: access is by Bearer token, so credentialed CORS is off.
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register route handlers
@@ -133,7 +145,7 @@ from app.api.scan import router as scan_router
 from app.api.analyze import router as analyze_router
 from app.api.traffic import router as traffic_router
 from app.api.verify import router as verify_router
-from app.api.network import router as network_router
+from app.api.network import router as network_router, stream_router
 
 app.include_router(health_router)
 app.include_router(scan_router)
@@ -141,3 +153,4 @@ app.include_router(analyze_router)
 app.include_router(traffic_router)
 app.include_router(verify_router)
 app.include_router(network_router)
+app.include_router(stream_router)

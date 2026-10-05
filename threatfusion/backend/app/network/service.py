@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiosqlite
@@ -66,7 +66,7 @@ class NetworkMonitorService:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+        self._db_path = str(settings.database_path)
         self._settings = settings
 
         self.store = BaselineStore(self._db_path, settings.BASELINE_MIN_OBSERVATIONS)
@@ -162,6 +162,35 @@ class NetworkMonitorService:
         await self._wigle.close()
         self.running = False
         logger.info("Network monitoring stopped")
+
+    # ------------------------------------------------------------------
+    # Retention / erasure (A0-10)
+    # ------------------------------------------------------------------
+
+    async def purge(self, retention_days: int) -> dict[str, int]:
+        """Delete network data older than ``retention_days`` (0 or less = keep everything)."""
+        if retention_days <= 0:
+            return {"devices": 0, "domains": 0, "ports": 0, "alerts": 0}
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        counts = await self.store.purge_older_than(cutoff)
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute("DELETE FROM net_alerts WHERE timestamp < ?", (cutoff,))
+            await db.commit()
+            counts["alerts"] = cur.rowcount
+        self._alerts = [a for a in self._alerts if a.timestamp.isoformat() >= cutoff]
+        self._alerts_by_id = {a.alert_id: a for a in self._alerts}
+        return counts
+
+    async def delete_all_data(self) -> dict[str, int]:
+        """Erase every stored device profile, domain history and alert (user-initiated)."""
+        counts = await self.store.delete_all()
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute("DELETE FROM net_alerts")
+            await db.commit()
+            counts["alerts"] = cur.rowcount
+        self._alerts.clear()
+        self._alerts_by_id.clear()
+        return counts
 
     # ------------------------------------------------------------------
     # Event consumption
