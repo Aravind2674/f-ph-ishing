@@ -180,6 +180,12 @@ class ScanRequest(BaseModel):
                     "only scheme://host/path — the query string, fragment and credentials are dropped. Set true "
                     "to send the URL exactly as typed.",
     )
+    mode: Literal["sync", "async"] = Field(
+        "sync",
+        description="sync (default, unchanged): the response carries the full result. async (B1): the response carries the "
+                    "fast-tier verdict and a scan_id immediately; the slow tier runs as a background job (follow it over "
+                    "GET /scan/{id}/events, fetch it with GET /scan/{id}).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1042,6 +1048,36 @@ class ScanResult(BaseModel):
     )
 
 
+class FastRequest(BaseModel):
+    """Body of ``POST /scan/fast``: just what the local checks need."""
+
+    target: str = Field(..., min_length=1, max_length=2048)
+    target_type: Optional[TargetType] = Field(None, description="Optional; inferred from the target when omitted")
+    send_full_url: bool = Field(False, description="Match the full URL (with query) against the local lists instead of the trimmed form")
+
+
+class FastVerdict(BaseModel):
+    """The fast tier's answer (B1): local data only — nothing about the target left the machine."""
+
+    status: Literal["listed", "suspicious", "official", "info", "nothing_found", "invalid", "not_applicable", "not_assessable"]
+    level: Literal["block", "warn", "info", "none"] = Field(
+        ..., description="block = the exact page is on a local phishing list; warn = look-alike / flagged text / listed host; "
+                         "info = a brand's own domain; none = nothing found (NOT a clean bill of health)")
+    reasons: list[str] = Field(default_factory=list)
+    target_type: Optional[TargetType] = None
+    canonical_host: Optional[str] = None
+    registered_domain: Optional[str] = None
+    listed_by: list[str] = Field(default_factory=list, description="Local lists that name this URL / host")
+    popularity_rank: Optional[int] = Field(None, description="Tranco rank (a prior, not a verdict)")
+    brand_check: Optional[BrandCheck] = None
+    url_risk_score: Optional[float] = Field(None, description="Calibrated URL-text headline probability")
+    url_risk_flagged: Optional[bool] = None
+    list_gaps: list[str] = Field(default_factory=list, description="Local lists that could not be read (unknown, not clean)")
+    cached_scan: Optional[dict] = Field(None, description="A recent full scan of the same target: its id and headline")
+    latency_ms: float = 0.0
+    tier: Literal["fast"] = "fast"
+
+
 class ScanResponse(BaseModel):
     """Top‑level API response wrapper for scan results.
 
@@ -1053,6 +1089,10 @@ class ScanResponse(BaseModel):
     success: bool = Field(True, description="Whether the scan completed without fatal errors")
     result: Optional[ScanResult] = Field(None, description="Full scan result, if successful")
     error: Optional[str] = Field(None, description="Error message, if the scan failed")
+    # Two-tier pipeline (B1), additive: present for ``mode: "async"`` requests and ``GET /scan/{id}`` of a running scan.
+    scan_id: Optional[str] = Field(None, description="Id to follow the slow tier (SSE events / GET /scan/{id})")
+    status: Optional[Literal["running", "done", "error"]] = Field(None, description="Slow-tier state; None = a synchronous scan")
+    fast: Optional[FastVerdict] = Field(None, description="The fast-tier verdict returned immediately in async mode")
 
 
 class ScanHistoryItem(BaseModel):

@@ -9,6 +9,8 @@ export interface ScanRequest {
   // Optional client-chosen id (8-64 chars of A-Z a-z 0-9 _ -). Lets the dashboard open the live progress stream
   // (GET /scan/{id}/events) BEFORE it POSTs the scan. The server generates one when omitted; reuse -> 409.
   scan_id?: string;
+  // "async" (B1): the response carries the fast-tier verdict at once and the slow tier runs as a background job.
+  mode?: "sync" | "async";
 }
 
 export interface RiskExplanation {
@@ -347,10 +349,82 @@ export interface ScanResult {
   data_sources_skipped?: string[];
 }
 
+// ── Fast tier (B1): local-only checks, answered in a fraction of a second ──
+export interface FastVerdict {
+  status: "listed" | "suspicious" | "official" | "info" | "nothing_found" | "invalid" | "not_applicable" | "not_assessable";
+  level: "block" | "warn" | "info" | "none"; // none = nothing found, which is NOT a clean bill of health
+  reasons: string[];
+  target_type: string | null;
+  canonical_host: string | null;
+  registered_domain: string | null;
+  listed_by: string[];
+  popularity_rank: number | null;
+  brand_check: BrandCheck | null;
+  url_risk_score: number | null;
+  url_risk_flagged: boolean | null;
+  list_gaps: string[]; // local lists that could not be read (unknown, not clean)
+  cached_scan: { scan_id: string; baseline_label?: string | null; ml_label?: string | null; verdict_status?: string | null; timestamp?: string } | null;
+  latency_ms: number;
+  tier: "fast";
+}
+
 export interface ScanResponse {
   success: boolean;
   result: ScanResult | null;
   error: string | null;
+  // B1 (async mode / a scan still running)
+  scan_id?: string | null;
+  status?: "running" | "done" | "error" | null;
+  fast?: FastVerdict | null;
+}
+
+// ── India: scam-message patterns and the report kit (B16) ──
+export interface TextMatch {
+  id: string;
+  category: string;
+  label: string;
+  weight: number;
+  evidence: string;
+  why: string;
+  advice: string;
+}
+
+export interface TextUrl {
+  url: string;
+  host: string | null;
+  shortener: boolean;
+  brand_check: BrandCheck | null;
+  note: string | null;
+}
+
+export interface TextAnalysis {
+  risk: "none" | "low" | "medium" | "high";
+  score: number;
+  matches: TextMatch[];
+  urls: TextUrl[];
+  advice: string[];
+  arithmetic: string;
+  limits: string[];
+  language: string;
+  truncated: boolean;
+}
+
+export interface ReportChannel {
+  id: string;
+  name: string;
+  how: string;
+  url: string | null;
+  use_when: string;
+  note: string | null;
+}
+
+export interface ReportKit {
+  kind: "website" | "message" | "call";
+  summary_text: string;
+  steps: string[];
+  channels: ReportChannel[];
+  reminders: string[];
+  generated_at: string;
 }
 
 export interface ScanHistoryItem {
@@ -690,6 +764,50 @@ export const submitScan = async (request: ScanRequest): Promise<ScanResponse> =>
     }
     throw new Error(reason || `API error: ${res.status}`);
   }
+  return res.json();
+};
+
+/** One stored (or still-running) scan: ``status`` is "running" until the slow tier finishes. */
+export const fetchScan = async (scanId: string): Promise<ScanResponse> => {
+  const res = await fetch(`${API_BASE}/scan/${encodeURIComponent(scanId)}`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** Wait for an async scan's slow tier: poll every ``intervalMs`` until it is no longer running (or ``timeoutMs`` passes). */
+export const waitForScan = async (scanId: string, intervalMs = 700, timeoutMs = 120_000): Promise<ScanResponse> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const r = await fetchScan(scanId);
+    if (r.status !== "running") return r;
+    if (Date.now() > deadline) throw new Error("The full scan is taking too long; check the history page in a moment.");
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+};
+
+export const analyzeMessage = async (text: string): Promise<TextAnalysis> => {
+  const res = await fetch(`${API_BASE}/india/analyze-text`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()).analysis;
+};
+
+export const buildReportKit = async (body: { kind: "website" | "message" | "call"; host?: string; url?: string; reasons?: string[]; brand?: string; brand_domain?: string; message_excerpt?: string; lost_money?: boolean }): Promise<ReportKit> => {
+  const res = await fetch(`${API_BASE}/india/report-kit`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const reportKitForScan = async (scanId: string, lostMoney = false): Promise<ReportKit> => {
+  const res = await fetch(`${API_BASE}/india/scan/${encodeURIComponent(scanId)}/report-kit?lost_money=${lostMoney}`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
   return res.json();
 };
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ThreatFusion Scanner",
-  "version": "1.0",
-  "description": "Scan the current page using ThreatFusion ML.",
+  "version": "2.0",
+  "description": "Checks pages against your own ThreatFusion backend (local lists, look-alike detection, URL analysis) and warns about suspicious sites.",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -16,9 +16,22 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "webNavigation"
   ],
   "host_permissions": [
     "http://127.0.0.1:8000/*",

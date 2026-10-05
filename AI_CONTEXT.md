@@ -363,6 +363,17 @@ B11 (exposure), B4 (brand look-alikes), B3 (certificate transparency), B2 (indep
 
 ---
 
-## 19. One-paragraph elevator pitch
+## 19. Phase B-fast-tier — B1 / B15 / B16 / B20 (2026-10, branch `b-fast-tier`, stacked on `a2-ml-validation`)
+
+- **`POST /scan/fast`** never calls a provider and never fetches a page; if you add a lookup to `core/fast.py`, it must stay local. `level: "none"` means *nothing found locally*, never "safe" — do not label it so in any UI.
+- **`POST /scan` is unchanged by default.** `mode: "async"` returns `{scan_id, status: "running", fast}` and the slow tier runs in `core/jobs.JOBS`; `GET /scan/{id}` reports `running` for a job in flight and 404 for a scan the process has lost (restart). The scan id may be chosen by the client (A1-5), so the progress stream can be opened first.
+- **Extension logic lives in `extension/lib.mjs`** (pure, tested by `node --test extension/tests/`); `background.js` and `content.js` are thin. The badge must never say "safe"; the host (not the URL) is what is sent unless the user opted in.
+- **India module**: weights in `app/india/scam_patterns.py` are fixed a priori — do not tune them on data without recording it as a model change. The report kit's channel details were not verified live; the wording tells users to check the official site.
+- **Feedback** is never training data until a human `accepted` review; `ml/feedback_export.py` exports accepted rows only. DB schema is v5.
+- New settings: `SCAN_MAX_CONCURRENT_JOBS`, `SCAN_MAX_PENDING_JOBS`.
+
+---
+
+## 20. One-paragraph elevator pitch
 
 ThreatFusion fuses VirusTotal reputation, Shodan exposure, CVE severity, and web technology fingerprints into one explainable risk score, comparing a trained XGBoost fusion model against a rule-based baseline, with SHAP explanations and optional EPSS/KEV/Exploit-DB attack-path chaining — delivered via a FastAPI backend, React dashboard, and browser extension for a university research demo.

@@ -161,6 +161,8 @@ class Settings(BaseSettings):
     # A1-5: a scan runs its independent providers concurrently; this process-wide gate bounds how many provider
     # calls are in flight at once across ALL scans (sockets, provider quotas, event-loop fairness).
     SCAN_MAX_CONCURRENT_PROVIDERS: int = 8
+    SCAN_MAX_CONCURRENT_JOBS: int = 4                # async scans (B1) running at once; the rest queue
+    SCAN_MAX_PENDING_JOBS: int = 50                  # async scans waiting; beyond this a submit gets HTTP 429
     SCAN_EVENTS_WAIT_SECONDS: int = 30               # how long GET /scan/{id}/events waits for a scan that has not started
 
     # ── Access control (A0-8) ───────────────────────────────────────────

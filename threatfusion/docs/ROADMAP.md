@@ -46,11 +46,17 @@
 - [x] B10 (part) Payload classifier hardened and evaluated on held-out public corpora and held-out obfuscation families
 - [ ] Not done, on purpose: RDAP / DNS / TLS / CT / reputation as *training* features (one live lookup per URL against third parties, and a connection to the phishing host for TLS — see `ml/collect.py`); the deployed headline stays the transparent provider-based baseline
 
+### Phase B-fast-tier — fast verdict, browser extension, India helpers, feedback (branch `b-fast-tier`, stacked on `a2-ml-validation`)
+- [x] B1 Two-tier scans: `POST /scan/fast` answers from **local data only** (OpenPhish / PhishTank feeds, brand look-alike, the URL-text models, Tranco prior, a recent stored scan) and reports its own latency; `POST /scan` with `mode:"async"` returns that verdict plus a `scan_id` at once while the slow tier runs as a bounded in-process job (`GET /scan/{id}` → `running | done | error`, progress over SSE). Synchronous `POST /scan` is unchanged. *[ASK] decision taken as the default: in-process asyncio queue, not arq + Redis (single-user local tool); jobs do not survive a restart.*
+- [x] B15 Extension: service worker checks each top-level navigation with the fast tier (host only; full URL opt-in), badge `!` / `!!` and never "safe", warning banner (closed Shadow DOM) for look-alikes / listed pages, password fields outlined on flagged pages, *Report a mistake* → B20; permissions documented and minimal
+- [x] B16 India helpers: rule-based scam-message patterns (fixed a-priori weights, plain-English why / what to do, *not a verdict*), URLs in the message checked for look-alikes; report kit that **submits nothing** (helpline 1930, cybercrime.gov.in, Sanchar Saathi Chakshu, CERT-In — contact details *not verified live*). *[ASK] default taken: English (+ common Hinglish spellings); Hindi / Tamil copy needs a native reviewer.*
+- [x] B20 Feedback loop (minimal): reports with provenance, **pending until a person accepts them**, accepted-only export for training (`ml/feedback_export.py`); schema v5
+- [ ] Not done: B17 – B19, richer review UI for B20
+
 ### Next
-- [ ] **A2** Validate the ML pipeline: retrain on real snapshot-enriched labels, model-health tests, neural URL canonicalisation, payload-classifier evaluation, model cards
-- [ ] **A3** Passive network monitoring: capture preflight, sensor lifecycle, DNS responses/SNI, reputation fan-out control, rogue-AP precision
-- [ ] **A4** Attack chains, reports, history UX, repo hygiene
-- [ ] **Part B** research-backed features (independent reputation channels, CT/RDAP, lookalike detection, calibrated fusion, …)
+- [ ] **A3** (+ B13 / B14) Passive network monitoring: capture preflight, sensor lifecycle, DNS responses / SNI, reputation fan-out control, rogue-AP precision, JA3 / JA4, DGA / beaconing heuristics, Zeek / Suricata ingestion
+- [ ] **A4** Attack chains, reports, history UX, repo hygiene *[ASK]*
+- [ ] **Part B (rest)** B5, B6, B8, B10 (remainder), B17 – B19
 
 ---
 

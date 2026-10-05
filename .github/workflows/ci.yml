@@ -69,3 +69,17 @@ jobs:
         run: npx oxlint
       - name: Dependency vulnerabilities (npm audit, high+)
         run: npm audit --audit-level=high
+
+  extension:
+    # B15: the extension's decision logic (what is checked, what leaves the browser, what the badge says) is a pure module
+    # with no dependencies, so it is tested with Node's built-in runner.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: threatfusion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --test "extension/tests/*.test.mjs"

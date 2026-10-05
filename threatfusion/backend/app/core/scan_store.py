@@ -81,6 +81,25 @@ class ScanStore:
             logger.warning("Stored scan %s has no readable result", scan_id)
             return None
 
+    async def latest_for_target(self, host: str, since: datetime) -> Optional[dict]:
+        """The newest stored OK scan whose canonical host is ``host`` and that is newer than ``since`` (the fast tier's cache)."""
+        if not host:
+            return None
+        path = self._path()
+        await ensure_db(path)
+        async with aiosqlite.connect(path) as db:
+            async with db.execute(
+                "SELECT scan_id, timestamp, baseline_label, ml_label, verdict_status, mock FROM scans "
+                "WHERE status = 'ok' AND json_extract(result_json,'$.canonical.host') = ? AND timestamp >= ? "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (host.lower(), since.isoformat()),
+            ) as cur:
+                row = await cur.fetchone()
+        if row is None:
+            return None
+        return {"scan_id": row[0], "timestamp": row[1], "baseline_label": row[2], "ml_label": row[3],
+                "verdict_status": row[4], "mock": bool(row[5])}
+
     async def history(self, limit: int = 100, offset: int = 0) -> list[ScanHistoryItem]:
         """Newest first. Lightweight columns only (no full result payloads)."""
         path = self._path()
