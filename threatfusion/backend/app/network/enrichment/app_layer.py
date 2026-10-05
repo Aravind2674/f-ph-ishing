@@ -14,8 +14,7 @@ it does not reimplement any of it:
 * ``app.ingestion.shodan.ShodanClient``          – real port/CVE exposure (IPs)
 * ``app.ml.features.extract_features``           – the 19-dim feature builder
 * ``app.ml.baseline.baseline_score``             – rule heuristic
-* ``app.ml.fusion_model.FusionModel``            – XGBoost fusion
-* ``app.ml.explain.explain_prediction``          – SHAP drivers
+* ``app.ml.runtime.url_risk_service``            – the calibrated URL-text models (tree + CNN + fusion) and their SHAP drivers
 
 Honesty contract
 ----------------
@@ -39,41 +38,22 @@ from pathlib import Path
 from typing import Optional
 
 from app.core import privacy
-from app.core.artifacts import model_path
 from app.core.config import get_settings
 from app.core.hub import hub
 from app.ingestion.shodan import ShodanClient
 from app.ml.baseline import baseline_score
 from app.ml.features import extract_features
-from app.ml.fusion_model import FusionModel
-from app.ml.explain import explain_prediction
+from app.ml.runtime import url_risk_service
 from app.network.models import AppLayerSubScore
 
 logger = logging.getLogger(__name__)
 
 
-def _load_model() -> FusionModel:
-    """Load the shared XGBoost fusion model.
-
-    Mirrors the path-resolution used in ``app.api.scan`` so the network
-    layer scores with the identical model artefact.
-    """
-    model = FusionModel()
-    path = model_path("fusion_model.json")  # configured model dir (absolute), not the CWD
-    if path is not None:
-        try:
-            model.load(path)
-        except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
-            logger.error("XGBoost fusion model NOT loaded from %s: %s", path, e)
-    return model
-
-
-# Loaded once at import — same lifecycle as the App-Layer scan router.
-_model = _load_model()
-
-
 def _ml_label(score: float) -> str:
-    """Identical banding to ``app.api.scan._get_ml_label``."""
+    """Severity band of a score: the URL models' operating-point bands; the plain quartiles for the baseline fallback."""
+    svc = url_risk_service()
+    if svc.loaded:
+        return svc.band(score)
     if score < 0.25:
         return "Low"
     if score < 0.50:
@@ -182,12 +162,17 @@ class AppLayerScorer:
             features = extract_features(vt, shodan, None, None)
             b_score = baseline_score(features)
 
-            if _model.is_loaded:
-                m_score = _model.predict_proba(features)
-                explanations = explain_prediction(_model, features)
+            ml = url_risk_service()
+            url_flagged = False
+            if target_type != "ip" and ml.loaded:
+                # The URL-text models read the observed domain itself (a calibrated probability, SHAP evidence).
+                assessment, explanations, _ = ml.assess(target)
+                m_score = assessment.headline_score
+                url_flagged = assessment.flagged
                 top = [e.human_readable for e in explanations[:4]]
             else:
-                # Fallback path identical to the App-Layer scan router.
+                # An IP has no URL text to read (or the model is not loaded): the baseline stands in, labelled as such by
+                # ``top_explanations`` being empty — it is never presented as an ML opinion.
                 m_score = b_score
                 top = []
 
@@ -196,7 +181,7 @@ class AppLayerScorer:
             total = getattr(vt, "total_engines", 0) or 0
             # "flagged" mirrors the App-Layer's own notion of a bad verdict:
             # any AV engine flags it, or the fused ML score crosses High.
-            flagged = malicious > 0 or suspicious > 0 or m_score >= 0.5
+            flagged = malicious > 0 or suspicious > 0 or url_flagged or m_score >= 0.5
 
             return AppLayerSubScore(
                 available=True,

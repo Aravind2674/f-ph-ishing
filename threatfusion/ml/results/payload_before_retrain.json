@@ -1,0 +1,254 @@
+{
+  "legacy_inference": {
+    "per_class": {
+      "cmdi": {
+        "n": 484,
+        "recall_correct_class": 0.3367768595041322,
+        "not_benign_rate": 0.7871900826446281
+      },
+      "path-traversal": {
+        "n": 1500,
+        "recall_correct_class": 0.8933333333333333,
+        "not_benign_rate": 0.9066666666666666
+      },
+      "sqli": {
+        "n": 796,
+        "recall_correct_class": 0.9886934673366834,
+        "not_benign_rate": 0.9987437185929648
+      },
+      "xss": {
+        "n": 462,
+        "recall_correct_class": 0.6861471861471862,
+        "not_benign_rate": 0.7359307359307359
+      }
+    },
+    "benign": {
+      "n": 84,
+      "false_positive_rate": 0.07142857142857142
+    },
+    "families": {
+      "url_encode_all": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.78099173553719,
+          "path-traversal": 0.798,
+          "sqli": 0.998,
+          "xss": 0.7316017316017316
+        },
+        "mean": 0.8271483667847304
+      },
+      "comment_split": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.9648760330578512,
+          "path-traversal": 0.896,
+          "sqli": 1.0,
+          "xss": 0.7402597402597403
+        },
+        "mean": 0.9002839433293979
+      },
+      "case_alternate": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.7871900826446281,
+          "path-traversal": 0.896,
+          "sqli": 0.998,
+          "xss": 0.7359307359307359
+        },
+        "mean": 0.8542802046438409
+      },
+      "double_url_encode": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.05165289256198347,
+          "path-traversal": 0.358,
+          "sqli": 0.512,
+          "xss": 0.3008658008658009
+        },
+        "mean": 0.3056296733569461
+      },
+      "html_entities": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.9772727272727273,
+          "path-traversal": 0.96,
+          "sqli": 0.998,
+          "xss": 0.7748917748917749
+        },
+        "mean": 0.9275411255411256
+      },
+      "fullwidth": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.9855371900826446,
+          "path-traversal": 1.0,
+          "sqli": 0.994,
+          "xss": 0.9956709956709957
+        },
+        "mean": 0.9938020464384101
+      },
+      "whitespace_variants": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7520661157024794,
+          "path-traversal": 0.896,
+          "sqli": 0.94,
+          "xss": 0.7294372294372294
+        },
+        "mean": 0.8293758362849272
+      },
+      "plus_for_space": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7913223140495868,
+          "path-traversal": 0.896,
+          "sqli": 0.998,
+          "xss": 0.7359307359307359
+        },
+        "mean": 0.8553132624950806
+      },
+      "zero_width_split": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7892561983471075,
+          "path-traversal": 0.784,
+          "sqli": 0.996,
+          "xss": 0.7380952380952381
+        },
+        "mean": 0.8268378591105864
+      }
+    },
+    "confidence_ece": 0.13545756527657835
+  },
+  "current_inference": {
+    "per_class": {
+      "cmdi": {
+        "n": 484,
+        "recall_correct_class": 0.3367768595041322,
+        "not_benign_rate": 0.7871900826446281
+      },
+      "path-traversal": {
+        "n": 1500,
+        "recall_correct_class": 0.9466666666666667,
+        "not_benign_rate": 0.956
+      },
+      "sqli": {
+        "n": 796,
+        "recall_correct_class": 0.9874371859296482,
+        "not_benign_rate": 0.9987437185929648
+      },
+      "xss": {
+        "n": 462,
+        "recall_correct_class": 0.7142857142857143,
+        "not_benign_rate": 0.7640692640692641
+      }
+    },
+    "benign": {
+      "n": 84,
+      "false_positive_rate": 0.07142857142857142
+    },
+    "families": {
+      "url_encode_all": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.7851239669421488,
+          "path-traversal": 0.958,
+          "sqli": 0.998,
+          "xss": 0.7619047619047619
+        },
+        "mean": 0.8757571822117276
+      },
+      "comment_split": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.9648760330578512,
+          "path-traversal": 0.958,
+          "sqli": 1.0,
+          "xss": 0.7683982683982684
+        },
+        "mean": 0.9228185753640299
+      },
+      "case_alternate": {
+        "role": "train",
+        "not_benign_rate": {
+          "cmdi": 0.7871900826446281,
+          "path-traversal": 0.958,
+          "sqli": 0.998,
+          "xss": 0.7619047619047619
+        },
+        "mean": 0.8762737111373475
+      },
+      "double_url_encode": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7851239669421488,
+          "path-traversal": 0.958,
+          "sqli": 0.998,
+          "xss": 0.7619047619047619
+        },
+        "mean": 0.8757571822117276
+      },
+      "html_entities": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.9772727272727273,
+          "path-traversal": 0.978,
+          "sqli": 1.0,
+          "xss": 0.7748917748917749
+        },
+        "mean": 0.9325411255411256
+      },
+      "fullwidth": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.993801652892562,
+          "path-traversal": 1.0,
+          "sqli": 1.0,
+          "xss": 1.0
+        },
+        "mean": 0.9984504132231404
+      },
+      "whitespace_variants": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7851239669421488,
+          "path-traversal": 0.958,
+          "sqli": 0.998,
+          "xss": 0.7619047619047619
+        },
+        "mean": 0.8757571822117276
+      },
+      "plus_for_space": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7892561983471075,
+          "path-traversal": 0.958,
+          "sqli": 0.998,
+          "xss": 0.7640692640692641
+        },
+        "mean": 0.8773313656040929
+      },
+      "zero_width_split": {
+        "role": "held-out",
+        "not_benign_rate": {
+          "cmdi": 0.7995867768595041,
+          "path-traversal": 0.85,
+          "sqli": 0.998,
+          "xss": 0.7424242424242424
+        },
+        "mean": 0.8475027548209366
+      }
+    },
+    "confidence_ece": 0.11511032510004483
+  },
+  "sets": {
+    "attacks": {
+      "cmdi": 484,
+      "path-traversal": 1500,
+      "sqli": 796,
+      "xss": 462
+    },
+    "benign": 84,
+    "overlap_removed": 251
+  }
+}

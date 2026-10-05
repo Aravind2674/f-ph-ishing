@@ -175,14 +175,16 @@ async def _max_loop_lag(coro, interval: float = 0.02) -> tuple[float, object]:
 @pytest.mark.asyncio
 async def test_a_blocking_model_call_does_not_stall_the_event_loop_during_scan(limits, stub_validation, monkeypatch) -> None:
     limits(USE_MOCK_DATA="true", RATE_LIMIT_REQUESTS_PER_MINUTE=100)
-    import app.api.scan as scan_module
     from app.main import app
+    from app.ml.url_risk import UrlRiskService
 
-    def blocking_predict(*a, **k):
-        time.sleep(1.0)          # a CPU-bound torch forward pass, simulated
-        return 0.5
+    real_assess = UrlRiskService.assess
 
-    monkeypatch.setattr(scan_module._neural_model, "predict_proba", blocking_predict)
+    def blocking_assess(self, url):
+        time.sleep(1.0)          # a CPU-bound torch / tree forward pass, simulated
+        return real_assess(self, url)
+
+    monkeypatch.setattr(UrlRiskService, "assess", blocking_assess)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost", headers=AUTH) as client:
         t0 = time.perf_counter()
         lag, resp = await _max_loop_lag(client.post("/scan", json={"target": "lag.example", "target_type": "domain"}))
@@ -244,7 +246,7 @@ async def test_a_slow_provider_times_out_instead_of_holding_the_scan_open(limits
     assert "VirusTotal" in res["data_sources_failed"]
     vt = next(p for p in res["provider_results"] if p["source"] == "virustotal")
     assert vt["status"] == "error" and vt["reason"] == "timeout"
-    assert res["verdict_status"] == "unknown" and res["ml_score"] is None
+    assert res["verdict_status"] == "unknown" and res["ml_status"] == "ok", "the URL-text channel does not wait for providers"
     assert "Shodan" in res["data_sources_succeeded"], "other providers still ran"
 
 

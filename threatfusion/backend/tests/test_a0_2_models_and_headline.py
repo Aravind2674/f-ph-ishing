@@ -32,15 +32,16 @@ def test_all_models_load_when_started_from_an_unrelated_directory(tmp_path: Path
         "import sys; sys.path.insert(0, r'%s');\n"
         "import app.api.scan as s, app.api.analyze as a, app.api.traffic as t\n"
         "import app.network.enrichment.app_layer as l\n"
-        "print('LOADED', s._model.is_loaded, s._neural_model.is_loaded, a._clf.is_loaded,"
-        " t._clf.is_loaded, l._model.is_loaded)\n" % BACKEND
+        "from app.ml.runtime import url_risk_service\n"
+        "svc = url_risk_service()\n"
+        "print('LOADED', svc.loaded, svc.cnn_loaded, svc.fusion_loaded, a._clf.is_loaded, t._clf.is_loaded, not svc.problems)\n" % BACKEND
     )
     out = subprocess.run(
         [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, timeout=240,
         env={**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     assert out.returncode == 0, out.stderr[-800:]
-    assert "LOADED True True True True True" in out.stdout, out.stdout + out.stderr[-500:]
+    assert "LOADED True True True True True True" in out.stdout, out.stdout + out.stderr[-500:]
 
 
 def test_model_dir_defaults_to_the_repo_models_and_is_overridable(tmp_path: Path) -> None:
@@ -71,15 +72,19 @@ def mock_scan_client(monkeypatch: pytest.MonkeyPatch, fake_dns):
 
 
 def test_missing_model_yields_null_ml_score_never_the_baseline(mock_scan_client, monkeypatch) -> None:
-    import app.api.scan as scan_module
-    from app.ml.fusion_model import FusionModel
+    from app.ml.runtime import set_url_risk_service
+    from app.ml.url_risk import UrlRiskService
 
-    monkeypatch.setattr(scan_module, "_model", FusionModel())      # not loaded
-    body = mock_scan_client.post("/scan", json={"target": "some-site.example", "target_type": "domain"}).json()
+    set_url_risk_service(UrlRiskService())                          # nothing loaded
+    try:
+        body = mock_scan_client.post("/scan", json={"target": "some-site.example", "target_type": "domain"}).json()
+    finally:
+        set_url_risk_service(None)
     res = body["result"]
     assert res["ml_score"] is None
     assert res["ml_status"] == "model_not_loaded"
     assert res["ml_label"] == "Unknown"
+    assert res["url_risk"] is None and res["neural_score"] is None
     assert res["baseline_score"] is not None, "the baseline is computed from evidence; it is NOT copied into ml_score"
     assert res["explanations"] == []
 

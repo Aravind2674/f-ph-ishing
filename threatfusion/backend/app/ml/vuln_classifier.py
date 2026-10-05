@@ -16,7 +16,7 @@ obfuscation; a learned character model generalises to unseen mutations
 (``' OR 1=1--`` vs ``'/**/oR/**/1=1-- -``) because it learns the lexical shape of
 an attack, not a literal string.
 
-Design mirrors the proven :class:`~app.ml.url_model.UrlFusionNet` text branch:
+Design mirrors the text branch of the URL CNN (:mod:`app.ml.url_cnn`):
 a TextCNN (Kim, 2014) with parallel kernel widths acting as learned n-gram
 detectors, global max-pooling, then a linear multi-class head. Pure PyTorch,
 CPU-friendly, sub-millisecond per payload.
@@ -33,13 +33,13 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import unquote_plus
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from app.core.artifacts import verify_artifact
+from app.ml.payload_norm import normalize_payload, windows
 
 # ---------------------------------------------------------------------------
 # Vocabulary — printable ASCII covers SQL/HTML/shell metacharacters
@@ -88,6 +88,10 @@ class PayloadCNNConfig:
     num_filters: int = 96
     kernel_sizes: List[int] = field(default_factory=lambda: [3, 4, 5])
     dropout: float = 0.3
+    # Temperature for softmax(logits / T), fitted on held-out data so the confidences mean something (A2-4). 1.0 = unscaled.
+    temperature: float = 1.0
+    # Long inputs are read in overlapping windows of ``max_len`` characters (stride ``window_stride``), max-pooled.
+    window_stride: int = 128
 
     @property
     def vocab_size(self) -> int:
@@ -208,34 +212,49 @@ class VulnClassifier:
         return torch.tensor([ids], dtype=torch.long)
 
     @torch.no_grad()
-    def _classify_one(self, text: str) -> dict:
+    def _probs_one(self, text: str) -> "torch.Tensor":
+        """Class probabilities of a single window (temperature-scaled)."""
         assert self._model is not None and self._config is not None
         self._model.eval()
-        logits = self._model(self._char_tensor(text))
-        probs = torch.softmax(logits, dim=1)[0]
-        class_id = int(torch.argmax(probs).item())
+        logits = self._model(self._char_tensor(text)) / max(float(self._config.temperature), 1e-3)
+        return torch.softmax(logits, dim=1)[0]
+
+    def _classify_text(self, text: str) -> dict:
+        """Classify one string, reading **all** of it: overlapping windows, max-pooled over the attack classes.
+
+        One attack window is enough to call the input an attack (padding an attack past the window length no longer
+        hides it); benign needs *every* window to look benign, so its probability is the minimum over windows.
+        """
+        assert self._config is not None
+        cfg = self._config
+        probs = torch.stack([self._probs_one(w) for w in windows(text, cfg.max_len, cfg.window_stride)])
+        pooled = probs.max(dim=0).values
+        pooled[0] = probs[:, 0].min()
+        pooled = pooled / pooled.sum()
+        class_id = int(torch.argmax(pooled).item())
         return {
-            "label": self._config.class_names[class_id],
+            "label": cfg.class_names[class_id],
             "class_id": class_id,
-            "confidence": float(probs[class_id].item()),
-            "probs": {n: float(probs[i].item()) for i, n in enumerate(self._config.class_names)},
+            "confidence": float(pooled[class_id].item()),
+            "probs": {n: float(pooled[i].item()) for i, n in enumerate(cfg.class_names)},
+            "windows": int(probs.shape[0]),
         }
 
     def classify(self, text: str) -> dict:
-        """Classify one payload → ``{label, class_id, confidence, probs}``.
+        """Classify one payload → ``{label, class_id, confidence, probs, windows}``.
 
-        The value is also **percent-decoded** and classified: attackers encode
-        payloads (``%27%20OR`` → ``' OR``) precisely to slip past pattern
-        matchers, so a real analyser must normalise first. When the raw and
-        decoded forms disagree, the more severe (non-benign) verdict wins — a
-        conservative, defensive choice.
+        The text is read as sent **and** in its normalised form (iterated percent/HTML decoding, NFKC, invisible characters
+        removed, comments → whitespace: ``payload_norm.normalize_payload``). Attackers encode and split payloads precisely to
+        slip past pattern matchers, so a real analyser must normalise first. When the two forms disagree, the more severe
+        (non-benign) verdict wins — a conservative, defensive choice. Long inputs are read in full (sliding windows).
         """
         if not self.is_loaded:
             raise RuntimeError("Model is not loaded. Call load() first.")
-        results = [self._classify_one(text)]
-        decoded = unquote_plus(text)
-        if decoded != text:
-            results.append(self._classify_one(decoded))
+        forms = [text or ""]
+        normalised = normalize_payload(text or "")
+        if normalised != forms[0]:
+            forms.append(normalised)
+        results = [self._classify_text(f) for f in forms]
         # Prefer an attack verdict over benign, then higher confidence.
         results.sort(key=lambda r: (r["class_id"] != 0, r["confidence"]), reverse=True)
         return results[0]

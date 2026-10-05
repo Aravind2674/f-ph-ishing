@@ -1,0 +1,87 @@
+{
+  "seed": 0,
+  "epochs_run": 5,
+  "history": [
+    {
+      "epoch": 0,
+      "train_loss": 0.15261905794065272,
+      "val_pr_auc": 0.8739883647658037,
+      "val_roc_auc": 0.8131437483726236,
+      "seconds": 99.4
+    },
+    {
+      "epoch": 1,
+      "train_loss": 0.1020140055029962,
+      "val_pr_auc": 0.8812492431845526,
+      "val_roc_auc": 0.8246476094969228,
+      "seconds": 99.7
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.0916058738314551,
+      "val_pr_auc": 0.8854625905884111,
+      "val_roc_auc": 0.8288007743195263,
+      "seconds": 104.4
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.08600274869958299,
+      "val_pr_auc": 0.8847953757029241,
+      "val_roc_auc": 0.8218608452370035,
+      "seconds": 99.6
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.08191020557784157,
+      "val_pr_auc": 0.8850147456219642,
+      "val_roc_auc": 0.8238496774823958,
+      "seconds": 100.4
+    }
+  ],
+  "lr": 0.002,
+  "batch_size": 256,
+  "best_val_pr_auc": 0.8854625905884111,
+  "augment_fraction": 0.3,
+  "torch_version": "2.14.1+cpu",
+  "split_report": {
+    "train": {
+      "rows": 390263,
+      "phish_fraction": 0.4718,
+      "domains": 110357,
+      "date_min": "2024-07-02",
+      "date_max": "2025-07-10"
+    },
+    "val": {
+      "rows": 39876,
+      "phish_fraction": 0.5073,
+      "domains": 28489,
+      "date_min": "2025-07-10",
+      "date_max": "2025-09-08"
+    },
+    "val_unfiltered": {
+      "rows": 97566,
+      "phish_fraction": 0.2776,
+      "domains": 42505,
+      "date_min": "2025-07-10",
+      "date_max": "2025-09-08"
+    },
+    "test": {
+      "rows": 70643,
+      "phish_fraction": 0.5913,
+      "domains": 47817,
+      "date_min": "2025-09-08",
+      "date_max": "2025-12-16"
+    },
+    "test_unfiltered": {
+      "rows": 166553,
+      "phish_fraction": 0.4523,
+      "domains": 65278,
+      "date_min": "2025-09-08",
+      "date_max": "2025-12-16"
+    },
+    "val_rows_removed_for_host_overlap": 57690,
+    "test_rows_removed_for_host_overlap": 95910,
+    "train_test_domain_overlap_unfiltered": 15400
+  },
+  "trained_at": "2026-10-04T11:30:10Z"
+}

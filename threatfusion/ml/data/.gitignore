@@ -2,3 +2,17 @@
 *
 !.gitignore
 !.gitkeep
+# Collection provenance is committed (hashes of exactly the data a result was computed on); the data itself is not.
+!raw/
+raw/*
+!raw/phreshphish/
+raw/phreshphish/*
+!raw/phreshphish/MANIFEST.json
+# The payload-list manifest (file hashes of the SecLists / PayloadsAllTheThings lists used) and the dataset provenance (the hashes the
+# URL results were computed on) are committed; the lists and the Parquet files are not.
+!raw/payloads/
+raw/payloads/*
+!raw/payloads/MANIFEST.json
+!processed/
+processed/*
+!processed/PROVENANCE.json

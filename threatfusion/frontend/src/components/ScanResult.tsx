@@ -31,6 +31,7 @@ import { EvidencePanel } from "@/components/EvidencePanel";
 import { ExposurePanel } from "@/components/ExposurePanel";
 import { LookalikePanel } from "@/components/LookalikePanel";
 import { ReputationPanel } from "@/components/ReputationPanel";
+import { UrlRiskPanel } from "@/components/UrlRiskPanel";
 import { FeatureProvenance } from "@/components/FeatureProvenance";
 import { HostSignals } from "@/components/HostSignals";
 import { SourceChips } from "@/components/SourceChip";
@@ -55,7 +56,7 @@ function ShapWaterfall({ items }: { items: RiskExplanation[] }) {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wide2 text-subtle">
         <span>← Decreases Risk</span>
-        <span>Increases Risk →</span>
+        <span>Increases Risk → (log-odds)</span>
       </div>
       {items.map((exp, i) => {
         const raises = exp.shap_value > 0;
@@ -462,6 +463,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         severityLabel={result.baseline_label}
         revealKey={result.scan_id}
       />
+
+      {/* ── Calibrated URL-text models (A2): reads the URL string only; units and prevalence stated ─ */}
+      <UrlRiskPanel risk={result.url_risk} evidence={result.explanations ?? []} />
 
       {/* ── What the score rests on: "based on N of M sources", per-source chips, "no findings ≠ safe" ─ */}
       <EvidencePanel outcomes={result.provider_results} verdict={result.verdict_status} />

@@ -28,10 +28,8 @@ from app.ingestion.reputation_set import EVIDENCE_SOURCES, LOCAL_FEEDS, SOURCES 
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
-from app.ml.explain import explain_prediction
 from app.ml.features import FEATURE_SCHEMA_VERSION, extract_features_with_coverage
-from app.ml.fusion_model import FusionModel
-from app.ml.neural_fusion import NeuralFusionModel
+from app.ml.runtime import url_risk_service
 import app as _app_pkg
 from app.core import providers as prov
 from app.core.artifacts import model_path, model_version
@@ -81,38 +79,16 @@ def provider_gate() -> asyncio.Semaphore:
 # module-level dict (and the `scans` table was created but never written).
 _store = ScanStore()
 
-# ── ML Model Initialization ─────────────────────────────────────────────
-_model = FusionModel()
-# Located via the configured model directory (absolute; independent of the working directory).
-# If it cannot be loaded the API reports ml_score=None / ml_status="model_not_loaded" — it never
-# substitutes the baseline score for it.
-_fusion_path = model_path("fusion_model.json")
-if _fusion_path is None:
-    logger.error("fusion_model.json not found in %s — no ML score will be produced",
-                 get_settings().model_dir)
-else:
-    try:
-        _model.load(_fusion_path)
-    except Exception as e:  # incl. ArtifactIntegrityError: refuse the file, keep the API up
-        logger.error("XGBoost fusion model NOT loaded from %s: %s", _fusion_path, e)
-
-# ── Neural Fusion Model (char-CNN + tabular) ────────────────────────────
+# ── ML models (A2) ──────────────────────────────────────────────────────
+# The URL-level models (calibrated tree model + character CNN + the transparent baseline + stacked fusion) live in one
+# process-wide service (``app.ml.runtime``): integrity-checked against the SHA-256 manifest, validated against their model
+# cards, SHAP explainer built once. A component that cannot load is left out and reported (``/health``); the API never
+# substitutes the baseline for a missing ML score.
 # One chainer per process: it parses the EPSS / KEV / Exploit-DB CSVs on first use, which must happen once, not
 # once per scan (it used to be constructed inside create_scan, re-reading ~300k rows for every CVE-bearing scan).
 from app.ml.chaining import VulnerabilityChainer  # noqa: E402
 
 _chainer = VulnerabilityChainer()
-
-# Optional deep-learning model that also reads the raw URL string. Loaded
-# best-effort: if the checkpoint is absent the pipeline silently falls back to
-# the XGBoost/baseline scores, so this never breaks an existing deployment.
-_neural_model = NeuralFusionModel()
-_neural_path = model_path("neural_fusion.pt")
-if _neural_path is not None:
-    try:
-        _neural_model.load(_neural_path)
-    except Exception as e:  # pragma: no cover - defensive load guard
-        logger.warning("Neural fusion model failed to load: %s", e)
 
 
 def _baseline_label(score: float | None) -> str:
@@ -592,44 +568,36 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         any_ok = any(o.ok for o in outcomes)
         b_score = baseline_score(features) if any_ok else None
 
-        # ── 4. ML Fusion Model & SHAP ───────────────────────────────────
-        # The deployed XGBoost model reads VirusTotal features only (audit §E), so without a
-        # VirusTotal answer it has nothing to score: report that instead of a made-up "Low".
+        # ── 4. URL-level ML (A2): calibrated tree model + char CNN + stacked fusion, SHAP evidence ──────────
+        # These models read the URL *text* only (canonicalised: scheme / www do not matter), so they apply to URL and
+        # domain targets and work even when no provider has heard of the target. They are CPU-bound and synchronous:
+        # run in a worker thread so the event loop (SSE heartbeat, other requests) keeps ticking.
         m_score = None
         m_label = "Unknown"
         explanations = []
-        if not _model.is_loaded:
-            ml_status = "model_not_loaded"
-            logger.warning("ML model not loaded: reporting no ML score (baseline is NOT substituted).")
-        elif not coverage.has_virustotal:
-            ml_status = "insufficient_evidence"
-        else:
-            ml_status = "ok"
-            # XGBoost + SHAP are CPU-bound and synchronous: run them in worker threads so the event loop
-            # (SSE heartbeat, other requests) keeps ticking while they work.
-            m_score = await asyncio.to_thread(_model.predict_proba, features)
-            m_label = _get_ml_label(m_score)
-            explanations = await asyncio.to_thread(explain_prediction, _model, features)
-
-        # ── 4b. Neural Fusion Model (char-CNN + tabular) ────────────────
-        # Reads the raw URL string, so it can flag lexical phishing patterns
-        # even when no external source has ever seen the target (zero-day). It deliberately gets the string
-        # *as typed*: it runs locally (nothing leaves the machine) and the very things canonicalisation
-        # strips — `paypal.com@evil.example` userinfo, odd casing, encodings — are its lexical signal.
         neural_score = None
         neural_label = None
         neural_url_score = None
         neural_explanations = []
-        if _neural_model.is_loaded:
+        url_risk = None
+        ml = url_risk_service()
+        if tt not in (TargetType.URL, TargetType.DOMAIN):
+            ml_status = "not_applicable"                       # an IP or a hash has no URL text to read
+        elif not ml.loaded:
+            ml_status = "model_not_loaded"
+            logger.warning("URL model not loaded (%s): reporting no ML score (baseline is NOT substituted).", ml.problems)
+        else:
             try:
-                neural_score = await asyncio.to_thread(_neural_model.predict_proba, request.target, features)
-                neural_label = _get_ml_label(neural_score)
-                neural_url_score = await asyncio.to_thread(_neural_model.predict_url_only, request.target)
-                # String-lexical explanations only make sense for URL/domain targets.
-                if request.target_type in (TargetType.URL, TargetType.DOMAIN):
-                    neural_explanations = await asyncio.to_thread(_neural_model.explain_url, request.target)
+                url_risk, explanations, neural_explanations = await asyncio.to_thread(ml.assess, request.target)
+                ml_status = "ok"
+                m_score = url_risk.headline_score
+                m_label = ml.band(m_score)
+                neural_score = url_risk.cnn_score
+                neural_url_score = url_risk.cnn_score
+                neural_label = ml.band(neural_score) if neural_score is not None else None
             except Exception as e:
-                logger.warning("Neural fusion scoring failed: %s", e)
+                logger.exception("URL model scoring failed: %s", e)
+                ml_status = "error"
 
         # ── 5. Verdict status + plain-language summary ──────────────────
         verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
@@ -660,6 +628,7 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             feature_coverage=coverage,
             baseline_score=b_score,
             baseline_label=_baseline_label(b_score),
+            url_risk=url_risk,
             ml_score=m_score,
             ml_label=m_label,
             ml_status=ml_status,
@@ -672,8 +641,9 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             summary=summary_text,
             provider_results=[o.outcome() for o in outcomes],
             model_versions={
-                "xgboost_fusion": model_version("fusion_model.json") if _model.is_loaded else "not_loaded",
-                "neural_url": model_version("neural_fusion.pt") if _neural_model.is_loaded else "not_loaded",
+                "url_xgb": model_version("url_xgb.ubj") if ml.loaded else "not_loaded",
+                "url_cnn": model_version("url_cnn.pt") if ml.cnn_loaded else "not_loaded",
+                "url_fusion": model_version("url_fusion.json") if ml.fusion_loaded else "not_loaded",
             },
             feature_schema_version=FEATURE_SCHEMA_VERSION,
             app_version=_app_pkg.APP_VERSION,

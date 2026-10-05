@@ -34,6 +34,18 @@
 - [x] B2 Independent reputation channels: URLhaus, ThreatFox, Google Safe Browsing, AbuseIPDB, urlscan (search only), AlienVault OTX, GreyNoise + local OpenPhish / PhishTank / Tranco feeds with their age; the verdict no longer hinges on VirusTotal
 - [ ] Consumed by the models in **A2-1** (retrain) and **B7** (calibrated fusion): `lookalike_of`, the CT fields and the reputation channels are *reported* today, deliberately not folded into the 19-column deployed model or the baseline score
 
+### Phase A2 — the ML pipeline is real and measured (branch `a2-ml-validation`, stacked on `b-intel-exposure`)
+- [x] A2-1 Maliciousness models retrained on **real data** (PhreshPhish, 654k URLs, 2024-07 → 2025-12, metadata columns only): time-ordered, host-disjoint splits; tuned on validation, tested once; bootstrap 95 % CIs; the a-priori baseline evaluated under the same protocol — on the time-ordered, host-disjoint test set the character CNN reaches PR-AUC 0.960 (tree model 0.927, a-priori lexical baseline 0.824, stacked fusion 0.969). One command regenerates every number: `python -m ml.evaluate --report`
+- [x] A2-2 Model-health regression tests that fail on the audited model (variance, features used, schema match, monotone sanity enforced by `monotone_constraints`, scheme invariance, SHAP additivity)
+- [x] A2-3 URL CNN: dead tabular branch removed, one canonical URL form at train and serve time (scheme / `www` blind), calibrated, no hidden allow-list cap
+- [x] A2-4 Payload classifier: iterated decoding + NFKC + comment/zero-width stripping, sliding windows with max-pooling (no truncation), temperature scaling; retrained on more data with adversarial augmentation and evaluated on corpora it never saw
+- [x] A2-5 Explanations: exact TreeSHAP from XGBoost (`pred_contribs`), units stated (log-odds) plus a probability what-if per feature, additivity asserted by a test, nothing rebuilt per request
+- [x] A2-6 Model cards (`ml/models/*.card.json`, hashed in the manifest) loaded at start-up and summarised in `/health`; a schema mismatch disables the model
+- [x] B7 Calibrated fusion (isotonic / Platt per channel, stacked logistic regression with missingness flags, noisy-OR compared)
+- [x] B9 Time-aware evaluation: per-month decay + AUT, precision at realistic prevalence, permutation importance by feature and group, cheap-evasion robustness (and adversarial training against it)
+- [x] B10 (part) Payload classifier hardened and evaluated on held-out public corpora and held-out obfuscation families
+- [ ] Not done, on purpose: RDAP / DNS / TLS / CT / reputation as *training* features (one live lookup per URL against third parties, and a connection to the phishing host for TLS — see `ml/collect.py`); the deployed headline stays the transparent provider-based baseline
+
 ### Next
 - [ ] **A2** Validate the ML pipeline: retrain on real snapshot-enriched labels, model-health tests, neural URL canonicalisation, payload-classifier evaluation, model cards
 - [ ] **A3** Passive network monitoring: capture preflight, sensor lifecycle, DNS responses/SNI, reputation fan-out control, rogue-AP precision

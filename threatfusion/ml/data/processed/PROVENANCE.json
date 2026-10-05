@@ -1,0 +1,21 @@
+{
+  "benign_rows": 367857,
+  "cleaning": {
+    "after_dropna": 666315,
+    "contradictory_urls_dropped": 1,
+    "duplicate_rows_dropped": 11928,
+    "raw_rows": 666315,
+    "rows": 654382
+  },
+  "code_commit": "4dc1e965c338eece5daaf33540bc16346cb357f9",
+  "dataset_file": "urls_v1.parquet",
+  "dataset_sha256": "68874bb21bbdb49a7b03d5686d561857544a9dd237e3cce95a1fb817389680d6",
+  "date_max": "2025-12-16",
+  "date_min": "2024-07-02",
+  "feature_schema_version": 1,
+  "n_features": 39,
+  "phish_rows": 286525,
+  "raw_manifest_sha256": "c9a8992226caca0999fa60878ced4703392347dd38447e5510d16211e052c75c",
+  "rows": 654382,
+  "source": "PhreshPhish (CC-BY-4.0), metadata columns only"
+}

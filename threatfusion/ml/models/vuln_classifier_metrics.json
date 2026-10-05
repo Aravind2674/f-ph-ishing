@@ -1,6 +1,7 @@
 {
   "model": "PayloadCNN (char-level TextCNN, multi-class)",
   "framework": "pytorch",
+  "trained_at": "2026-10-04T11:47:29Z",
   "data_source": {
     "source": "real HTTP request-parameter corpus (Morzeux HttpParamsDataset; CSIC-2010 + real attack payloads)",
     "total": 31067,
@@ -12,7 +13,16 @@
       "cmdi": 89
     },
     "skipped_unknown_type": 0,
-    "dedup": "exact (payload, class) pairs"
+    "dedup": "exact (payload, class) pairs",
+    "extended_with": "SecLists attack lists (MIT) + real benign path segments / parameter values (PhreshPhish benign URLs)",
+    "class_cap": 6000,
+    "final_distribution": {
+      "benign": 6000,
+      "sqli": 6000,
+      "xss": 708,
+      "path-traversal": 1931,
+      "cmdi": 1988
+    }
   },
   "n_parameters": 40869,
   "classes": [
@@ -22,84 +32,401 @@
     "path-traversal",
     "cmdi"
   ],
-  "test_size": 6214,
-  "accuracy": 0.9993562922433216,
-  "macro_f1": 0.990936177053112,
-  "weighted_f1": 0.9993557084550082,
-  "per_class": {
-    "benign": {
-      "precision": 0.9992234015014237,
-      "recall": 0.9997409997409997,
-      "f1-score": 0.9994821336095288,
-      "support": 3861.0
+  "temperature": 1.1385198831558228,
+  "epochs_run": 11,
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 0.47325993726531296,
+      "val_macro_f1": 0.9473358984192821
     },
-    "sqli": {
-      "precision": 1.0,
-      "recall": 0.9995393827729157,
-      "f1-score": 0.9997696383321816,
-      "support": 2171.0
+    {
+      "epoch": 2,
+      "loss": 0.10354614987895147,
+      "val_macro_f1": 0.988763767344628
     },
-    "xss": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 106.0
+    {
+      "epoch": 3,
+      "loss": 0.05510754536591851,
+      "val_macro_f1": 0.9927053627723941
     },
-    "path-traversal": {
-      "precision": 1.0,
-      "recall": 0.9655172413793104,
-      "f1-score": 0.9824561403508771,
-      "support": 58.0
+    {
+      "epoch": 4,
+      "loss": 0.037329403332830725,
+      "val_macro_f1": 0.9896043779789488
     },
-    "cmdi": {
-      "precision": 0.9473684210526315,
-      "recall": 1.0,
-      "f1-score": 0.972972972972973,
-      "support": 18.0
+    {
+      "epoch": 5,
+      "loss": 0.02828589944592012,
+      "val_macro_f1": 0.993701301615516
+    },
+    {
+      "epoch": 6,
+      "loss": 0.024491410908587457,
+      "val_macro_f1": 0.9891070499009611
+    },
+    {
+      "epoch": 7,
+      "loss": 0.018447969547992705,
+      "val_macro_f1": 0.993701301615516
+    },
+    {
+      "epoch": 8,
+      "loss": 0.015187944019382574,
+      "val_macro_f1": 0.9950562563215033
+    },
+    {
+      "epoch": 9,
+      "loss": 0.012279688216304516,
+      "val_macro_f1": 0.9943753359324644
+    },
+    {
+      "epoch": 10,
+      "loss": 0.013550282810291112,
+      "val_macro_f1": 0.9950562563215033
+    },
+    {
+      "epoch": 11,
+      "loss": 0.012519044334132612,
+      "val_macro_f1": 0.9950562563215033
     }
-  },
-  "confusion_matrix": [
-    [
-      3860,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      1,
-      2170,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      106,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      56,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      18
-    ]
   ],
-  "confusion_matrix_labels": [
-    "benign",
-    "sqli",
-    "xss",
-    "path-traversal",
-    "cmdi"
-  ]
+  "seed": 42,
+  "in_distribution_test": {
+    "note": "random split of the TRAINING corpora: an optimistic upper bound, not a generalisation estimate",
+    "n": 1663,
+    "accuracy": 0.9963920625375827,
+    "macro_f1": 0.9953938404727747,
+    "per_class": {
+      "benign": {
+        "precision": 0.9950083194675541,
+        "recall": 0.9966666666666667,
+        "f1-score": 0.9958368026644463,
+        "support": 600.0
+      },
+      "sqli": {
+        "precision": 1.0,
+        "recall": 0.9966666666666667,
+        "f1-score": 0.998330550918197,
+        "support": 600.0
+      },
+      "xss": {
+        "precision": 0.9861111111111112,
+        "recall": 1.0,
+        "f1-score": 0.993006993006993,
+        "support": 71.0
+      },
+      "path-traversal": {
+        "precision": 0.9897435897435898,
+        "recall": 1.0,
+        "f1-score": 0.9948453608247423,
+        "support": 193.0
+      },
+      "cmdi": {
+        "precision": 1.0,
+        "recall": 0.9899497487437185,
+        "f1-score": 0.9949494949494949,
+        "support": 199.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        598,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        2,
+        598,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        71,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        193,
+        0
+      ],
+      [
+        1,
+        0,
+        1,
+        0,
+        197
+      ]
+    ],
+    "confusion_matrix_labels": [
+      "benign",
+      "sqli",
+      "xss",
+      "path-traversal",
+      "cmdi"
+    ]
+  },
+  "held_out": {
+    "note": "PayloadsAllTheThings attacks (training overlap removed), real benign text held out by hash bucket, obfuscation families never used in training",
+    "sets": {
+      "attacks": {
+        "cmdi": 100,
+        "path-traversal": 1500,
+        "sqli": 783,
+        "xss": 441
+      },
+      "benign": 6000,
+      "overlap_removed": 393
+    },
+    "legacy_inference": {
+      "per_class": {
+        "cmdi": {
+          "n": 100,
+          "recall_correct_class": 0.85,
+          "not_benign_rate": 0.93
+        },
+        "path-traversal": {
+          "n": 1500,
+          "recall_correct_class": 0.9726666666666667,
+          "not_benign_rate": 0.988
+        },
+        "sqli": {
+          "n": 783,
+          "recall_correct_class": 0.9936143039591315,
+          "not_benign_rate": 0.9987228607918263
+        },
+        "xss": {
+          "n": 441,
+          "recall_correct_class": 0.6349206349206349,
+          "not_benign_rate": 0.6848072562358276
+        }
+      },
+      "benign": {
+        "n": 6000,
+        "false_positive_rate": 0.005166666666666667
+      },
+      "families": {
+        "url_encode_all": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.94,
+            "path-traversal": 0.99,
+            "sqli": 1.0,
+            "xss": 0.7210884353741497
+          },
+          "mean": 0.9127721088435373
+        },
+        "comment_split": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.93,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.691609977324263
+          },
+          "mean": 0.9014024943310658
+        },
+        "case_alternate": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.93,
+            "path-traversal": 0.988,
+            "sqli": 0.998,
+            "xss": 0.6848072562358276
+          },
+          "mean": 0.9002018140589569
+        },
+        "double_url_encode": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.86,
+            "path-traversal": 0.982,
+            "sqli": 0.992,
+            "xss": 0.7029478458049887
+          },
+          "mean": 0.8842369614512472
+        },
+        "html_entities": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.96,
+            "path-traversal": 0.986,
+            "sqli": 1.0,
+            "xss": 0.764172335600907
+          },
+          "mean": 0.9275430839002267
+        },
+        "fullwidth": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.99,
+            "path-traversal": 1.0,
+            "sqli": 1.0,
+            "xss": 0.9841269841269841
+          },
+          "mean": 0.9935317460317461
+        },
+        "whitespace_variants": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.95,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.6893424036281179
+          },
+          "mean": 0.9058356009070295
+        },
+        "plus_for_space": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.93,
+            "path-traversal": 0.988,
+            "sqli": 0.998,
+            "xss": 0.6848072562358276
+          },
+          "mean": 0.9002018140589569
+        },
+        "zero_width_split": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.92,
+            "path-traversal": 0.97,
+            "sqli": 0.964,
+            "xss": 0.6893424036281179
+          },
+          "mean": 0.8858356009070295
+        }
+      },
+      "confidence_ece": 0.010812084490293175
+    },
+    "current_inference": {
+      "per_class": {
+        "cmdi": {
+          "n": 100,
+          "recall_correct_class": 0.85,
+          "not_benign_rate": 0.93
+        },
+        "path-traversal": {
+          "n": 1500,
+          "recall_correct_class": 0.982,
+          "not_benign_rate": 0.988
+        },
+        "sqli": {
+          "n": 783,
+          "recall_correct_class": 0.9936143039591315,
+          "not_benign_rate": 0.9987228607918263
+        },
+        "xss": {
+          "n": 441,
+          "recall_correct_class": 0.6349206349206349,
+          "not_benign_rate": 0.6848072562358276
+        }
+      },
+      "benign": {
+        "n": 6000,
+        "false_positive_rate": 0.005166666666666667
+      },
+      "families": {
+        "url_encode_all": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.94,
+            "path-traversal": 0.99,
+            "sqli": 0.998,
+            "xss": 0.7188208616780045
+          },
+          "mean": 0.9117052154195011
+        },
+        "comment_split": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.94,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.691609977324263
+          },
+          "mean": 0.9039024943310657
+        },
+        "case_alternate": {
+          "role": "train",
+          "not_benign_rate": {
+            "cmdi": 0.93,
+            "path-traversal": 0.988,
+            "sqli": 0.998,
+            "xss": 0.6848072562358276
+          },
+          "mean": 0.9002018140589569
+        },
+        "double_url_encode": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.94,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.6984126984126984
+          },
+          "mean": 0.9056031746031745
+        },
+        "html_entities": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.96,
+            "path-traversal": 0.992,
+            "sqli": 1.0,
+            "xss": 0.764172335600907
+          },
+          "mean": 0.9290430839002267
+        },
+        "fullwidth": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 1.0,
+            "path-traversal": 1.0,
+            "sqli": 1.0,
+            "xss": 0.9931972789115646
+          },
+          "mean": 0.9982993197278911
+        },
+        "whitespace_variants": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.95,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.6893424036281179
+          },
+          "mean": 0.9058356009070295
+        },
+        "plus_for_space": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.93,
+            "path-traversal": 0.988,
+            "sqli": 0.996,
+            "xss": 0.6848072562358276
+          },
+          "mean": 0.899701814058957
+        },
+        "zero_width_split": {
+          "role": "held-out",
+          "not_benign_rate": {
+            "cmdi": 0.94,
+            "path-traversal": 0.988,
+            "sqli": 0.998,
+            "xss": 0.691609977324263
+          },
+          "mean": 0.9044024943310658
+        }
+      },
+      "confidence_ece": 0.011023230148193935
+    }
+  }
 }

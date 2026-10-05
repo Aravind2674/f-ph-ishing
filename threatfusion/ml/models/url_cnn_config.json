@@ -1,0 +1,14 @@
+{
+  "max_len": 200,
+  "emb_dim": 32,
+  "num_filters": 64,
+  "kernel_sizes": [
+    3,
+    5,
+    7
+  ],
+  "hidden": 64,
+  "dropout": 0.3,
+  "alphabet": "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+  "canonicalisation": "url_canon.canonical_url_text v1"
+}

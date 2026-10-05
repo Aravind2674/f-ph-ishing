@@ -63,46 +63,27 @@ The feature engineering layer maps raw API JSON into a 19-dimensional continuous
 
 ## Model Architecture
 
-The system utilizes an **XGBoost (Extreme Gradient Boosting)** classifier (`FusionModel`).
-- **Input**: 19-dimensional continuous feature vector.
-- **Output**: Binary classification (`0` = Safe, `1` = Malicious) and continuous risk probability.
-- **Explainability**: SHAP (SHapley Additive exPlanations) is used to attribute the final risk score back to the exact features that drove the decision, providing human-readable context to analysts.
+*(Rewritten in Phase A2. The audited XGBoost-on-19-provider-features model and the `UrlFusionNet` character/tabular network were
+trained on synthetic data, are no longer in the repository, and are described in `AUDIT_REPORT.md` §E. What replaced them is below.)*
 
-### Neural Fusion Model (deep learning)
-
-XGBoost scores a target purely from *third-party reputation*, which is blind on
-day zero: a freshly-registered phishing domain has no vendor detections yet, so
-a reputation-only model rates it *safe*. To close that gap we add a
-**character-level neural network** (`UrlFusionNet`, PyTorch) that reads the raw
-URL/domain **string** directly and fuses it with the tabular features.
+The headline question — *is this URL malicious?* — is answered by **three independent channels that read the URL text only**, then
+fused, then calibrated. Everything else (VirusTotal, URLhaus, RDAP, DNS, TLS, certificate transparency, exposure) is evidence
+reported *next to* that score; it is not an input to it, so a provider outage cannot move it and a label feed cannot leak into it.
 
 ```
-raw URL string ──► char embedding ──► parallel Conv1d (k=3,4,5)  ─┐  (TextCNN)
-                                       ReLU + global max-pool      │
-                                                                   ├─► fusion MLP ─► fused risk
-19-dim FeatureVector ──► tabular MLP ──────────────────────────────┘
-                                       │
-              text representation ─────┴─► text-only head ─► URL-only risk (zero-day)
+URL text ─► canonical form (no scheme, no www, host lower-cased)
+              ├─► 39 lexical features ─► XGBoost (monotone brand constraints) ─► isotonic calibration ─┐
+              ├─► character CNN (no tabular branch)                            ─► Platt calibration  ─┼─► stacked logistic fusion
+              └─► a-priori lexical rules (weights fixed before training)       ─► calibration        ─┘    (+ missingness flags)
 ```
 
-- **Text branch** – a TextCNN (Kim, 2014) over character embeddings; multiple
-  kernel widths act as learned character n-gram detectors for phishing lexicon
-  (brand impersonation, homoglyphs, hyphen/keyword stuffing, suspicious TLDs,
-  IP hosts). ~40k parameters; sub-millisecond CPU inference.
-- **Tabular branch** – a small MLP over the standardised 19-dim reputation vector.
-- **Fusion head** – concatenates both branches and predicts the final risk;
-  trained end-to-end with back-propagation (`ml/train_neural.py`).
-- **URL-only head** – a second head over the text representation alone, so a bare
-  URL can be scored with **no** external enrichment. This is surfaced in the API
-  as `neural_url_score` — the zero-day signal.
-- **Explainability** – per-character **saliency** (gradient of the URL-only logit
-  w.r.t. the character embeddings) highlights the exact suspicious substring
-  (e.g. the `paypa1` look-alike token), returned as `neural_explanations`.
-
-The API (`/scan`) runs the neural model alongside XGBoost and returns
-`neural_score`, `neural_label`, `neural_url_score`, and `neural_explanations`
-in addition to the existing baseline/ML scores. Loading is best-effort: if the
-checkpoint is absent the pipeline transparently falls back to the prior scores.
+- **Honest evaluation** (`ml/evaluate.py`): PhreshPhish (CC-BY-4.0), time-ordered and host-disjoint splits, tuned on validation and
+  tested once, cluster-bootstrap CIs, the a-priori baseline under the same protocol. See `ml/results/report.md` — regenerated
+  by `python -m ml.evaluate --report`.
+- **Explanations**: exact TreeSHAP (`pred_contribs`) in log-odds, with a probability what-if per feature.
+- **Calibration** is to the validation prevalence (~half phishing). `url_risk.at_prevalence` shows what the same score means at
+  1-in-100 and 1-in-1000 prevalence.
+- **Integrity**: SHA-256 manifest + model cards; a schema mismatch disables the model and `/health` says so.
 
 ## Phase 2 — Neural HTTP Attack Classifier
 
@@ -114,7 +95,9 @@ strings and is bypassed by obfuscation — a learned character model generalises
 unseen mutations (`' OR 1=1--` vs `'/**/oR/**/1=1-- -`) because it learns the
 lexical shape of an attack.
 
-- **Training data (real).** `ml/train_vuln.py` trains on the **Morzeux
+- **Training data (real).** `ml/train_vuln.py` (A2-4) trains on the **Morzeux
+  HttpParamsDataset**, extended with the public SecLists attack lists and real benign text, with adversarially obfuscated copies of
+  training payloads, and is evaluated on corpora it never saw (`ml/payload_eval.py`); the original description follows: **Morzeux
   HttpParamsDataset** (`ml/data_sources.py` → `build_http_attack_dataset`): real
   CSIC-2010 normal request parameters plus real SQLi/XSS/path-traversal/cmdi
   attack payloads. The class distribution is genuinely imbalanced (benign and
@@ -227,6 +210,20 @@ legitimate and badly patched.
 | Verdict | `api/scan.py::_assess_verdict` | Reputation evidence = VirusTotal + the B2 evidence channels. Any with a record ⇒ not *unknown*; none ⇒ *unknown* ("absence of evidence"). For B2 channels "no record" is a normal answer; an error or a missing key is a gap. |
 | UI | `frontend/src/lib/{exposure,lookalike,reputation,hostsignals}.ts` + panels | Pure view models (unit-tested) rendered monochrome; unknown is said, never zero; "not listed" is never "safe". |
 
+## ML architecture (Phase A2)
+
+| Concern | Component | Behaviour |
+|---|---|---|
+| Data | `ml/collect.py`, `ml/dataset.py` | PhreshPhish metadata columns via HTTP range requests (no HTML, no page visited), resumable, hashes in `MANIFEST.json`; canonicalise → de-duplicate → featurise in parallel; `PROVENANCE.json` ties a result to its data and code. |
+| Canonical form | `app/ml/url_canon.py` | One function for training and serving: scheme and leading `www.` dropped, host lower-cased, path case kept. The audited 0.13 → 0.99 jump from a prepended `https://` cannot recur by construction (and a test asserts ≤ 0.02 variation). |
+| Features | `app/ml/url_features.py` | 39 URL-string features in 5 groups (surface / host / path / risk / brand); none that a label feed also supplies (no popularity rank, no blocklist membership, no scheme). Same code in the API, the extension path and training. |
+| Models | `app/ml/url_risk.py` | Tree model (monotone constraints on the brand features) + text-only character CNN + a-priori lexical baseline, each **calibrated** on validation data, + a **stacked fusion** with missingness flags. Integrity-checked against the SHA-256 manifest and validated against model cards; a component that fails is left out and reported. |
+| Evidence | `url_risk.py` | Exact TreeSHAP (`pred_contribs`): log-odds contributions that add up to the margin, a probability what-if per feature, plain-English labels; the headline states what it means at 1-in-100 / 1-in-1000 prevalence. |
+| Evaluation | `ml/evaluate.py`, `ml/metrics.py` | Protocol set in advance; cluster (registered-domain) bootstrap CIs; per-month decay + AUT; base-rate precision; permutation importance by group; cheap-evasion robustness; B4 on real data; fusion under simulated outages. Writes `ml/results/report.md/json`, figures and the model cards. |
+| Payloads | `app/ml/payload_norm.py`, `vuln_classifier.py`, `ml/payload_*.py` | Normalise → classify raw **and** normalised → sliding windows, max-pooled → temperature-scaled; evaluated on PayloadsAllTheThings (training overlap removed), real benign text and held-out obfuscation families. |
+
+Honest limits (also in every model card): the data is a benchmark (~45 % phishing), the models read the URL **text** only, and host-disjoint evaluation lowers every score on purpose. Results drift: see the decay table.
+
 ## Evaluation Results
 
 > ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,
@@ -253,28 +250,12 @@ This introduces potential biases:
 We document this transparently as a limitation and discuss its impact
 on our evaluation metrics in the results section.
 
-> **Phase 1 update — the neural URL model now trains on real data.**
-> `ml/train_neural.py --real` trains the character-level `UrlFusionNet` on a
-> **real labelled full-URL corpus** (~40k URLs, both benign and malicious are
-> real observed URLs *with real paths*, so there is no domain-vs-full-URL
-> shortcut and nothing on the benign side is synthesised — see
-> `ml/data_sources.py`). Honest held-out performance is **F1 ≈ 0.94 /
-> ROC-AUC ≈ 0.98** for the URL-only (text) branch — lower than the earlier
-> synthetic figure precisely because the task is harder and the evaluation is
-> no longer drawn from the training distribution. The `tabular_only` ablation
-> is ~0.50 AUC by design here: with no real *multi-source* labels per URL the
-> tabular branch is fed the neutral pre-enrichment vector, so the fused score
-> leans on the URL branch. Real multi-source tabular labels are a later phase.
->
-> **Registered-domain allowlist.** A character-level model cannot tell a brand
-> in the *registered domain* (`paypal.com/us/signin`, legitimate) from a brand
-> used as a *token* (`paypal-verify.tk`, phishing) — they are lexically almost
-> identical. `NeuralFusionModel` therefore caps the URL risk at 0.15 when the
-> registered domain is a known top site (real Tranco top-3000, in
-> `app/ml/top_domains.txt`), using last-2/last-3 label matching so a spoof like
-> `paypal.com.secure-verify.tk` (registrable domain `secure-verify.tk`) is
-> **not** suppressed. This eliminates the brand false-positive class without
-> creating a bypass.
+> **Superseded in Phase A2.** The Phase-1 neural model, its registered-domain allow-list cap (`top_domains.txt`) and the training
+> scripts described here were removed: the allow-list silently capped the URL risk at 0.15 for popular domains (which hid
+> compromised popular sites), the tabular branch was trained on a constant vector, the input was not canonicalised (a prepended
+> `https://` moved a score from 0.13 to 0.99), and the only evaluation was a random split of one corpus (`AUDIT_REPORT.md` §E).
+> The replacement is described under *Model Architecture* above; popularity (Tranco rank) is now a *prior reported to the user*
+> and an input to the fast tier's official-domain logic, never a cap on a model score.
 
 ### Mock Data Mode
 The system supports a `USE_MOCK_DATA=true` mode for development and

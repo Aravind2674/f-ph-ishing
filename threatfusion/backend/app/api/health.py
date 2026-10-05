@@ -55,6 +55,11 @@ class HealthResponse(BaseModel):
         description="Per-provider readiness (A0-5). A provider that is not configured is "
                     "never called; scans list it under data_sources_skipped.",
     )
+    models: dict[str, dict] = Field(
+        default_factory=dict,
+        description="ML model health (A2-6): status ok | disabled with the reason (integrity, missing card, schema "
+                    "mismatch), plus the card's headline metrics and limitations.",
+    )
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────
@@ -66,7 +71,17 @@ class HealthResponse(BaseModel):
 )
 async def health_check() -> HealthResponse:
     """Lightweight health check — no DB or external calls."""
+    from app.ml import model_cards
+    from app.ml.runtime import url_risk_service
+
     settings = get_settings()
+    models = url_risk_service().health()
+    try:                                                         # the HTTP attack classifier's card (A2-4 / A2-6)
+        card = model_cards.load_card("vuln_classifier")
+        models["payload_classifier"] = ({**model_cards.summary(card, None), "held_out": (card.get("metrics") or {}).get("held_out_recall_correct_class")}
+                                        if card else {"status": "no model card"})
+    except Exception as exc:                                     # integrity failure etc.: reported, never swallowed
+        models["payload_classifier"] = {"status": "disabled", "reason": f"{type(exc).__name__}"}
     return HealthResponse(
         status="healthy",
         version="0.1.0",
@@ -75,4 +90,5 @@ async def health_check() -> HealthResponse:
             name: ProviderHealth(configured=st.configured, mock=st.mock, state=st.state)
             for name, st in settings.provider_statuses().items()
         },
+        models=models,
     )

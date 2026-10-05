@@ -1,0 +1,150 @@
+{
+  "name": "url_fusion",
+  "version": "fusion-68874bb2",
+  "task": "Stacked fusion of the calibrated URL channels (B7)",
+  "created_at": "2026-10-04T11:34:53Z",
+  "intended_use": "Fast-tier triage of a URL string (B1) and one calibrated channel of the fusion (B7). Not a verdict; never a reason to block without corroboration.",
+  "limitations": [
+    "Scores the URL text only: not the page, the owner or the infrastructure.",
+    "Trained on PhreshPhish (a benchmark, ~45 % phishing); calibrated probabilities overstate risk at real-world prevalence \u2014 use `at_prevalence`.",
+    "Performance decays as phishing practice shifts (see the per-month table); retrain on fresh data periodically.",
+    "Cannot see look-alike abuse of free hosting platforms except through hosting-pattern features it learned."
+  ],
+  "feature_schema": {
+    "version": 1,
+    "names": [
+      "url_len",
+      "host_len",
+      "path_len",
+      "query_len",
+      "digit_ratio",
+      "letter_ratio",
+      "special_count",
+      "upper_ratio",
+      "url_entropy",
+      "host_dots",
+      "host_hyphens",
+      "host_digit_ratio",
+      "subdomain_depth",
+      "registered_label_len",
+      "tld_len",
+      "tld_is_common",
+      "host_is_ip",
+      "host_has_port",
+      "host_has_userinfo",
+      "host_is_punycode",
+      "host_mixed_script",
+      "host_entropy",
+      "host_longest_label",
+      "path_segments",
+      "path_longest_segment",
+      "path_entropy",
+      "query_params",
+      "path_has_double_slash",
+      "path_has_extension",
+      "path_digit_ratio",
+      "risk_words_host",
+      "risk_words_path",
+      "risk_words_query",
+      "lookalike_score",
+      "lookalike_flagged",
+      "is_official_domain",
+      "brand_in_subdomain",
+      "brand_in_path",
+      "brand_keyword"
+    ]
+  },
+  "data": {
+    "source": "PhreshPhish (CC-BY-4.0), metadata columns only",
+    "rows_train": 390263,
+    "rows_val": 39876,
+    "rows_test": 70643,
+    "date_range": "2024-07-02 \u2192 2025-12-16",
+    "dataset_sha256": "68874bb21bbdb49a7b03d5686d561857544a9dd237e3cce95a1fb817389680d6",
+    "raw_manifest_sha256": "c9a8992226caca0999fa60878ced4703392347dd38447e5510d16211e052c75c",
+    "splits": "time-ordered, host-disjoint (ml/dataset.py)",
+    "leakage_controls": [
+      "no feature that a label feed also supplies (no popularity rank, no blocklist membership, no scheme)",
+      "evaluation rows removed when their registered domain is in the fitted data"
+    ]
+  },
+  "training": {
+    "channels": [
+      "xgb",
+      "cnn",
+      "baseline"
+    ],
+    "cross_fitted_on": "validation",
+    "dropout": 0.25
+  },
+  "calibration": {
+    "kind": "stacked-logistic-regression",
+    "fit_on": "validation",
+    "validation_prevalence": 0.5073477781121477,
+    "threshold_fpr_1pct": 0.9059858350523033,
+    "cv_brier": null
+  },
+  "metrics": {
+    "test": {
+      "pr_auc": 0.9687586324541674,
+      "roc_auc": 0.9490207793866097,
+      "f1": 0.8286747323042692,
+      "precision": 0.9884878242983213,
+      "recall": 0.7133451446083126,
+      "fpr": 0.012017316017316017,
+      "fpr_at_recall_95": 0.3288311688311688,
+      "recall_at_fpr_1pct": 0.6989082551235396,
+      "brier": 0.08726701105228553,
+      "ece": 0.0320071912192523,
+      "n": 70643,
+      "positives": 41768,
+      "threshold": 0.9059858350523033,
+      "ci95": {
+        "pr_auc": [
+          0.9643027538781229,
+          0.9725639395090746
+        ],
+        "roc_auc": [
+          0.9434374492457301,
+          0.9545607703266782
+        ],
+        "f1": [
+          0.816251529807732,
+          0.8395263986594313
+        ],
+        "precision": [
+          0.9867829496949737,
+          0.9898839453918289
+        ],
+        "recall": [
+          0.6958295963597325,
+          0.7288957260910061
+        ],
+        "fpr": [
+          0.010860653749694705,
+          0.013405596047741717
+        ],
+        "fpr_at_recall_95": [
+          0.29360102530088117,
+          0.44316467991430325
+        ],
+        "recall_at_fpr_1pct": [
+          0.6751845752136674,
+          0.7160584731418651
+        ],
+        "brier": [
+          0.08295860736075007,
+          0.09191063098063092
+        ],
+        "ece": [
+          0.02680210247237132,
+          0.03925818556251828
+        ]
+      }
+    },
+    "protocol": "time-ordered host-disjoint test; threshold FPR<=1% chosen on validation; cluster bootstrap CIs",
+    "decay_aut_recall": 0.6426979150257808
+  },
+  "report": "ml/results/report.md",
+  "threshold": 0.9059858350523033
+}

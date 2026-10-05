@@ -42,7 +42,7 @@ MANIFEST_SCHEMA_VERSION = 1
 # Which files in ``ml/models`` are *runtime* artifacts (hashed + verified) as opposed to
 # human-readable reports (``*_metrics.json``) that the app never loads.
 _ARTIFACT_SUFFIXES = (".pt", ".pth")
-_ARTIFACT_NAME_FRAGMENTS = ("_config.json", "fusion_model")
+_ARTIFACT_NAME_FRAGMENTS = ("_config.json", "url_xgb", "url_cnn", "url_baseline", "url_fusion")
 
 
 class ArtifactIntegrityError(RuntimeError):
@@ -51,9 +51,17 @@ class ArtifactIntegrityError(RuntimeError):
 
 def is_runtime_artifact(name: str) -> bool:
     """True for files the application loads (weights, configs, XGBoost JSON)."""
-    if name == MANIFEST_NAME or name.endswith("_metrics.json") or name.endswith(".card.json"):
+    if name == MANIFEST_NAME or name.endswith("_metrics.json") or name.endswith("_training.json"):
         return False
-    return name.endswith(_ARTIFACT_SUFFIXES) or any(f in name for f in _ARTIFACT_NAME_FRAGMENTS)
+    # A model card is part of the release (its metrics and schema are what the loader validates), so it is hashed too.
+    return name.endswith(_ARTIFACT_SUFFIXES) or name.endswith(".card.json") or any(f in name for f in _ARTIFACT_NAME_FRAGMENTS)
+
+
+def default_models_dir() -> Path:
+    """The configured model directory (``MODEL_DIR`` / ``ml/models``)."""
+    from app.core.config import get_settings
+
+    return get_settings().model_dir
 
 
 def model_path(filename: str) -> Optional[Path]:
@@ -81,8 +89,17 @@ def model_version(filename: str) -> str:
 
 
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
-    """Hex SHA-256 of a file, read in chunks (model files can be large)."""
+    """Hex SHA-256 of a file, read in chunks (model files can be large).
+
+    **Text artifacts (``.json``) are hashed with line endings normalised to LF.**  Git stores text files with LF and a Windows
+    checkout (``core.autocrlf``) writes them back with CRLF: a manifest computed on one platform then failed on the other
+    (the CI runner is Linux), and every model refused to load.  A model's weights are binary and are hashed byte for byte; a
+    JSON file means the same thing with either line ending, so the hash must not depend on which one a checkout produced.
+    """
     h = hashlib.sha256()
+    if Path(path).suffix.lower() == ".json":
+        h.update(Path(path).read_bytes().replace(b"\r\n", b"\n"))
+        return h.hexdigest()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(chunk_size), b""):
             h.update(chunk)

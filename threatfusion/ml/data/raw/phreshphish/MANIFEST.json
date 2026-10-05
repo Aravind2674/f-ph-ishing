@@ -1,0 +1,632 @@
+{
+  "citation": "Dalton et al., PhreshPhish: A Real-World, High-Quality, Large-Scale Phishing Website Dataset and Benchmark, arXiv:2507.10854",
+  "columns": [
+    "sha256",
+    "url",
+    "label",
+    "target",
+    "date",
+    "lang"
+  ],
+  "dataset": "phreshphish/phreshphish",
+  "license": "CC-BY-4.0 (anti-phishing research use only)",
+  "rows": 666315,
+  "shards": {
+    "data/test-000.parquet": {
+      "bytes": 74407,
+      "file": "test-000.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-000.parquet",
+      "retrieved_at": "2026-10-04T10:37:17+00:00",
+      "rows": 1000,
+      "sha256": "1394a70d5c241967f264324f0dababf301c7e64908be319fd9fea6929b62271d"
+    },
+    "data/test-001.parquet": {
+      "bytes": 364924,
+      "file": "test-001.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-001.parquet",
+      "retrieved_at": "2026-10-04T10:37:20+00:00",
+      "rows": 5236,
+      "sha256": "e2aa5168f9ea30822ac04ae1839a8902b8e167b06c9f3e85afd347e6dbbd5ed3"
+    },
+    "data/test-002.parquet": {
+      "bytes": 392611,
+      "file": "test-002.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-002.parquet",
+      "retrieved_at": "2026-10-04T10:37:29+00:00",
+      "rows": 5759,
+      "sha256": "96f56dff5ca984ade536f362ee29f07c0175b5ffad95560f007a80d9e93ed0bf"
+    },
+    "data/test-003.parquet": {
+      "bytes": 454172,
+      "file": "test-003.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-003.parquet",
+      "retrieved_at": "2026-10-04T10:37:32+00:00",
+      "rows": 6558,
+      "sha256": "cca94e97b4fd9f939d7a09fbd6229397100b29a10dd612b4a3b489c7361d869d"
+    },
+    "data/test-004.parquet": {
+      "bytes": 487151,
+      "file": "test-004.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-004.parquet",
+      "retrieved_at": "2026-10-04T10:37:34+00:00",
+      "rows": 7098,
+      "sha256": "dd8ac1115d897308567614975abb887a9b6622fa0aa91fd59e1e112292eb62eb"
+    },
+    "data/test-005.parquet": {
+      "bytes": 526510,
+      "file": "test-005.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-005.parquet",
+      "retrieved_at": "2026-10-04T10:37:37+00:00",
+      "rows": 7645,
+      "sha256": "30e0e144e38d70c382c3b330f76230ee8b55beabeab1c3887a214c2b315f13ce"
+    },
+    "data/test-006.parquet": {
+      "bytes": 557021,
+      "file": "test-006.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-006.parquet",
+      "retrieved_at": "2026-10-04T10:37:39+00:00",
+      "rows": 8111,
+      "sha256": "d4626e852dc33e8188b3392223fee73c7ef1d00bf83745279cfef7daa72f8003"
+    },
+    "data/test-007.parquet": {
+      "bytes": 585526,
+      "file": "test-007.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-007.parquet",
+      "retrieved_at": "2026-10-04T10:37:42+00:00",
+      "rows": 8506,
+      "sha256": "103e17ca0c12bdb7fbfa13cb6f2b3a20c7ffff7320a1ecc9d7c1490ed100fd5a"
+    },
+    "data/test-008.parquet": {
+      "bytes": 602593,
+      "file": "test-008.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-008.parquet",
+      "retrieved_at": "2026-10-04T10:37:45+00:00",
+      "rows": 8767,
+      "sha256": "db721471e9a7d1edd3fb3403d6604567ce8cf772bb12f13b00352edf7e963d8c"
+    },
+    "data/test-009.parquet": {
+      "bytes": 620586,
+      "file": "test-009.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-009.parquet",
+      "retrieved_at": "2026-10-04T10:37:47+00:00",
+      "rows": 9025,
+      "sha256": "a2e307b3e6390b97c4c94636ff5b580cc5ec8e1c60ba78830b9b0e55eb3ab6ba"
+    },
+    "data/test-010.parquet": {
+      "bytes": 629337,
+      "file": "test-010.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-010.parquet",
+      "retrieved_at": "2026-10-04T10:37:50+00:00",
+      "rows": 9175,
+      "sha256": "cde63c7d1ed2542be7cfe17d7ed2e9d1acbbe853a0b7e83e62a7b355d9d18f3a"
+    },
+    "data/test-011.parquet": {
+      "bytes": 631167,
+      "file": "test-011.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-011.parquet",
+      "retrieved_at": "2026-10-04T10:37:52+00:00",
+      "rows": 9154,
+      "sha256": "5406e4e1125380b2078b12c7b2f4385bf1ba582e75d344697696990b9b99289d"
+    },
+    "data/test-012.parquet": {
+      "bytes": 634936,
+      "file": "test-012.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-012.parquet",
+      "retrieved_at": "2026-10-04T10:37:55+00:00",
+      "rows": 9241,
+      "sha256": "06ecf94320fe7d1e42348dddbfde5914987a038ea2a71241a7ae386cdd2d375e"
+    },
+    "data/test-013.parquet": {
+      "bytes": 634284,
+      "file": "test-013.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-013.parquet",
+      "retrieved_at": "2026-10-04T10:37:58+00:00",
+      "rows": 9239,
+      "sha256": "17ef176fb235304e27402f4a0ee1834c1327c4a0590d504ab329650a7bf1e76a"
+    },
+    "data/test-014.parquet": {
+      "bytes": 645036,
+      "file": "test-014.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-014.parquet",
+      "retrieved_at": "2026-10-04T10:38:01+00:00",
+      "rows": 9339,
+      "sha256": "bca47b6f12ae3d1cec44a27d6065cd3d12709c2e1ccbd60777b82bddea325415"
+    },
+    "data/test-015.parquet": {
+      "bytes": 650683,
+      "file": "test-015.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-015.parquet",
+      "retrieved_at": "2026-10-04T10:38:04+00:00",
+      "rows": 9517,
+      "sha256": "e77ff492f7598955f187d2222be4b2422b99dd611b4bd5ba7bec2f4e0d728a69"
+    },
+    "data/test-016.parquet": {
+      "bytes": 663248,
+      "file": "test-016.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-016.parquet",
+      "retrieved_at": "2026-10-04T10:38:06+00:00",
+      "rows": 9599,
+      "sha256": "6c8313ef34c7e8822252e189607ca1df3faea485e54cbb86f662ef2e42bf9a13"
+    },
+    "data/test-017.parquet": {
+      "bytes": 659922,
+      "file": "test-017.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-017.parquet",
+      "retrieved_at": "2026-10-04T10:38:09+00:00",
+      "rows": 9600,
+      "sha256": "f8eb888a5dd537818fb4130c0d5466941f80671254d8b526d480f7891b691ef9"
+    },
+    "data/test-018.parquet": {
+      "bytes": 657334,
+      "file": "test-018.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-018.parquet",
+      "retrieved_at": "2026-10-04T10:38:12+00:00",
+      "rows": 9628,
+      "sha256": "e02fc8203750d2a8a1349d6c90cc946863297bf2d418f93964e184de6efdfb41"
+    },
+    "data/test-019.parquet": {
+      "bytes": 654916,
+      "file": "test-019.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-019.parquet",
+      "retrieved_at": "2026-10-04T10:38:15+00:00",
+      "rows": 9480,
+      "sha256": "82ab17e632bd2d0b77afeb2dd2c74283c8d3a40ab5a580768d504b0df42a7852"
+    },
+    "data/test-020.parquet": {
+      "bytes": 442335,
+      "file": "test-020.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/test-020.parquet",
+      "retrieved_at": "2026-10-04T10:38:17+00:00",
+      "rows": 6383,
+      "sha256": "6de112eb20f61269bd0a293de35bc810e6373356d2585aa199259212b628224f"
+    },
+    "data/train-000.parquet": {
+      "bytes": 71796,
+      "file": "train-000.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-000.parquet",
+      "retrieved_at": "2026-10-04T10:38:20+00:00",
+      "rows": 1000,
+      "sha256": "bbc40147bacd8d1e858ae9233ee50cc92a2bb12298103680aadc2a3bc2ce93e7"
+    },
+    "data/train-001.parquet": {
+      "bytes": 397752,
+      "file": "train-001.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-001.parquet",
+      "retrieved_at": "2026-10-04T10:38:22+00:00",
+      "rows": 5780,
+      "sha256": "0d2733307b51c7cd9bcbbfc78a3c893851abd57779d6f19f1807ea86d5636959"
+    },
+    "data/train-002.parquet": {
+      "bytes": 447029,
+      "file": "train-002.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-002.parquet",
+      "retrieved_at": "2026-10-04T10:38:25+00:00",
+      "rows": 6506,
+      "sha256": "65c72725a32e7b78975bf94b57cbab42a8a689385eaa918dedaef83d152cc851"
+    },
+    "data/train-003.parquet": {
+      "bytes": 497411,
+      "file": "train-003.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-003.parquet",
+      "retrieved_at": "2026-10-04T10:38:27+00:00",
+      "rows": 7127,
+      "sha256": "c8b7d29a881e728127b5eee17d64d174024534a2e34e68b5d63f3d1ca1c2f8c8"
+    },
+    "data/train-004.parquet": {
+      "bytes": 509407,
+      "file": "train-004.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-004.parquet",
+      "retrieved_at": "2026-10-04T10:38:30+00:00",
+      "rows": 7425,
+      "sha256": "ad731cf03271c0e83aca7f03a4f4c34890bd395add5c8fa88f1eb777aa3b7a11"
+    },
+    "data/train-005.parquet": {
+      "bytes": 538401,
+      "file": "train-005.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-005.parquet",
+      "retrieved_at": "2026-10-04T10:38:32+00:00",
+      "rows": 7870,
+      "sha256": "c0769092f8360269f8c6db9c4e8ca4cd07a9f3bbdfbe10957a2cf4deec4e6e57"
+    },
+    "data/train-006.parquet": {
+      "bytes": 555833,
+      "file": "train-006.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-006.parquet",
+      "retrieved_at": "2026-10-04T10:38:35+00:00",
+      "rows": 8077,
+      "sha256": "a13b7abfad48a299bfff7de40c7c388d52ab64246de9ec383ea260c9e0bc75b9"
+    },
+    "data/train-007.parquet": {
+      "bytes": 581093,
+      "file": "train-007.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-007.parquet",
+      "retrieved_at": "2026-10-04T10:38:37+00:00",
+      "rows": 8470,
+      "sha256": "aa0b37a738123b13e13d21ff0e7fdc7a7edea73d4983260b1a1f4d47f1615d31"
+    },
+    "data/train-008.parquet": {
+      "bytes": 588305,
+      "file": "train-008.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-008.parquet",
+      "retrieved_at": "2026-10-04T10:38:40+00:00",
+      "rows": 8662,
+      "sha256": "d2b10722f1a62d6d997740c867782eb134adfd5cddd7031437298efa92a561c8"
+    },
+    "data/train-009.parquet": {
+      "bytes": 605765,
+      "file": "train-009.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-009.parquet",
+      "retrieved_at": "2026-10-04T10:38:42+00:00",
+      "rows": 8783,
+      "sha256": "364a43f3203f8f40089ed254985d82f8e19480e2282d432323ea1ff7e144828a"
+    },
+    "data/train-010.parquet": {
+      "bytes": 620987,
+      "file": "train-010.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-010.parquet",
+      "retrieved_at": "2026-10-04T10:38:45+00:00",
+      "rows": 9031,
+      "sha256": "deba0d06788d65f2cdd34ae083b6cc45f3c0c20befbfbd15ca51d20ccac96a06"
+    },
+    "data/train-011.parquet": {
+      "bytes": 632816,
+      "file": "train-011.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-011.parquet",
+      "retrieved_at": "2026-10-04T10:38:47+00:00",
+      "rows": 9130,
+      "sha256": "277a885f30e265f297d774f4c400deb3d2a2360d276928b5f607a67d0d42da7d"
+    },
+    "data/train-012.parquet": {
+      "bytes": 636961,
+      "file": "train-012.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-012.parquet",
+      "retrieved_at": "2026-10-04T10:38:50+00:00",
+      "rows": 9260,
+      "sha256": "2f942076f75d2fbfe5f8b5ce75e5278c9bbc137989fee15077026eb05117367f"
+    },
+    "data/train-013.parquet": {
+      "bytes": 629504,
+      "file": "train-013.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-013.parquet",
+      "retrieved_at": "2026-10-04T10:38:53+00:00",
+      "rows": 9206,
+      "sha256": "5135e339811c69000f43620ec8b9f6455162eb029409f781da91abc3a8df19de"
+    },
+    "data/train-014.parquet": {
+      "bytes": 634459,
+      "file": "train-014.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-014.parquet",
+      "retrieved_at": "2026-10-04T10:38:55+00:00",
+      "rows": 9233,
+      "sha256": "8d1cf8023755c0e28c0199fd2c990609c858a7befa1890df982aef62a0860697"
+    },
+    "data/train-015.parquet": {
+      "bytes": 637852,
+      "file": "train-015.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-015.parquet",
+      "retrieved_at": "2026-10-04T10:38:58+00:00",
+      "rows": 9219,
+      "sha256": "04497c431c515e0b0a0eaf9b1c988d5c915e1d55a2cc83ae419ed98a2ef22265"
+    },
+    "data/train-016.parquet": {
+      "bytes": 639813,
+      "file": "train-016.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-016.parquet",
+      "retrieved_at": "2026-10-04T10:39:00+00:00",
+      "rows": 9342,
+      "sha256": "b091944276bc66396631f5b1d144f5800837d7bc3cf72f1bc42697b477f80d95"
+    },
+    "data/train-017.parquet": {
+      "bytes": 654062,
+      "file": "train-017.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-017.parquet",
+      "retrieved_at": "2026-10-04T10:39:03+00:00",
+      "rows": 9508,
+      "sha256": "a2bb0d3184f077d6c96df434262dc068684e4e9ea6280a6961af1adc9e801989"
+    },
+    "data/train-018.parquet": {
+      "bytes": 643255,
+      "file": "train-018.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-018.parquet",
+      "retrieved_at": "2026-10-04T10:39:05+00:00",
+      "rows": 9408,
+      "sha256": "a5e065d5d0e8423afcb2cdda577525c97e7ef71e5e3ca84a95423fe6ef4d3df6"
+    },
+    "data/train-019.parquet": {
+      "bytes": 654045,
+      "file": "train-019.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-019.parquet",
+      "retrieved_at": "2026-10-04T10:39:08+00:00",
+      "rows": 9450,
+      "sha256": "708f259ebb91cc173f057bd648045a7607f7bb340831305a29b98b043f7243de"
+    },
+    "data/train-020.parquet": {
+      "bytes": 648283,
+      "file": "train-020.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-020.parquet",
+      "retrieved_at": "2026-10-04T10:39:10+00:00",
+      "rows": 9423,
+      "sha256": "e874ac8f59c66d49643432bc4c508a89f926bc0d877883e89fa23cf9ed8e083f"
+    },
+    "data/train-021.parquet": {
+      "bytes": 646204,
+      "file": "train-021.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-021.parquet",
+      "retrieved_at": "2026-10-04T10:39:13+00:00",
+      "rows": 9450,
+      "sha256": "de017322e6f9cf8fddbe45622afc0a46ec7e04bd1ab34c564840388e733a2187"
+    },
+    "data/train-022.parquet": {
+      "bytes": 654003,
+      "file": "train-022.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-022.parquet",
+      "retrieved_at": "2026-10-04T10:39:16+00:00",
+      "rows": 9388,
+      "sha256": "f376430c966ec50b19d50aaeca7d2d82fa4a05ca53aefaea4272df36160dfeb0"
+    },
+    "data/train-023.parquet": {
+      "bytes": 647736,
+      "file": "train-023.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-023.parquet",
+      "retrieved_at": "2026-10-04T10:39:18+00:00",
+      "rows": 9403,
+      "sha256": "60441e5131f2b4e3a8009c9780727cb89b2c4880da175d77d7bc58186b23b8a8"
+    },
+    "data/train-024.parquet": {
+      "bytes": 646605,
+      "file": "train-024.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-024.parquet",
+      "retrieved_at": "2026-10-04T10:39:21+00:00",
+      "rows": 9445,
+      "sha256": "a8daea8222792b65828eeab7057b8ce41b1e6958bd32155bf306b5e5ad1855f3"
+    },
+    "data/train-025.parquet": {
+      "bytes": 672435,
+      "file": "train-025.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-025.parquet",
+      "retrieved_at": "2026-10-04T10:39:23+00:00",
+      "rows": 9575,
+      "sha256": "f3bbf8208ec5ba7c39b7cf0a77110c557f8ced4e8b1c466dd1c651b756350999"
+    },
+    "data/train-026.parquet": {
+      "bytes": 657161,
+      "file": "train-026.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-026.parquet",
+      "retrieved_at": "2026-10-04T10:39:26+00:00",
+      "rows": 9583,
+      "sha256": "8b611ca5fc0d644d466085655d998a438a52316241acf56d3f3b00dee2fa248e"
+    },
+    "data/train-027.parquet": {
+      "bytes": 657804,
+      "file": "train-027.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-027.parquet",
+      "retrieved_at": "2026-10-04T10:39:28+00:00",
+      "rows": 9646,
+      "sha256": "ec8e746315fa36f4d61b0746a38daa89505053019b9a1080a367d49991f445a0"
+    },
+    "data/train-028.parquet": {
+      "bytes": 663200,
+      "file": "train-028.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-028.parquet",
+      "retrieved_at": "2026-10-04T10:39:31+00:00",
+      "rows": 9666,
+      "sha256": "cb26bd698ec2add81d154429c4a0a603147af472b9d2290b63892eec509a4d0a"
+    },
+    "data/train-029.parquet": {
+      "bytes": 666946,
+      "file": "train-029.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-029.parquet",
+      "retrieved_at": "2026-10-04T10:39:34+00:00",
+      "rows": 9682,
+      "sha256": "3d44b64fed4fcca47c7ceccfba8096baea0401e2b07804e583535371bf888e1c"
+    },
+    "data/train-030.parquet": {
+      "bytes": 669672,
+      "file": "train-030.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-030.parquet",
+      "retrieved_at": "2026-10-04T10:39:36+00:00",
+      "rows": 9692,
+      "sha256": "e707fac59eac06f4f0946a514da64e1086dbda83ea98a7458c6e752c430a35ea"
+    },
+    "data/train-031.parquet": {
+      "bytes": 663773,
+      "file": "train-031.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-031.parquet",
+      "retrieved_at": "2026-10-04T10:39:39+00:00",
+      "rows": 9718,
+      "sha256": "4ec9f37b0d7146284c6ef5de8fd1e829a0f74e0efbe70649614b40f996dfd5dd"
+    },
+    "data/train-032.parquet": {
+      "bytes": 665986,
+      "file": "train-032.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-032.parquet",
+      "retrieved_at": "2026-10-04T10:39:41+00:00",
+      "rows": 9637,
+      "sha256": "9d4e26a8b09bbc84e7050f6009998bc51abf5cbf6a15ff75e4a82278833fa9bf"
+    },
+    "data/train-033.parquet": {
+      "bytes": 663778,
+      "file": "train-033.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-033.parquet",
+      "retrieved_at": "2026-10-04T10:39:44+00:00",
+      "rows": 9664,
+      "sha256": "afb8c2d9c017cebf9b758c01da6ad951ae42a81b7b179d3edda28540614865ea"
+    },
+    "data/train-034.parquet": {
+      "bytes": 664363,
+      "file": "train-034.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-034.parquet",
+      "retrieved_at": "2026-10-04T10:39:46+00:00",
+      "rows": 9685,
+      "sha256": "4d41a9f712a04ae4312f41eee1d0b3844ee3b803d74547262246416dacf35c6a"
+    },
+    "data/train-035.parquet": {
+      "bytes": 663275,
+      "file": "train-035.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-035.parquet",
+      "retrieved_at": "2026-10-04T10:39:49+00:00",
+      "rows": 9686,
+      "sha256": "c750ea18ae25e59272e52be6b1852b9cb3c64da03ac84c0af48bac4f05dfb747"
+    },
+    "data/train-036.parquet": {
+      "bytes": 660667,
+      "file": "train-036.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-036.parquet",
+      "retrieved_at": "2026-10-04T10:39:51+00:00",
+      "rows": 9630,
+      "sha256": "bfe058340ee92e355450fd79d08435f995541c60f915edd7f902522e6d7772fa"
+    },
+    "data/train-037.parquet": {
+      "bytes": 659571,
+      "file": "train-037.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-037.parquet",
+      "retrieved_at": "2026-10-04T10:39:54+00:00",
+      "rows": 9622,
+      "sha256": "396425149364ed402add34b01392f66aa0e27f30d99d6ca5d966de7f484551b7"
+    },
+    "data/train-038.parquet": {
+      "bytes": 660524,
+      "file": "train-038.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-038.parquet",
+      "retrieved_at": "2026-10-04T10:39:56+00:00",
+      "rows": 9605,
+      "sha256": "86b720fbb88cac201960c41fb229b72e6462b31665b3359fc14c400365b19df7"
+    },
+    "data/train-039.parquet": {
+      "bytes": 657938,
+      "file": "train-039.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-039.parquet",
+      "retrieved_at": "2026-10-04T10:39:59+00:00",
+      "rows": 9547,
+      "sha256": "d29b22ecc750f4b8df9a247d86fedd76c467a62a678add4b76134848c0948114"
+    },
+    "data/train-040.parquet": {
+      "bytes": 663001,
+      "file": "train-040.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-040.parquet",
+      "retrieved_at": "2026-10-04T10:40:01+00:00",
+      "rows": 9563,
+      "sha256": "b8e0f69fdfa60d984294d9b83dfdd5931cb6b9c0119204d2315475b6050b97d5"
+    },
+    "data/train-041.parquet": {
+      "bytes": 660674,
+      "file": "train-041.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-041.parquet",
+      "retrieved_at": "2026-10-04T10:40:04+00:00",
+      "rows": 9592,
+      "sha256": "74070dc548d4c49cc015ad8b343d6923f17b78a55d966df90c9c7d67c31d00a5"
+    },
+    "data/train-042.parquet": {
+      "bytes": 658198,
+      "file": "train-042.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-042.parquet",
+      "retrieved_at": "2026-10-04T10:40:07+00:00",
+      "rows": 9602,
+      "sha256": "b2436b795db9ca513fd27dbaa1cf4b00cc178364286b0067f4f78d2b979bad85"
+    },
+    "data/train-043.parquet": {
+      "bytes": 650450,
+      "file": "train-043.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-043.parquet",
+      "retrieved_at": "2026-10-04T10:40:10+00:00",
+      "rows": 9492,
+      "sha256": "7bd07d38fc38706e37354b8d58432201b0ca60e4942dbfd4f59e51e3016581f4"
+    },
+    "data/train-044.parquet": {
+      "bytes": 652026,
+      "file": "train-044.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-044.parquet",
+      "retrieved_at": "2026-10-04T10:40:13+00:00",
+      "rows": 9518,
+      "sha256": "99f8a48235843d03aaaa3e4bc1d6364e732fdc35c158c9cf19add4cf00f6aad3"
+    },
+    "data/train-045.parquet": {
+      "bytes": 655129,
+      "file": "train-045.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-045.parquet",
+      "retrieved_at": "2026-10-04T10:40:15+00:00",
+      "rows": 9561,
+      "sha256": "f09c5e233766075ad7c232cf58dde49fc2571d094406911497ed6bc11806cdd0"
+    },
+    "data/train-046.parquet": {
+      "bytes": 657727,
+      "file": "train-046.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-046.parquet",
+      "retrieved_at": "2026-10-04T10:40:18+00:00",
+      "rows": 9606,
+      "sha256": "54e0b5713135bcd57eb08f708e09269a0b00ac7c7a384fed644f9477ecfa7bd4"
+    },
+    "data/train-047.parquet": {
+      "bytes": 673428,
+      "file": "train-047.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-047.parquet",
+      "retrieved_at": "2026-10-04T10:40:20+00:00",
+      "rows": 9647,
+      "sha256": "37d5353cd73b414ba5dffeeb875187cc67590c66fda32601a84f2e62d21c3b66"
+    },
+    "data/train-048.parquet": {
+      "bytes": 650121,
+      "file": "train-048.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-048.parquet",
+      "retrieved_at": "2026-10-04T10:40:23+00:00",
+      "rows": 9513,
+      "sha256": "7f4987b359003c4c0d7cea707091b38352e4023767c4b998f1695ec985e5283a"
+    },
+    "data/train-049.parquet": {
+      "bytes": 652665,
+      "file": "train-049.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-049.parquet",
+      "retrieved_at": "2026-10-04T10:40:25+00:00",
+      "rows": 9503,
+      "sha256": "b42ce61c9a7960df38b0eb70422292c950d5c6ee9518ed5a01d7ae55d9ec081a"
+    },
+    "data/train-050.parquet": {
+      "bytes": 656346,
+      "file": "train-050.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-050.parquet",
+      "retrieved_at": "2026-10-04T10:40:28+00:00",
+      "rows": 9621,
+      "sha256": "ffe2bf1f3cd012089d6dc4aa22ad64265b700c9cc5a80b6001033d8c09d711af"
+    },
+    "data/train-051.parquet": {
+      "bytes": 663072,
+      "file": "train-051.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-051.parquet",
+      "retrieved_at": "2026-10-04T10:40:31+00:00",
+      "rows": 9641,
+      "sha256": "b9046c88b67e8a760072b6d9f0ff75ff92e1bfc1cff44912a8f9062adae53feb"
+    },
+    "data/train-052.parquet": {
+      "bytes": 661863,
+      "file": "train-052.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-052.parquet",
+      "retrieved_at": "2026-10-04T10:40:33+00:00",
+      "rows": 9634,
+      "sha256": "2d4080f6be22830dc38940533bea53032df49f043dd51bec185b6549b83d4124"
+    },
+    "data/train-053.parquet": {
+      "bytes": 669417,
+      "file": "train-053.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-053.parquet",
+      "retrieved_at": "2026-10-04T10:40:36+00:00",
+      "rows": 9684,
+      "sha256": "bb47d5e3c52c599c667cf9a20bd557ea01a71fde82419bace8b5ab994ac4fa8c"
+    },
+    "data/train-054.parquet": {
+      "bytes": 655652,
+      "file": "train-054.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-054.parquet",
+      "retrieved_at": "2026-10-04T10:40:39+00:00",
+      "rows": 9483,
+      "sha256": "525190af0356db59003a82bd2318aa4be3652d7de15637d4c1e9f25f2e91b063"
+    },
+    "data/train-055.parquet": {
+      "bytes": 27635,
+      "file": "train-055.meta.parquet",
+      "remote": "https://huggingface.co/datasets/phreshphish/phreshphish/resolve/main/data/train-055.parquet",
+      "retrieved_at": "2026-10-04T10:40:41+00:00",
+      "rows": 361,
+      "sha256": "465d79920eaeab65ea951a208a530d85f834b53a5df9eb5ecdedb51fea581188"
+    }
+  }
+}

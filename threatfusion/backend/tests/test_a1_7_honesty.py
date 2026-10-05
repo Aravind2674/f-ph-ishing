@@ -31,9 +31,13 @@ def mock_scan_client(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_the_summary_follows_the_headline_baseline_not_the_experimental_model(mock_scan_client, monkeypatch) -> None:
-    import app.api.scan as scan_module
+    from app.ml.url_risk import UrlRiskService
+    from app.models.schemas import UrlRiskAssessment
 
-    monkeypatch.setattr(scan_module._model, "predict_proba", lambda features: 0.01)       # experimental model: "Low"
+    def low(self, url):                                                                   # the URL-text model says "Low"
+        return UrlRiskAssessment(score=0.01, headline_score=0.01, flagged=False), [], []
+
+    monkeypatch.setattr(UrlRiskService, "assess", low)
     body = mock_scan_client.post("/scan", json={"target": "evil-login.example.com", "target_type": "domain"}).json()
     r = body["result"]
     assert r["baseline_label"] not in ("Low", "Unknown") and r["ml_label"] == "Low", (r["baseline_label"], r["ml_label"])

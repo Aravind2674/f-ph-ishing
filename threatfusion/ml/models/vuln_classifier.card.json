@@ -1,0 +1,84 @@
+{
+  "name": "vuln_classifier",
+  "version": "payload-2026-10-04",
+  "task": "HTTP request-parameter attack classification (benign / sqli / xss / path-traversal / cmdi)",
+  "created_at": "2026-10-04T11:47:29Z",
+  "intended_use": "Passive triage of request text handed to /analyze and the traffic analyser. Not a WAF; an alarm to look at, never proof of exploitation.",
+  "limitations": [
+    "Trained on public corpora (CSIC-2010-derived data, SecLists); real-world traffic differs.",
+    "Only five classes; novel attack types are mapped to the nearest one or to benign.",
+    "Obfuscation outside the normaliser's repertoire (custom encodings, multi-layer ciphers) can evade it.",
+    "The in-distribution accuracy is optimistic; use the held-out table.",
+    "Command injection has little varied public data: 3/4 of the PayloadsAllTheThings cmdi lines (by hash) are in training, the rest held out, and those lines are variations of a few templates \u2014 the held-out cmdi recall is optimistic (n\u2248110).",
+    "XSS is the weakest class on held-out data (recall \u2248 0.64): most misses are scored as another attack class, not as benign.",
+    "Single words that happen to be commands (a bare `whoami`) are treated as benign text; the signal is the injection syntax around them."
+  ],
+  "feature_schema": {
+    "version": 1,
+    "names": [
+      "char-level text (see config)"
+    ]
+  },
+  "data": {
+    "source": "real HTTP request-parameter corpus (Morzeux HttpParamsDataset; CSIC-2010 + real attack payloads)",
+    "total": 31067,
+    "class_distribution": {
+      "benign": 19304,
+      "sqli": 10852,
+      "xss": 532,
+      "path-traversal": 290,
+      "cmdi": 89
+    },
+    "skipped_unknown_type": 0,
+    "dedup": "exact (payload, class) pairs",
+    "extended_with": "SecLists attack lists (MIT) + real benign path segments / parameter values (PhreshPhish benign URLs)",
+    "class_cap": 6000,
+    "final_distribution": {
+      "benign": 6000,
+      "sqli": 6000,
+      "xss": 708,
+      "path-traversal": 1931,
+      "cmdi": 1988
+    }
+  },
+  "training": {
+    "epochs_run": 11,
+    "seed": 42,
+    "temperature": 1.1385198831558228,
+    "augmentation": "normalised copies + obfuscated copies (train families) of 30 % of training payloads"
+  },
+  "calibration": {
+    "kind": "temperature",
+    "T": 1.1385198831558228,
+    "fit_on": "validation"
+  },
+  "metrics": {
+    "test": {
+      "pr_auc": null,
+      "roc_auc": null,
+      "f1": 0.9953938404727747,
+      "ci95": {},
+      "in_distribution_accuracy": 0.9963920625375827
+    },
+    "held_out_recall_correct_class": {
+      "cmdi": 0.85,
+      "path-traversal": 0.982,
+      "sqli": 0.9936143039591315,
+      "xss": 0.6349206349206349
+    },
+    "held_out_benign_false_positive_rate": 0.005166666666666667,
+    "confidence_ece": 0.011023230148193935,
+    "obfuscation_not_benign_rate": {
+      "url_encode_all": 0.9117052154195011,
+      "comment_split": 0.9039024943310657,
+      "case_alternate": 0.9002018140589569,
+      "double_url_encode": 0.9056031746031745,
+      "html_entities": 0.9290430839002267,
+      "fullwidth": 0.9982993197278911,
+      "whitespace_variants": 0.9058356009070295,
+      "plus_for_space": 0.899701814058957,
+      "zero_width_split": 0.9044024943310658
+    }
+  },
+  "report": "ml/models/vuln_classifier_metrics.json"
+}

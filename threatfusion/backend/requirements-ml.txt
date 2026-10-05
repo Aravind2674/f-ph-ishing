@@ -214,6 +214,8 @@ propcache==0.5.4
     #   -c requirements.txt
     #   aiohttp
     #   yarl
+pyarrow==25.0.1
+    # via -r requirements-ml.in
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via
     #   -c requirements.txt

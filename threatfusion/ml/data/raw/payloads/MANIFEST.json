@@ -1,0 +1,202 @@
+{
+  "files": {
+    "patt__Command_Injection__Intruder__command-execution-unix.txt": {
+      "bytes": 1210,
+      "class": "cmdi",
+      "sha256": "93d437305481bcf88f2adb742cba0de8c447a0e62377b9acb481e82c887aa5d4",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Intruder/command-execution-unix.txt"
+    },
+    "patt__Command_Injection__Intruder__command_exec.txt": {
+      "bytes": 20289,
+      "class": "cmdi",
+      "sha256": "e67a624f363af20b3c35b0016445454a7a36cfe85f9e4ce996b91755e602cf33",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Intruder/command_exec.txt"
+    },
+    "patt__Directory_Traversal__Intruder__deep_traversal.txt": {
+      "bytes": 69869,
+      "class": "path-traversal",
+      "sha256": "b730e8b2e7fbf7bec7da7b34a2d3dd7e46fc4c199370f3e4fd766ff1419ce3d8",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Directory%20Traversal/Intruder/deep_traversal.txt"
+    },
+    "patt__Directory_Traversal__Intruder__directory_traversal.txt": {
+      "bytes": 8767,
+      "class": "path-traversal",
+      "sha256": "9e97863bdb5ded069a1df215888aaa4feb2d000e067d2eefaafd1b37586fb204",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Directory%20Traversal/Intruder/directory_traversal.txt"
+    },
+    "patt__Directory_Traversal__Intruder__traversals-8-deep-exotic-encoding.txt": {
+      "bytes": 69843,
+      "class": "path-traversal",
+      "sha256": "264bba03f964e6570087e6b3cfeea910bf751b968124c9018c6b1cb3661b5569",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Directory%20Traversal/Intruder/traversals-8-deep-exotic-encoding.txt"
+    },
+    "patt__File_Inclusion__Intruders__Traversal.txt": {
+      "bytes": 378306,
+      "class": "path-traversal",
+      "sha256": "e9eeedaaa76cf8645053cddb532525bf47b4f78ce21670bd533c44861cb36d49",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/File%20Inclusion/Intruders/Traversal.txt"
+    },
+    "patt__SQL_Injection__Intruder__Auth_Bypass.txt": {
+      "bytes": 1202,
+      "class": "sqli",
+      "sha256": "37c699933b6985816b53235d21efbcd89a6c3fa7538abab913bc6796ca481d9e",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Auth_Bypass.txt"
+    },
+    "patt__SQL_Injection__Intruder__Auth_Bypass2.txt": {
+      "bytes": 1873,
+      "class": "sqli",
+      "sha256": "40f2e77d466ae55f782440a8b625df8930800f7599afe5f3bb4ac648794b9291",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Auth_Bypass2.txt"
+    },
+    "patt__SQL_Injection__Intruder__Generic_ErrorBased.txt": {
+      "bytes": 2928,
+      "class": "sqli",
+      "sha256": "0db851ce365ffa9042b0609f692abc5e06e39c1af175503f12a9ae58e2459b32",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Generic_ErrorBased.txt"
+    },
+    "patt__SQL_Injection__Intruder__Generic_TimeBased.txt": {
+      "bytes": 2529,
+      "class": "sqli",
+      "sha256": "5151d74486f125e2cea74c5a4883036680892f36df2bd9aaa40fa42ecacda810",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Generic_TimeBased.txt"
+    },
+    "patt__SQL_Injection__Intruder__Generic_UnionSelect.txt": {
+      "bytes": 37386,
+      "class": "sqli",
+      "sha256": "97c0c29b5a7dd86522968f697aa945c99279a46bcfdc23abc91380b5843ddf10",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Generic_UnionSelect.txt"
+    },
+    "patt__SQL_Injection__Intruder__SQL-Injection-Cheat-Sheet.txt": {
+      "class": "sqli",
+      "error": "HTTPError",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/SQL-Injection-Cheat-Sheet.txt"
+    },
+    "patt__SQL_Injection__Intruder__payloads-sql-blind-MySQL-WHERE": {
+      "bytes": 1845,
+      "class": "sqli",
+      "sha256": "ec1afee40908cd575d491846d3c0728e9a4d1d4e87986d161b11c98def5d3715",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/payloads-sql-blind-MySQL-WHERE"
+    },
+    "patt__XSS_Injection__Intruders__0xcela_event_handlers.txt": {
+      "bytes": 1192,
+      "class": "xss",
+      "sha256": "6f296eb28a3c122a327702d07246320b0dc5e941aa9a4590617a2a3592eb1a39",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruders/0xcela_event_handlers.txt"
+    },
+    "patt__XSS_Injection__Intruders__IntrudersXSS.txt": {
+      "class": "xss",
+      "error": "unreadable",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruders/IntrudersXSS.txt"
+    },
+    "patt__XSS_Injection__Intruders__MarioXSSVectors.txt": {
+      "bytes": 22876,
+      "class": "xss",
+      "sha256": "30416535d6f9d842cffdebab891ec91a67b5253a70fb64d560bc0d7e54826a70",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruders/MarioXSSVectors.txt"
+    },
+    "patt__XSS_Injection__Intruders__XSSDetection.txt": {
+      "bytes": 8119,
+      "class": "xss",
+      "sha256": "19bcb9312beb0c676d3f4cb571ac9f5db387b4263fda289ed3dee068e4b4e063",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruders/XSSDetection.txt"
+    },
+    "patt__XSS_Injection__Intruders__XSS_Polyglots.txt": {
+      "bytes": 1938,
+      "class": "xss",
+      "sha256": "9f6c3b5e327827b24bd30f7786fd4e0834a13ea5d3ebceee401e0d63f4e754eb",
+      "source": "patt",
+      "url": "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruders/XSS_Polyglots.txt"
+    },
+    "seclists__Fuzzing__Databases__SQLi__Generic-SQLi.txt": {
+      "bytes": 5383,
+      "class": "sqli",
+      "sha256": "09e5930609e4ce0663505168432796881f493ec0e63643300166d36ed57d40ec",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/Databases/SQLi/Generic-SQLi.txt"
+    },
+    "seclists__Fuzzing__Databases__SQLi__SQLi-Polyglots.txt": {
+      "bytes": 354,
+      "class": "sqli",
+      "sha256": "098c986d85783cf01dfdcec6d4d2b839d234c36a1f2e0dc2a130d7b3de4ba9a3",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/Databases/SQLi/SQLi-Polyglots.txt"
+    },
+    "seclists__Fuzzing__Databases__SQLi__quick-SQLi.txt": {
+      "bytes": 1180,
+      "class": "sqli",
+      "sha256": "99301faba9413833c02cf9d74a5a32a06482aea5b373f8e843edbca3ca2b0b7e",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/Databases/SQLi/quick-SQLi.txt"
+    },
+    "seclists__Fuzzing__Databases__SQLi__sqli.auth.bypass.txt": {
+      "bytes": 1774,
+      "class": "sqli",
+      "sha256": "07887121de5aeab2d5541c6b40142797addea4e1eaf808f43d236d3a7be2bc82",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/Databases/SQLi/sqli.auth.bypass.txt"
+    },
+    "seclists__Fuzzing__LFI__LFI-Jhaddix.txt": {
+      "bytes": 32631,
+      "class": "path-traversal",
+      "sha256": "2fe4a8e45cb25ced4cd21344744c7821acdf050ce07bf3299d7ef3529cacf1a3",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-Jhaddix.txt"
+    },
+    "seclists__Fuzzing__LFI__LFI-LFISuite-pathtotest.txt": {
+      "bytes": 22238,
+      "class": "path-traversal",
+      "sha256": "aa19c81e1048550749dadc4b6fee70816be9e33a84587eb5e9eea5d95b1a40e8",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-LFISuite-pathtotest.txt"
+    },
+    "seclists__Fuzzing__LFI__LFI-linux-and-windows_by-1N3@CrowdShield.txt": {
+      "bytes": 31921,
+      "class": "path-traversal",
+      "sha256": "38e9eb759bf08b675f18791e248b46f4940e838e38aea2d134d29d475b415da6",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-linux-and-windows_by-1N3@CrowdShield.txt"
+    },
+    "seclists__Fuzzing__XSS__robot-friendly__XSS-Jhaddix.txt": {
+      "bytes": 19065,
+      "class": "xss",
+      "sha256": "1b7ec661af015daa7d8d67d3c9032099275e346b503ec8686f8b7df4dca3ca69",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/XSS/robot-friendly/XSS-Jhaddix.txt"
+    },
+    "seclists__Fuzzing__XSS__robot-friendly__XSS-RSNAKE.txt": {
+      "bytes": 4184,
+      "class": "xss",
+      "sha256": "bb601e32bb9cace19db8a3676a6255dc04283b7e07c35969bf66a7caf7d82e50",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/XSS/robot-friendly/XSS-RSNAKE.txt"
+    },
+    "seclists__Fuzzing__command-injection-commix.txt": {
+      "bytes": 940100,
+      "class": "cmdi",
+      "sha256": "e8a3d8e9251ecea011d58994856fb7aae8c9ef9c074d97b3868afbe1240769af",
+      "source": "seclists",
+      "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/command-injection-commix.txt"
+    }
+  },
+  "licenses": {
+    "patt": "MIT (swisskyrepo/PayloadsAllTheThings)",
+    "seclists": "MIT (danielmiessler/SecLists)"
+  }
+}
