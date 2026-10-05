@@ -27,6 +27,13 @@
 - [x] A1-5 Concurrent providers (`asyncio.gather` + a process-wide gate) and live per-provider progress over SSE (`GET /scan/{id}/events`)
 - [x] A1-7 Evidence-first UI: per-source status chips (live and final), "based on N of M sources", "No findings ≠ safe", per-feature provenance, host-evidence cards
 
+### Phase B-intel — independent evidence (branch `b-intel-exposure`, stacked on A1)
+- [x] B11 Exploit-informed exposure: EPSS (live, batched, cached daily) + CISA KEV (local feed, with age) + CISA Vulnrichment SSVC points → per-CVE category (Track / Track* / Attend / Act) and a per-host noisy-OR exposure score; kept apart from maliciousness
+- [x] B4 Brand impersonation: Unicode TR39 confusables, ~110 curated brands (global + India list), look-alike kinds with evidence; synthetic evaluation fixture reports precision 0.957 / recall 0.880 (known misses pinned)
+- [x] B3 Certificate transparency (crt.sh): `cert_first_seen_days`, `cert_count_30d`, `issuer_is_free_dv`, brand-like SAN names; outage-tolerant, host name only
+- [x] B2 Independent reputation channels: URLhaus, ThreatFox, Google Safe Browsing, AbuseIPDB, urlscan (search only), AlienVault OTX, GreyNoise + local OpenPhish / PhishTank / Tranco feeds with their age; the verdict no longer hinges on VirusTotal
+- [ ] Consumed by the models in **A2-1** (retrain) and **B7** (calibrated fusion): `lookalike_of`, the CT fields and the reputation channels are *reported* today, deliberately not folded into the 19-column deployed model or the baseline score
+
 ### Next
 - [ ] **A2** Validate the ML pipeline: retrain on real snapshot-enriched labels, model-health tests, neural URL canonicalisation, payload-classifier evaluation, model cards
 - [ ] **A3** Passive network monitoring: capture preflight, sensor lifecycle, DNS responses/SNI, reputation fan-out control, rogue-AP precision

@@ -5,12 +5,12 @@
  * Each card carries its own source chip. If that source did not answer the card says *unavailable* and why — an
  * empty card is never drawn as a clean one.
  */
-import { CalendarClock, Globe, Layers, Lock } from "lucide-react";
+import { CalendarClock, Globe, Layers, Lock, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SourceChip } from "@/components/SourceChip";
-import { dnsView, registrationView, sortTechs, tlsView, type CardView } from "@/lib/hostsignals";
+import { ctView, dnsView, registrationView, sortTechs, tlsView, type CardView } from "@/lib/hostsignals";
 import type { ChipState } from "@/lib/evidence";
 import type { ProviderOutcome, ScanResult } from "@/api";
 
@@ -83,7 +83,7 @@ function CardShell({
 export function HostSignals({ result }: { result: ScanResult }) {
   const outcomes = result.provider_results;
   // Only for targets that have a host (domain / URL): an IP or a hash has no certificate, registrar or DNS zone.
-  const applicable = ["tls", "rdap", "dns"].some((s) => outcomeFor(outcomes, s)) || result.tls || result.rdap || result.dns;
+  const applicable = ["tls", "rdap", "dns", "ct"].some((s) => outcomeFor(outcomes, s)) || result.tls || result.rdap || result.dns || result.ct;
   const techOutcome = outcomeFor(outcomes, "tech_fingerprint");
   const eolOutcome = outcomeFor(outcomes, "endoflife");
   const techs = result.tech_fingerprint ? sortTechs(result.tech_fingerprint.technologies) : [];
@@ -97,6 +97,8 @@ export function HostSignals({ result }: { result: ScanResult }) {
         outcome={outcomeFor(outcomes, "rdap")} view={registrationView(result.rdap)} />
       <CardShell icon={<Globe className="size-4 text-muted" />} title="DNS & hosting" source="dns"
         outcome={outcomeFor(outcomes, "dns")} view={dnsView(result.dns)} />
+      <CardShell icon={<ScrollText className="size-4 text-muted" />} title="Certificate history" source="ct"
+        outcome={outcomeFor(outcomes, "ct")} view={ctView(result.ct)} />
 
       <Card className="flex flex-col gap-3 p-5">
         <div className="flex flex-wrap items-center gap-2">

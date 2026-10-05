@@ -210,6 +210,23 @@ The post-audit hardening added these cross-cutting components (all under `backen
 | Live progress | `core/scan_events.py`, `GET /scan/{id}/events` | Replay + live SSE bus (thread/loop-safe, bounded). Events carry provider names, statuses, reasons and timings only — never the target or any finding. Token or single-use ticket. |
 | Evidence UI | `frontend/src/lib/evidence.ts`, `hostsignals.ts`, `components/{SourceChip,EvidencePanel,FeatureProvenance,HostSignals,LiveSources}.tsx` | Pure view models (unit-tested with `npm test`) rendered monochrome: state is carried by icon + wording + border style, never colour. |
 
+## Independent-evidence architecture (Phase B-intel)
+
+Two questions are kept separate on purpose and never blended into one unexplained number: **"is this target malicious?"**
+(the baseline / ML scores, plus the independent channels below) and **"how exposed is this host to *exploited* vulnerabilities?"**
+(the exposure score). A new domain can impersonate a brand and still have no external reputation; an old host can be perfectly
+legitimate and badly patched.
+
+| Concern | Component (`backend/app/…`) | Behaviour |
+|---|---|---|
+| Exposure (B11) | `ml/exposure.py`, `ingestion/{epss,kev,vulnrichment}.py`, `core/feeds.py` | Per-CVE SSVC-style category (our own mapping — labelled "not CISA's official decision tree") and probability (KEV 0.95 / 0.99 ransomware, else EPSS); host score = noisy-OR; unknown stays `None`, coverage reads "N of M CVEs". KEV is a local feed with a visible age; a failed refresh keeps the old copy; never downloaded = *unknown*. |
+| Local feeds | `core/feeds.py` (`feed_meta`, `feed_entries`, schema v4) | Atomic replace, age tracking, `items()`; used by KEV, OpenPhish, PhishTank, Tranco. A truncated/poisoned download cannot erase a good list (shrink guard). |
+| Brand impersonation (B4) | `ml/confusables.py`, `ml/brands.py`, `ml/lookalike.py` | Canonical form = TR39 skeleton → leetspeak → `rn→m`; deletion-neighbourhood typo index (fast with thousands of brands); kinds with fixed documented rule scores (homoglyph .98 … contains-brand .55, "a heuristic, not a probability"); official domains and `.gov.in`/`.nic.in` never flagged; conservative for short brands and popular-site brands. Result: `ScanResult.brand_check` / `lookalike_of`. |
+| Certificate history (B3) | `ingestion/ct.py` | crt.sh by host name only through the SSRF-guarded fetcher; `first_seen` stored and ages re-derived on every read (a cached answer keeps ageing); failures never cached; the card says free-DV is common on legitimate sites and CT-first-seen is not the registration date. |
+| Reputation channels (B2) | `ingestion/reputation.py` (APIs), `ingestion/blocklists.py` (feeds), `ingestion/reputation_set.py` | One `Channel` subclass per source: three-state, per-channel limiter honouring `Retry-After`, SQLite cache, keys only in headers, private names / IPs refused before any request. Local feeds answer offline with their age and a match level (`exact_url` / `url_path` / `host`). `ScanResult.reputation` lists who said what — **not a score**; B7 will calibrate and fuse. |
+| Verdict | `api/scan.py::_assess_verdict` | Reputation evidence = VirusTotal + the B2 evidence channels. Any with a record ⇒ not *unknown*; none ⇒ *unknown* ("absence of evidence"). For B2 channels "no record" is a normal answer; an error or a missing key is a gap. |
+| UI | `frontend/src/lib/{exposure,lookalike,reputation,hostsignals}.ts` + panels | Pure view models (unit-tested) rendered monochrome; unknown is said, never zero; "not listed" is never "safe". |
+
 ## Evaluation Results
 
 > ⚠ **Correction (2026-10-02):** the figures below are **not valid for the deployed model** — they predate it,

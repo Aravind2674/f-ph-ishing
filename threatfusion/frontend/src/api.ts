@@ -31,7 +31,7 @@ export interface NeuralExplanation {
 export interface AttackChainNode {
   cve_id: string;
   cvss_score: number | null;
-  epss_score: number;
+  epss_score: number | null; // null = unknown (never an invented 0)
   is_in_kev: boolean;
   exploit_db_id: string | null;
   pre_conditions: string[];
@@ -155,6 +155,106 @@ export interface DetectedTechnology {
   latest_version?: string | null;
 }
 
+// ── Exploit-informed exposure (B11): likelihood of exploitation, kept apart from the maliciousness scores ──
+export interface ExposureCve {
+  cve_id: string;
+  cvss: number | null; // severity — shown beside, not folded into, the exposure
+  epss: number | null; // null = unknown (never 0)
+  epss_percentile: number | null;
+  epss_date: string | null;
+  in_kev: boolean | null; // null = the KEV feed was unavailable
+  kev_ransomware: boolean | null;
+  kev_date_added: string | null;
+  ssvc_exploitation: string | null; // none | poc | active
+  ssvc_automatable: string | null; // yes | no
+  ssvc_technical_impact: string | null; // partial | total
+  category: string | null; // SSVC-style: Track | Track* | Attend | Act (null = not assessable)
+  probability: number | null; // KEV 0.95/0.99, else EPSS
+  basis: string[];
+}
+
+export interface ExposureAssessment {
+  score: number | null; // 0-100: chance at least one listed CVE is exploited; null = could not be assessed
+  category: string | null;
+  cves_total: number;
+  cves_assessed: number;
+  complete: boolean;
+  kev_count: number;
+  max_epss: number | null;
+  cves: ExposureCve[]; // worst first
+  notes: string[];
+  method: string;
+  feed_ages: Record<string, number | null>; // days since each local feed was fetched
+}
+
+// ── Independent reputation channels (B2): who says what, side by side — not a score ──
+export interface ReputationVerdict {
+  source: string;
+  listed: boolean; // true only when the source positively says the target is bad
+  category: string | null;
+  match: "exact_url" | "url_path" | "host" | "ip" | "ioc" | null;
+  score: number | null; // the source's own 0-100 score, where it gives one
+  detail: string | null;
+  reference: string | null; // public report / pulse / scan page
+  last_seen: string | null;
+  feed_age_days: number | null; // age of the local list this came from
+  stale: boolean;
+  extra: Record<string, string | number | boolean | null>;
+}
+
+export interface ReputationSummary {
+  channels_applicable: number;
+  channels_answered: number;
+  listed_by: string[];
+  verdicts: ReputationVerdict[];
+  popularity_rank: number | null; // Tranco rank — a prior, never a listing
+  feed_ages: Record<string, number | null>; // days since each local list was fetched
+  notes: string[];
+}
+
+// ── Certificate transparency (B3): when certificates were first/recently issued for the host ──
+export interface CtInfo {
+  host: string;
+  certs_total: number;
+  first_seen: string | null;
+  truncated: boolean;
+  cert_first_seen_days: number | null; // days since the earliest logged certificate; null = unknown
+  cert_count_30d: number | null;
+  latest_issuer: string | null;
+  issuer_is_free_dv: boolean | null; // common on legitimate sites too — a weak hint only
+  san_brand_hits: string[]; // "name -> Brand"
+  san_brand_keyword_hits: number;
+}
+
+// ── Brand impersonation (B4): a local check of the host against protected brands ──
+export type LookalikeKind =
+  | "homoglyph" | "leetspeak" | "typo" | "separator" | "brand_keyword" | "brand_in_subdomain" | "same_name_other_tld" | "contains_brand";
+
+export interface LookalikeMatch {
+  brand: string;
+  brand_domain: string; // the brand's primary official domain
+  sector: string;
+  country: string | null;
+  source: "curated" | "popular";
+  kind: LookalikeKind;
+  similarity: number; // a rule score for the kind of resemblance — a heuristic, not a probability
+  distance: number | null;
+  matched: string;
+  evidence: string[];
+  mixed_script: boolean;
+}
+
+export interface BrandCheck {
+  status: "lookalike" | "official" | "no_match";
+  match: LookalikeMatch | null;
+  official_of: string | null;
+  candidates: LookalikeMatch[]; // weaker resemblances below the flagging threshold
+  brands_checked: number;
+  popular_checked: number;
+  threshold: number;
+  notes: string[];
+}
+
 export interface TechFingerprintResult {
   technologies: DetectedTechnology[];
   headers_analyzed?: number;
@@ -201,6 +301,11 @@ export interface ScanResult {
   tls?: TlsInfo | null;
   rdap?: RdapInfo | null;
   dns?: DnsInfo | null;
+  ct?: CtInfo | null; // B3
+  reputation?: ReputationSummary | null; // B2; separate from the maliciousness scores
+  exposure?: ExposureAssessment | null; // B11; separate from the maliciousness scores
+  brand_check?: BrandCheck | null; // B4; local, separate from the maliciousness scores
+  lookalike_of?: LookalikeMatch | null;
   // The 19 engineered features; null = unknown (its source did not answer). See lib/evidence.ts for provenance.
   features?: Record<string, number | null> | null;
   cve: any;

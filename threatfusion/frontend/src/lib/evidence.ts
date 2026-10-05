@@ -23,11 +23,25 @@ export const SOURCE_LABELS: Record<string, string> = {
   virustotal: "VirusTotal",
   shodan_internetdb: "Shodan InternetDB",
   nvd: "NVD",
+  epss: "EPSS",
+  kev: "CISA KEV",
+  vulnrichment: "CISA Vulnrichment",
   tech_fingerprint: "Tech fingerprint",
   endoflife: "endoflife.date",
   tls: "TLS certificate",
   rdap: "Registration (RDAP)",
   dns: "DNS",
+  ct: "Certificate transparency",
+  openphish: "OpenPhish",
+  phishtank: "PhishTank",
+  urlhaus: "URLhaus",
+  threatfox: "ThreatFox",
+  safebrowsing: "Google Safe Browsing",
+  urlscan: "urlscan.io",
+  otx: "AlienVault OTX",
+  abuseipdb: "AbuseIPDB",
+  greynoise: "GreyNoise",
+  tranco: "Tranco",
 };
 
 export function sourceLabel(source: string): string {
@@ -55,9 +69,16 @@ export function humanReason(reason: string | null | undefined, retryAfter?: numb
     case "parse_error": return "Unreadable response";
     case "bot_challenge": return "Blocked by a bot-challenge page";
     case "wappalyzer_unavailable": return "Fingerprint data unavailable";
+    case "feed_unavailable": return "Feed not downloaded yet";
+    case "stale_feed": return "Feed is out of date — using the last downloaded copy";
+    case "suspicious_shrink": return "The download looked truncated — kept the previous copy";
+    case "not_found_upstream": return "Feed URL not found";
     case "tls_handshake_failed": return "TLS handshake failed";
     case "whois_failed": return "WHOIS fallback failed";
     case "bootstrap_failed": return "RDAP service directory unavailable";
+    case "no_resolved_ip": return "No public IP address was found to ask about";
+    case "not_applicable": return "Does not apply to this kind of target";
+    case "response_too_large": return "The answer was too large to read (a very busy domain)";
     case "disabled": return "Switched off in settings";
     case "not_configured": return "Not configured";
     case "no_registered_domain": return "No registered domain to look up";

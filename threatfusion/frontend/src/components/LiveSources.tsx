@@ -10,6 +10,7 @@ import { SourceChip } from "@/components/SourceChip";
 import type { LiveState } from "@/lib/evidence";
 
 const STAGES: Record<string, string> = {
+  lookalike: "Checking for brand impersonation…",
   features: "Building features…",
   scoring: "Scoring…",
 };

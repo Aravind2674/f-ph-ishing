@@ -21,6 +21,10 @@ from fastapi.responses import StreamingResponse
 
 from app.ingestion.cve import specific_cpe_names
 from app.ingestion.eol import apply_eol, assessable
+from app.ml.exposure import assess_exposure
+from app.ml.lookalike import assess_lookalike
+from app.ingestion.reputation import Subject
+from app.ingestion.reputation_set import EVIDENCE_SOURCES, LOCAL_FEEDS, SOURCES as REPUTATION_SOURCES, pick_public_ip, summarize, with_ip
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
 from app.ml.baseline import baseline_score
@@ -41,6 +45,7 @@ from app.core import privacy, safe_http
 from app.core.safe_http import FetchError, blocked_reason
 from app.core.targets import Target, canonicalize
 from app.models.schemas import (
+    BrandCheck,
     CanonicalTarget,
     ProviderResult,
     ProviderStatus,
@@ -132,11 +137,25 @@ _LABEL = {
     "virustotal": "VirusTotal",
     "shodan_internetdb": "Shodan",
     "nvd": "NVD",
+    "epss": "EPSS",
+    "kev": "KEV",
+    "vulnrichment": "Vulnrichment",
     "tech_fingerprint": "TechFingerprint",
     "endoflife": "EndOfLife",
     "tls": "TLS",
     "rdap": "RDAP",
     "dns": "DNS",
+    "ct": "CertTransparency",
+    "openphish": "OpenPhish",
+    "phishtank": "PhishTank",
+    "urlhaus": "URLhaus",
+    "threatfox": "ThreatFox",
+    "safebrowsing": "SafeBrowsing",
+    "urlscan": "urlscan",
+    "otx": "OTX",
+    "abuseipdb": "AbuseIPDB",
+    "greynoise": "GreyNoise",
+    "tranco": "Tranco",
 }
 
 
@@ -172,21 +191,32 @@ def _reason_text(res: ProviderResult | None) -> str:
     return f"{res.reason or res.status.value}{http}"
 
 
+_B2_SOURCES = frozenset(REPUTATION_SOURCES)
+_REPUTATION_EVIDENCE = frozenset({"virustotal"}) | EVIDENCE_SOURCES
+
+
 def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | None) -> tuple[str, str | None]:
     """Is the evidence complete, partial, or missing entirely?
 
-    VirusTotal is today's only *reputation* source, so without it there is no maliciousness
-    evidence: the verdict is **unknown** — never "Low".  (The URL-lexical neural score is shown
-    separately and is not enough on its own to call a target low-risk.)
+    Reputation evidence comes from VirusTotal and the independent channels of B2 (blocklists, abuse.ch, Safe Browsing,
+    AbuseIPDB, urlscan, OTX).  If **none** of them has a record, there is no maliciousness evidence: the verdict is
+    **unknown** — never "Low".  (The URL-lexical neural score is shown separately and is not enough on its own to call a
+    target low-risk.)  For the B2 channels "no record" is a normal answer, not a gap; an error or a missing key is a gap.
     """
-    if vt_res is None or not vt_res.ok:
+    if not any(o.ok and o.source in _REPUTATION_EVIDENCE for o in outcomes):
         return "unknown", (
             "No reputation source answered (VirusTotal: " + _reason_text(vt_res) + "). "
             "Absence of evidence is not evidence of safety."
         )
     applicable = [o for o in outcomes if o.status in (
         ProviderStatus.OK, ProviderStatus.NOT_FOUND, ProviderStatus.ERROR, ProviderStatus.NOT_CONFIGURED)]
-    missing = [(_LABEL.get(o.source, o.source), o) for o in applicable if o.status != ProviderStatus.OK]
+
+    def _is_gap(o: ProviderResult) -> bool:
+        if o.status == ProviderStatus.OK:
+            return False
+        return not (o.status == ProviderStatus.NOT_FOUND and o.source in _B2_SOURCES)
+
+    missing = [(_LABEL.get(o.source, o.source), o) for o in applicable if _is_gap(o)]
     if missing:
         names = ", ".join(f"{n} ({_reason_text(o)})" for n, o in missing)
         return "partial", f"{len(applicable) - len(missing)} of {len(applicable)} sources answered; missing: {names}."
@@ -194,7 +224,7 @@ def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | Non
 
 
 def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: str | None,
-                   vt, shodan, cve) -> str:
+                   vt, shodan, cve, brand_check: BrandCheck | None = None, listed_by: list[str] | None = None) -> str:
     """Plain-language summary that never claims more than the evidence supports."""
     if verdict_status == "unknown":
         return f"Risk could not be assessed. {verdict_reason}"
@@ -211,6 +241,11 @@ def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: 
         parts.append(f"There are {len(shodan.open_ports)} exposed ports"
                      + (f", with {len(cve.cves)} known CVEs detected." if cve is not None and cve.cves
                         else "."))
+    if listed_by:
+        parts.append("It is listed by " + ", ".join(_LABEL.get(s, s) for s in listed_by) + ".")
+    if brand_check is not None and brand_check.match is not None:
+        m = brand_check.match
+        parts.append(f"The domain name imitates {m.brand} ({m.kind.replace('_', ' ')}).")
     if verdict_status == "partial" and verdict_reason:
         parts.append(f"Partial evidence: {verdict_reason}")
     return " ".join(parts)
@@ -337,8 +372,11 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         return _done(res)
 
     tt = request.target_type
+    rep_set = hub.reputation()
+    rep_kind = "hash" if tt == TargetType.FILE_HASH else tt.value      # the channels' name for a file-hash target
     expected = (["virustotal"] + (["shodan_internetdb"] if tt in (TargetType.IP, TargetType.DOMAIN) else [])
-                + (["tech_fingerprint", "tls", "rdap", "dns"] if tt in (TargetType.URL, TargetType.DOMAIN) else []))
+                + (["tech_fingerprint", "tls", "rdap", "dns", "ct"] if tt in (TargetType.URL, TargetType.DOMAIN) else [])
+                + rep_set.applicable_sources(rep_kind))
     _emit({"type": "start", "scan_id": scan_id, "target_type": tt.value, "providers": expected, "mock": use_mock})
 
     try:
@@ -361,10 +399,10 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 return await _track("virustotal", lambda: vt_client.lookup_file_hash(target.hash))
             return None
 
-        async def shodan_chain() -> tuple[ProviderResult | None, ProviderResult | None]:
+        async def shodan_chain() -> tuple[ProviderResult | None, ProviderResult | None, list[ProviderResult], object]:
             # Shodan InternetDB (only relevant for IPs and Domains) …
             if tt not in (TargetType.IP, TargetType.DOMAIN):
-                return None, None
+                return None, None, [], None
             _emit({"type": "provider", "source": "shodan_internetdb", "status": "running"})
             ip_target = outbound_host
             dns_failure: ProviderResult | None = None
@@ -405,7 +443,36 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                     cve_res = _done(prov.not_configured("nvd"))
                 else:
                     cve_res = await _track("nvd", lambda: cve_client.lookup_for_host(shodan_data.vulns, cpes))
-            return shodan_res, cve_res
+
+            # … then the exploit-informed exposure (B11): EPSS (likelihood), KEV (observed exploitation) and CISA's SSVC
+            # decision points for the host's CVEs, all asked together. Only when InternetDB answered: otherwise "this host
+            # has no CVEs" is unknown, and so is its exposure. Kept apart from the maliciousness scores.
+            intel: list[ProviderResult] = []
+            exposure_data = None
+            if shodan_data is not None:
+                cve_data = cve_res.data if cve_res is not None and cve_res.ok else None
+                cvss_by_id = {d.cve_id.upper(): d.cvss_v3_score for d in (cve_data.cves if cve_data else [])}
+                listed = list(dict.fromkeys([v.upper() for v in shodan_data.vulns] + list(cvss_by_id)))
+                listed.sort(key=lambda c: -(cvss_by_id.get(c) or 0.0))              # highest severity first when capped
+                listed = listed[: settings.EXPOSURE_MAX_CVES]
+                epss_rows = kev_rows = ssvc_rows = None
+                ages: dict[str, float | None] = {}
+                if listed:
+                    epss_res, kev_res, vr_res = await asyncio.gather(
+                        _track("epss", lambda: hub.epss().lookup(listed), enabled=settings.EPSS_ENABLED),
+                        _track("kev", lambda: hub.kev().lookup(listed), enabled=settings.KEV_ENABLED),
+                        _track("vulnrichment", lambda: hub.vulnrichment().lookup(listed), enabled=settings.VULNRICHMENT_ENABLED),
+                    )
+                    intel = [epss_res, kev_res, vr_res]
+                    # three-state: ok -> the rows; "answered, nothing" -> {}; failed / skipped / disabled -> None (unknown)
+                    epss_rows = (epss_res.data.rows if epss_res.ok else {} if epss_res.status == ProviderStatus.NOT_FOUND else None)
+                    ssvc_rows = (vr_res.data.rows if vr_res.ok else {} if vr_res.status == ProviderStatus.NOT_FOUND else None)
+                    if kev_res.ok:
+                        kev_rows = kev_res.data.entries
+                        ages["kev"] = kev_res.data.age_days
+                exposure_data = assess_exposure(listed, cvss=cvss_by_id, epss=epss_rows, kev=kev_rows, ssvc=ssvc_rows,
+                                                cves_listed_by_host=True, feed_ages=ages)
+            return shodan_res, cve_res, intel, exposure_data
 
         async def tech_chain() -> tuple[ProviderResult | None, ProviderResult | None, object]:
             # Technology fingerprinting (URLs/Domains) …
@@ -431,17 +498,49 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
                 return None
             return await _track(source, make_call, enabled=enabled)
 
-        (vt_res, (shodan_res, cve_res), (tech_res, eol_res, tech),
-         tls_res, rdap_res, dns_res) = await asyncio.gather(
+        # DNS runs as its own task because the IP-based reputation channels (AbuseIPDB, GreyNoise) wait for its answer.
+        dns_task = asyncio.ensure_future(
+            host_signal("dns", settings.DNS_ENABLED, lambda: hub.dns().lookup(target.host, target.registered_domain)))
+        switches = {
+            "openphish": settings.OPENPHISH_ENABLED, "phishtank": settings.PHISHTANK_ENABLED, "tranco": settings.TRANCO_ENABLED,
+            "urlhaus": settings.URLHAUS_ENABLED, "threatfox": settings.THREATFOX_ENABLED,
+            "safebrowsing": settings.SAFEBROWSING_ENABLED, "urlscan": settings.URLSCAN_ENABLED, "otx": settings.OTX_ENABLED,
+            "abuseipdb": settings.ABUSEIPDB_ENABLED, "greynoise": settings.GREYNOISE_ENABLED,
+        }
+
+        async def reputation_chain() -> list[ProviderResult]:
+            # Independent reputation channels (B2). Each is asked only what may leave the machine: the canonical host,
+            # a resolved *public* IP, a hash or the privacy-trimmed URL. They run concurrently; the IP ones wait for DNS.
+            subject = Subject(
+                kind=rep_kind, host=outbound_host or None, registered_domain=target.registered_domain,
+                url=outbound_url if tt == TargetType.URL else None, hash=target.hash if tt == TargetType.FILE_HASH else None,
+                ip=target.ip if tt == TargetType.IP else None)
+
+            async def one(p) -> ProviderResult:
+                s = subject
+                if p.needs_ip and tt in (TargetType.URL, TargetType.DOMAIN):
+                    dns_res_ = await dns_task
+                    resolved = (dns_res_.data.a or []) + (dns_res_.data.aaaa or []) if dns_res_ is not None and dns_res_.ok else []
+                    s = with_ip(subject, pick_public_ip(resolved))
+                return await _track(p.source, lambda: p.call(s), enabled=p.enabled)
+
+            plan = rep_set.plan(rep_kind, switches)
+            return list(await asyncio.gather(*(one(p) for p in plan))) if plan else []
+
+        (vt_res, (shodan_res, cve_res, intel_res, exposure), (tech_res, eol_res, tech),
+         tls_res, rdap_res, dns_res, ct_res, rep_results) = await asyncio.gather(
             vt_chain(),
             shodan_chain(),
             tech_chain(),
             host_signal("tls", settings.TLS_ENABLED, lambda: hub.tls().lookup(target.host)),
             host_signal("rdap", settings.RDAP_ENABLED, lambda: hub.rdap().lookup(target.registered_domain)),
-            host_signal("dns", settings.DNS_ENABLED, lambda: hub.dns().lookup(target.host, target.registered_domain)),
+            dns_task,
+            host_signal("ct", settings.CT_ENABLED, lambda: hub.ct().lookup(target.host)),
+            reputation_chain(),
         )
         # A stable provenance order, whatever finished first.
-        outcomes = [r for r in (vt_res, shodan_res, cve_res, tech_res, eol_res, tls_res, rdap_res, dns_res)
+        outcomes = [r for r in (vt_res, shodan_res, cve_res, *intel_res, tech_res, eol_res, tls_res, rdap_res, dns_res, ct_res,
+                                  *rep_results)
                     if r is not None]
         vt = vt_res.data if vt_res is not None and vt_res.ok else None
         shodan = shodan_res.data if shodan_res is not None and shodan_res.ok else None
@@ -449,6 +548,13 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
         tls = tls_res.data if tls_res is not None and tls_res.ok else None
         rdap = rdap_res.data if rdap_res is not None and rdap_res.ok else None
         dns = dns_res.data if dns_res is not None and dns_res.ok else None
+        ct = ct_res.data if ct_res is not None and ct_res.ok else None
+        feed_ages: dict[str, float | None] = {}
+        if not use_mock:
+            for feed_name in LOCAL_FEEDS:
+                if any(r.source == feed_name for r in rep_results):
+                    feed_ages[feed_name] = await hub.feeds.age_days(feed_name)
+        reputation = summarize(rep_results, feed_ages)
 
         # ── 1b. Predictive Vulnerability Chaining ───────────────────────
         attack_paths = []
@@ -456,17 +562,29 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             try:
                 # First use parses the EPSS/KEV/Exploit-DB CSVs (hundreds of thousands of rows): do that in a
                 # worker thread so the event loop (SSE heartbeats, other requests) keeps ticking (A0-9).
-                await asyncio.to_thread(_chainer.initialize)
+                intel = {c.cve_id: c for c in exposure.cves} if exposure is not None else None      # live EPSS/KEV (B11)
+                await asyncio.to_thread(_chainer.initialize, legacy_epss_kev=intel is None)
                 # Bounded by what is left of the scan's deadline: attack paths are a bonus, never a reason to hold the
                 # scan (and a worker) open — a hung or slow chainer just yields no paths.
-                attack_paths = await asyncio.wait_for(_chainer.build_and_solve_chain(cve.cves),
+                attack_paths = await asyncio.wait_for(_chainer.build_and_solve_chain(cve.cves, intel=intel),
                                                       timeout=max(0.5, deadline - loop.time()))
             except Exception as e:
                 logger.warning("Vulnerability chaining failed or ran out of time: %s", e)
 
+        # ── 1c. Brand impersonation (B4) ────────────────────────────────
+        # Local and deterministic (no network, no quota): the canonical host against the protected brands. Reported next
+        # to the maliciousness scores — a domain can imitate a brand and still have no external reputation yet.
+        brand_check: BrandCheck | None = None
+        if settings.LOOKALIKE_ENABLED and tt in (TargetType.URL, TargetType.DOMAIN) and target.host:
+            _emit({"type": "stage", "stage": "lookalike"})
+            try:
+                brand_check = assess_lookalike(target.host, await hub.brands(), threshold=settings.LOOKALIKE_THRESHOLD)
+            except Exception:
+                logger.exception("Brand look-alike check failed")        # a gap in coverage, never a failed scan
+
         # ── 2. Feature Engineering (unknown stays None; coverage reported) ─
         _emit({"type": "stage", "stage": "features"})
-        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns)
+        features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns, ct)
 
         # ── 3. Rule-Based Baseline ──────────────────────────────────────
         _emit({"type": "stage", "stage": "scoring"})
@@ -515,7 +633,8 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
 
         # ── 5. Verdict status + plain-language summary ──────────────────
         verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
-        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve)
+        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve, brand_check,
+                                  reputation.listed_by if reputation else None)
         buckets = _bucket_sources(outcomes)
 
         # Assemble the final payload
@@ -532,6 +651,11 @@ async def create_scan(request: ScanRequest) -> ScanResponse:
             tls=tls,
             rdap=rdap,
             dns=dns,
+            ct=ct,
+            reputation=reputation,
+            exposure=exposure,
+            brand_check=brand_check,
+            lookalike_of=brand_check.match if brand_check is not None else None,
             features=features,
             feature_coverage=coverage,
             baseline_score=b_score,

@@ -5,7 +5,7 @@
  * Pure formatting only. The one rule they all follow: **unknown is said, never invented**. A `null` stays "unknown"
  * (or "lookup failed"), `[]` stays "none", and a missing registration date is "not published" — never "0 days".
  */
-import type { DetectedTechnology, DnsInfo, RdapInfo, TlsInfo } from "../api.ts";
+import type { CtInfo, DetectedTechnology, DnsInfo, RdapInfo, TlsInfo } from "../api.ts";
 
 export interface Fact {
   label: string;
@@ -159,6 +159,42 @@ export function dnsView(dns: DnsInfo | null | undefined): CardView | null {
     ok: null, // informational: DNS facts are context, not a verdict
     facts,
   };
+}
+
+// ── Certificate transparency (B3) ───────────────────────────────────────────
+export function ctView(ct: CtInfo | null | undefined): CardView | null {
+  if (!ct) return null;
+  const facts: Fact[] = [];
+  const days = ct.cert_first_seen_days;
+  const fresh = days != null && days < 30;
+  let headline = "No certificate history available";
+  let ok: boolean | null = null;
+  if (days != null) {
+    headline = `First certificate logged ${humanDuration(days)} ago`;
+    ok = !fresh;
+    facts.push({ label: "First seen in CT", value: ct.first_seen ? shortDate(ct.first_seen) : "unknown", flag: fresh });
+  } else {
+    facts.push({ label: "First seen in CT", value: "unknown" });
+  }
+  const lower = ct.truncated ? "at least " : "";
+  facts.push({ label: "Certificates", value: `${lower}${ct.certs_total} logged${ct.truncated ? " (more exist)" : ""}` });
+  if (ct.cert_count_30d != null) {
+    facts.push({ label: "Last 30 days", value: `${lower}${ct.cert_count_30d} issued`, flag: ct.cert_count_30d >= 3 });
+  }
+  if (ct.latest_issuer) {
+    const free = ct.issuer_is_free_dv == null ? "" : ct.issuer_is_free_dv ? " (free / automated DV — common on legitimate sites too)" : "";
+    facts.push({ label: "Newest issuer", value: `${ct.latest_issuer}${free}` });
+  }
+  if (ct.san_brand_keyword_hits > 0) {
+    facts.push({
+      label: "Brand-like names on the certificate",
+      value: ct.san_brand_hits.slice(0, 3).join("; ") + (ct.san_brand_hits.length > 3 ? ` … +${ct.san_brand_hits.length - 3}` : ""),
+      flag: true,
+    });
+  }
+  if (fresh) facts.push({ label: "Note", value: "Phishing sites usually get their first certificate just before going live", flag: true });
+  facts.push({ label: "Note", value: "First seen in CT is not the registration date: a domain can exist for years without a certificate" });
+  return { headline, ok, facts };
 }
 
 // ── Technology stack & end-of-life ──────────────────────────────────────────

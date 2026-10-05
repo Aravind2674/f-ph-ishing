@@ -1,0 +1,115 @@
+host,label,category,note
+# Hand-written by the detector's author — SYNTHETIC. Not scraped from any phishing feed and not a field sample. Unicode as \uXXXX.
+paypa1.com,lookalike,leetspeak,digit 1 for l
+paypal-secure.com,lookalike,brand_keyword,
+secure-paypal-login.com,lookalike,brand_keyword,
+paypalsupport.net,lookalike,brand_keyword,concatenated risk word
+pay-pal.com,lookalike,separator,
+paypall.com,lookalike,typo,
+pypal.com,lookalike,typo,missing letter
+paypl-help.com,lookalike,typo_plus_keyword,a typo of the brand next to a risk word is not combined -> known miss
+paypal.com.account-verify.info,lookalike,brand_in_subdomain,
+аpple.com,lookalike,homoglyph,Cyrillic a
+microsoft-support-team.com,lookalike,brand_keyword,
+micr0s0ft.com,lookalike,leetspeak,
+micorsoft.com,lookalike,typo,transposition
+rnicrosoft-support.com,lookalike,leetspeak,rn for m plus risk word
+microsоft.com,lookalike,homoglyph,Cyrillic o
+login.microsoftonline.com.security-check.xyz,lookalike,brand_in_subdomain,
+gοogle.com,lookalike,homoglyph,Greek omicron
+g00gle-login.com,lookalike,leetspeak,
+amaz0n-deals.com,lookalike,leetspeak,
+amazon.in.order-status.shop,lookalike,brand_in_subdomain,
+amzon.com,lookalike,typo,
+arnazon.com,lookalike,leetspeak,rn for m
+ａmazon.com,lookalike,homoglyph,fullwidth a (NFKC)
+faceb00k-security.com,lookalike,leetspeak,
+netfl1x-billing.com,lookalike,leetspeak,
+netflix-account-update.com,lookalike,brand_keyword,
+applle.com,lookalike,typo,five-letter brand: edit-distance matching is off by design -> known miss
+hdfcbank-netbanking.com,lookalike,brand_keyword,
+hdfc-bank.in,lookalike,separator,
+hdfcbank.co,lookalike,same_name_other_tld,same name on another TLD is only a candidate by design -> known miss
+secure.hdfcbank.com.login-update.in,lookalike,brand_in_subdomain,
+icicibank-rewards.in,lookalike,brand_keyword,
+icicibannk.com,lookalike,typo,
+sbi-yono-update.in,lookalike,brand_keyword,
+sbi.co.in.kyc-update.top,lookalike,brand_in_subdomain,
+onlinesbi-login.co.in,lookalike,brand_keyword,
+irctc-refund.in,lookalike,brand_keyword,
+irctc-ticket-booking.com,lookalike,brand_keyword,
+indiapost-tracking.com,lookalike,brand_keyword,
+uidai-update.in,lookalike,brand_keyword,
+aadhaar-card-download.com,lookalike,brand_keyword,
+incometax-gov-in.com,lookalike,contains_brand,no risk word -> known miss
+incometax-refund.in,lookalike,brand_keyword,
+epfo-claim.in,lookalike,brand_keyword,
+digilocker-kyc.in,lookalike,brand_keyword,
+paytm-kyc-update.com,lookalike,brand_keyword,
+phonepe-cashback.in,lookalike,brand_keyword,
+flipkart-lucky-draw.in,lookalike,contains_brand,no risk word -> known miss
+airtel-recharge.co,lookalike,brand_keyword,
+paypal123.com,lookalike,contains_brand,brand + digits -> known miss
+paypal.com,genuine,official,
+www.paypal.com,genuine,official,
+mail.google.com,genuine,official,
+accounts.google.com,genuine,official,
+outlook.office.com,genuine,official,
+login.live.com,genuine,official,
+login.microsoftonline.com,genuine,official,
+support.apple.com,genuine,official,
+www.amazon.in,genuine,official,
+smile.amazon.com,genuine,official,
+netbanking.hdfcbank.com,genuine,official,
+www.icicibank.com,genuine,official,
+www.onlinesbi.sbi,genuine,official,
+www.irctc.co.in,genuine,official,
+www.indiapost.gov.in,genuine,official,
+myaadhaar.uidai.gov.in,genuine,official,
+www.incometax.gov.in,genuine,official,
+www.epfindia.gov.in,genuine,official,
+digilocker.gov.in,genuine,official,
+www.flipkart.com,genuine,official,
+paytm.com,genuine,official,
+phonepe.com,genuine,official,
+www.airtel.in,genuine,official,
+web.whatsapp.com,genuine,official,
+www.netflix.com,genuine,official,
+www.linkedin.com,genuine,official,
+store.steampowered.com,genuine,official,
+www.dhl.com,genuine,official,
+github.com,genuine,official,
+someministry.gov.in,genuine,official,government-only suffix
+wikipedia.org,benign,unrelated,
+stripe.com,benign,unrelated,
+python.org,benign,unrelated,
+example.org,benign,unrelated,
+openstreetmap.org,benign,unrelated,
+mozilla.org,benign,unrelated,
+gitlab.com,benign,unrelated,
+cloudflare.com,benign,unrelated,
+nytimes.com,benign,unrelated,
+bbc.co.uk,benign,unrelated,
+thehindu.com,benign,unrelated,
+ndtv.com,benign,unrelated,
+zoho.com,benign,unrelated,
+infosys.com,benign,unrelated,
+wipro.com,benign,unrelated,
+iitb.ac.in,benign,unrelated,
+my-bakery.in,benign,unrelated,
+blog.rust-lang.org,benign,unrelated,
+tailscale.com,benign,unrelated,
+kittens.example.com,benign,unrelated,
+applesauce-recipes.com,benign,hard_negative,contains a brand name as part of a word
+pineapple-farm.in,benign,hard_negative,
+chase-the-sun.org,benign,hard_negative,brand word in a sentence
+steamboat-museum.org,benign,hard_negative,
+classic-cars.in,benign,hard_negative,
+jiotech-blog.com,benign,hard_negative,short brand inside another word
+sbirthday.com,benign,hard_negative,short brand inside another word
+lickety-split.com,benign,hard_negative,
+phase.com,benign,hard_negative,one edit from chase (5 letters: edit distance off)
+stream.com,benign,hard_negative,one edit from steam
+apply.com,benign,hard_negative,one edit from apple
+ledgers.com,benign,hard_negative,one edit from ledger (6 letters) -> expected false positive
+googles.com,benign,hard_negative,one edit from google -> expected false positive

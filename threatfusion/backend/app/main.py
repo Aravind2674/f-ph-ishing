@@ -46,6 +46,27 @@ async def _retention_loop(service) -> None:
         await asyncio.sleep(_RETENTION_INTERVAL_SECONDS)
 
 
+async def _feed_refresh_loop() -> None:
+    """Keep the KEV catalogue fresh (best effort): at start-up, then every few hours. A failure keeps the old copy."""
+    while True:
+        try:
+            if not get_settings().USE_MOCK_DATA and get_settings().KEV_ENABLED:
+                result = await hub.kev().ensure_fresh()
+                if result is not None and not result.ok:
+                    logger.warning("KEV refresh failed (%s); keeping the previous copy", result.reason)
+            if not get_settings().USE_MOCK_DATA:
+                s = get_settings()
+                enabled = {"openphish": s.OPENPHISH_ENABLED, "phishtank": s.PHISHTANK_ENABLED, "tranco": s.TRANCO_ENABLED}
+                for feed in hub.reputation().feeds():
+                    if enabled.get(feed.source, True):
+                        await feed._safe_refresh()          # logs its own failure; keeps the previous copy
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Feed refresh failed")
+        await asyncio.sleep(_RETENTION_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager.
@@ -93,6 +114,8 @@ async def lifespan(app: FastAPI):
     warm_task = asyncio.create_task(asyncio.to_thread(_warm_fingerprints), name="wappalyzer-warmup")
     warm_task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or logger.error("fingerprint warm-up failed: %s", t.exception()))
 
+    feed_task = asyncio.create_task(_feed_refresh_loop(), name="feed-refresh")
+
     # Step 4: Initialize the Network Layer (baseline store + alert tables).
     # This is always initialised so the API can serve status/history even
     # before live capture is started. Capture itself only begins when
@@ -114,6 +137,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown cleanup — stop capture threads if running.
     retention_task.cancel()
+    feed_task.cancel()
     try:
         await net_service.stop()
     except Exception:

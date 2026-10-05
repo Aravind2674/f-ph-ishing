@@ -96,6 +96,14 @@ shapes are used in both modes.
 | RDAP / WHOIS | no | the **registered domain** to the TLD registry's public RDAP service; WHOIS only where a TLD has no RDAP | `RDAP_ENABLED`, `RDAP_WHOIS_FALLBACK` |
 | DNS | no | A/AAAA/MX/NS/TXT/CAA/DMARC through the system resolver (or `DNS_NAMESERVERS`) and Team Cymru's DNS ASN map | `DNS_ENABLED` |
 | endoflife.date | no | a product slug such as `php` — nothing about the target | `EOL_ENABLED` |
+| EPSS / CISA Vulnrichment | no | CVE ids only | `EPSS_ENABLED`, `VULNRICHMENT_ENABLED` |
+| CISA KEV | no | nothing — a local copy of the catalogue, refreshed daily, with its age shown | `KEV_ENABLED` |
+| crt.sh (certificate transparency) | no | the host name | `CT_ENABLED` |
+| OpenPhish · PhishTank · Tranco | no (PhishTank app key optional) | nothing — local copies of the public lists (12 h / 12 h / daily), each shown with its age | `OPENPHISH_ENABLED`, `PHISHTANK_ENABLED`, `TRANCO_ENABLED` |
+| abuse.ch URLhaus · ThreatFox | **yes** (`ABUSECH_AUTH_KEY`) | the privacy-trimmed URL / host / IP / hash | `URLHAUS_ENABLED`, `THREATFOX_ENABLED` |
+| Google Safe Browsing | **yes** | the privacy-trimmed URL (key in a header). Non-commercial use only | `SAFEBROWSING_ENABLED` |
+| AbuseIPDB · GreyNoise Community | AbuseIPDB yes, GreyNoise optional | a resolved **public** IP | `ABUSEIPDB_ENABLED`, `GREYNOISE_ENABLED` |
+| urlscan.io (search only) · AlienVault OTX | OTX yes, urlscan optional | the host name (nothing is ever *submitted* to urlscan) | `URLSCAN_ENABLED`, `OTX_ENABLED` |
 
 Private / local / single-label names and internal addresses are never sent to any third party. **Mock mode touches
 no network at all** (no DNS lookups either). Every scan shows which sources answered ("Based on 4 of 7 sources"),
