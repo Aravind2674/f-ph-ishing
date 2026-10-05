@@ -26,8 +26,8 @@ from tests.conftest import mock_site
 NOW = datetime(2026, 10, 4, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def row(days_ago: float, *, names: str, issuer: str = "C=US, O=Let's Encrypt, CN=R11", serial: str | None = None) -> dict:
-    t = (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%S")
+def row(days_ago: float, *, names: str, issuer: str = "C=US, O=Let's Encrypt, CN=R11", serial: str | None = None, now: datetime = NOW) -> dict:
+    t = (now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%S")
     return {"id": int(days_ago * 1000) + 1, "serial_number": serial or f"{int(days_ago * 1000):x}", "issuer_name": issuer,
             "name_value": names, "entry_timestamp": t + ".123", "not_before": t, "not_after": t}
 
@@ -250,8 +250,11 @@ def _scan(client, target, crt_response):
 
 
 def test_scan_reports_a_fresh_certificate_history_for_a_new_lookalike(live_scan) -> None:
-    body = json.dumps([row(2, names="paypa1-secure.com\nwww.paypa1-secure.com\nhdfcbank-login.paypa1-secure.com"),
-                       row(1, names="paypa1-secure.com")])
+    # A scan-level test runs on the real clock (the age is re-derived on read), so the fixture is dated relative to the real "now";
+    # with the fixed NOW above it only passed on the day it was written and failed from the next day on.
+    now = datetime.now(timezone.utc)
+    body = json.dumps([row(2, names="paypa1-secure.com\nwww.paypa1-secure.com\nhdfcbank-login.paypa1-secure.com", now=now),
+                       row(1, names="paypa1-secure.com", now=now)])
     r = _scan(live_scan, "paypa1-secure.com", {"text": body})
     ct = r["ct"]
     assert round(ct["cert_first_seen_days"]) == 2 and ct["cert_count_30d"] == 2 and ct["issuer_is_free_dv"] is True
