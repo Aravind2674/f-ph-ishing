@@ -12,20 +12,20 @@
 @layer base {
   :root {
     /* Layered near-blacks for depth (never a flat #000). */
-    --background: 0 0% 4%;   /* #0a0a0a — page canvas          */
-    --surface: 0 0% 7%;      /* #111111 — card / elevation 1   */
-    --surface-2: 0 0% 10%;   /* #1a1a1a — controls / elevation 2 */
-    --surface-3: 0 0% 14%;   /* #242424 — hover / elevation 3  */
+    --background: 0 0% 3%;   /* #0a0a0a — page canvas          */
+    --surface: 0 0% 10%;      /* #111111 — card / elevation 1   */
+    --surface-2: 0 0% 14%;   /* #1a1a1a — controls / elevation 2 */
+    --surface-3: 0 0% 18%;   /* #242424 — hover / elevation 3  */
 
     /* Off-white text (avoids the glare of pure #fff). */
-    --foreground: 0 0% 91%;  /* #e8e8e8 — primary copy         */
-    --muted: 0 0% 64%;       /* #a3a3a3 — secondary copy       */
-    --subtle: 0 0% 42%;      /* #6b6b6b — labels / tertiary    */
+    --foreground: 0 0% 96%;  /* #e8e8e8 — primary copy         */
+    --muted: 0 0% 75%;       /* #a3a3a3 — secondary copy       */
+    --subtle: 0 0% 55%;      /* #6b6b6b — labels / tertiary    */
     --accent: 0 0% 98%;      /* #fafafa — near-white emphasis  */
     --ring: 0 0% 100%;       /* focus ring (used with opacity) */
 
     /* Hairline borders: 1px, low-opacity white — alpha baked in. */
-    --line: 0 0% 100% / 0.08;
+    --line: 0 0% 100% / 0.12;
     --line-strong: 0 0% 100% / 0.16;
 
     --radius: 0.375rem;

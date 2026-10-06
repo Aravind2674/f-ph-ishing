@@ -176,7 +176,7 @@ function ScoreCard({
             {unavailable ? "unavailable" : "/ 100"}
           </span>
         </div>
-        <Progress value={fill} className="mt-4" aria-label={`${label} score`} />
+        <Progress value={fill} className="mt-3" aria-label={`${label} score`} />
       </div>
     </Card>
   );

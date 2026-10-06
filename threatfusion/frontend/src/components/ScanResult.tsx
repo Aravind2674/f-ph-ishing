@@ -133,7 +133,7 @@ function FeatureVectorTable({ items }: { items: RiskExplanation[] }) {
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
-            <div className="border-t border-line">
+            <div className="border-t border-line max-h-[400px] overflow-y-auto pr-1 tf-scrollbar">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line">
@@ -426,9 +426,9 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col gap-5"
+      className="flex flex-col gap-4"
     >
-      {/* ── Target header ─────────────────────────────────────────────── */}
+      {/* Target header */}
       <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-3">
@@ -483,6 +483,7 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
         <p className="text-sm leading-relaxed text-muted">{result.summary}</p>
       )}
 
+<<<<<<< Updated upstream
       {/* ── Score comparison — quiet dual cards + verdict row ─────────── */}
       <RiskScorePanel
         baselineScore={baseline}
@@ -563,16 +564,41 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                     {" "}
                     / {vt.total_engines ?? "?"}
                   </span>
+=======
+      {/* Masonry-style 2-column layout to prevent unused gaps */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        
+        {/* LEFT COLUMN */}
+        <div className="flex flex-col gap-4">
+          <RiskScorePanel
+            baselineScore={baseline}
+            mlScore={ml}
+            severityLabel={result.ml_label}
+            revealKey={result.scan_id}
+          />
+
+          <Card className="p-0">
+            <div className="flex items-center gap-2 p-5 pb-4 border-b border-line">
+              <Radar className="size-4 text-muted" />
+              <span className="text-sm font-semibold text-foreground">
+                Why this score? (Top Factors)
+              </span>
+            </div>
+            <div className="px-5 py-5">
+              {topShap.length ? (
+                <ShapWaterfall items={topShap} />
+              ) : (
+                <p className="py-6 text-center text-sm text-subtle">
+                  No specific factors found to explain this score.
+>>>>>>> Stashed changes
                 </p>
+              )}
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
+          </Card>
 
-      {/* ── Full feature vector (collapsible) ─────────────────────────── */}
-      {explanations.length > 0 && <FeatureVectorTable items={explanations} />}
+          {explanations.length > 0 && <FeatureVectorTable items={explanations} />}
 
+<<<<<<< Updated upstream
       {/* ── Feature provenance: every feature's value (or "unknown") and the source it came from ─────── */}
       <FeatureProvenance features={result.features} outcomes={result.provider_results} />
 
@@ -600,140 +626,195 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
                     >
                       {p}
                     </span>
-                  ))
-                ) : (
-                  <span className="text-xs text-subtle">None detected</span>
-                )}
-              </DataRow>
-              {shodan.hostnames?.length > 0 && (
-                <DataRow label="Hostnames">
-                  {shodan.hostnames.map((h: string) => (
-                    <span
-                      key={h}
-                      className="rounded border border-line bg-surface-2 px-2 py-1 font-mono text-[11px] text-muted"
-                    >
-                      {h}
-                    </span>
-                  ))}
-                </DataRow>
-              )}
-              {shodan.cpes?.length > 0 && (
-                <DataRow label="Software Identifiers (CPEs)">
-                  {shodan.cpes.slice(0, 6).map((c: string) => (
-                    <span
-                      key={c}
-                      className="max-w-full truncate rounded border border-line bg-surface-2 px-2 py-1 font-mono text-[10px] text-subtle"
-                    >
-                      {c}
-                    </span>
-                  ))}
-                </DataRow>
-              )}
-            </div>
-          ) : (
-            <EmptyPanel icon={Network} text="No open ports or services detected." />
-          )}
-        </Card>
-
-        <Card className="p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <Boxes className="size-4 text-muted" />
-            <span className="text-sm font-semibold text-foreground">
-              Software Technologies
-            </span>
-            <span className="tf-eyebrow ml-1">(via Wappalyzer)</span>
-          </div>
-          {techs.length ? (
-            <div className="flex flex-col divide-y divide-line">
-              {techs.map((t, i) => (
-                <div key={i} className="flex items-center justify-between py-2.5 first:pt-0">
-                  <span className="text-sm text-foreground">{t.name}</span>
-                  <span
-                    className={cn(
-                      "rounded border px-2 py-0.5 font-mono text-[10px]",
-                      t.is_eol
-                        ? "border-line-strong font-semibold text-foreground"
-                        : "border-line text-subtle"
-                    )}
+=======
+          {result.attack_paths && result.attack_paths.length > 0 && (
+            <Card className="flex flex-col p-4 sm:p-5 max-h-[400px]">
+              <div className="mb-4 flex items-center gap-2 shrink-0">
+                <GitBranch className="size-4 text-muted" />
+                <span className="text-sm font-semibold text-foreground">
+                  Attack Paths
+                </span>
+                <Badge variant="subtle">{result.attack_paths.length}</Badge>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 tf-scrollbar">
+                <div className="flex flex-col gap-4">
+                  {result.attack_paths.map((path) => (
+                  <div
+                    key={path.path_id}
+                    className="rounded-lg border border-line bg-surface-2/40"
                   >
-                    v{t.version || "?"}
-                    {t.is_eol ? " · EOL" : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyPanel icon={Boxes} text="No specific software detected." />
-          )}
-        </Card>
-      </div>
-
-      {/* ── Vulnerabilities ───────────────────────────────────────────── */}
-      {cves.length > 0 && (
-        <Card className="p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <Bug className="size-4 text-muted" />
-            <span className="text-sm font-semibold text-foreground">
-              Discovered Vulnerabilities (CVEs)
-            </span>
-            <Badge variant="subtle">{cves.length}</Badge>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {cves.map((c, i) => {
-              const id = c.cve_id || c.id;
-              const cvss = c.cvss_v3_score ?? c.cvss_score;
-              return (
-                <div
-                  key={id || i}
-                  className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2"
-                >
-                  <span className="font-mono text-xs text-foreground">{id}</span>
-                  {cvss != null && (
-                    <span className="flex items-center gap-2">
-                      <RiskMeter score={Number(cvss) / 10} />
-                      <span className="font-mono text-xs tabular-nums text-muted">
-                        {Number(cvss).toFixed(1)}
+                    <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                      <span className="font-mono text-xs text-muted">
+                        Path {path.path_id} - {path.summary}
                       </span>
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* ── Predictive attack chains ──────────────────────────────────── */}
-      {result.attack_paths && result.attack_paths.length > 0 && (
-        <Card className="p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <GitBranch className="size-4 text-muted" />
-            <span className="text-sm font-semibold text-foreground">
-              Simulated Attack Paths
-            </span>
-            <Badge variant="subtle">{result.attack_paths.length}</Badge>
-          </div>
-          <div className="flex flex-col gap-4">
-            {result.attack_paths.map((path) => (
-              <div
-                key={path.path_id}
-                className="rounded-lg border border-line bg-surface-2/40"
-              >
-                <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-                  <span className="font-mono text-xs text-muted">
-                    Attack Path {path.path_id} · {path.summary}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <RiskMeter score={path.total_risk_score} />
-                    <span className="font-mono text-xs tabular-nums text-foreground">
-                      {pct(path.total_risk_score)}%
-                    </span>
-                  </span>
-                </div>
-                <div className="p-4">
-                  <AttackChain path={path} />
+                      <span className="flex items-center gap-2">
+                        <RiskMeter score={path.total_risk_score} />
+                        <span className="font-mono text-xs tabular-nums text-foreground">
+                          {pct(path.total_risk_score)}%
+                        </span>
+                      </span>
+                    </div>
+                    <div className="p-4">
+                      <AttackChain path={path} />
+                    </div>
+                  </div>
+                ))}
                 </div>
               </div>
+            </Card>
+          )}
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <div className="flex flex-col gap-4">
+          <NeuralPanel result={result} />
+
+          <Card className="flex flex-col p-4 sm:p-5 max-h-[340px]">
+            <div className="mb-4 flex items-center gap-2 shrink-0">
+              <CircleAlert className="size-4 text-muted" />
+              <span className="text-sm font-semibold text-foreground">
+                Data Sources
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 tf-scrollbar">
+              <div className="flex flex-col gap-4">
+              <DataRow label={"Successful - " + (result.data_sources_succeeded?.length ?? 0)}>
+                {result.data_sources_succeeded?.length ? (
+                  result.data_sources_succeeded.map((s) => (
+                    <Badge key={s} variant="outline">
+                      {s}
+                    </Badge>
+>>>>>>> Stashed changes
+                  ))
+                ) : (
+                  <span className="text-xs text-subtle">None</span>
+                )}
+              </DataRow>
+              <DataRow label={"Failed - " + (result.data_sources_failed?.length ?? 0)}>
+                {result.data_sources_failed?.length ? (
+                  result.data_sources_failed.map((s) => (
+                    <Badge key={s} variant="ghost" className="line-through">
+                      {s}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-xs text-subtle">None</span>
+                )}
+              </DataRow>
+              {vt && (
+                <div className="border-t border-line pt-3">
+                  <span className="tf-eyebrow">Antivirus Detections</span>
+                  <p className="mt-1 font-mono text-lg tabular-nums text-foreground">
+                    {vt.malicious_count ?? 0}
+                    <span className="text-subtle">
+                      {" "}/ {vt.total_engines ?? "?"}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Card className="p-4 sm:p-5 flex flex-col max-h-[340px]">
+              <div className="mb-4 flex items-center gap-2 shrink-0">
+                <Boxes className="size-4 text-muted" />
+                <span className="text-sm font-semibold text-foreground">
+                  Technologies
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 tf-scrollbar">
+                {techs.length ? (
+                  <div className="flex flex-col divide-y divide-line">
+                    {techs.map((t, i) => (
+                      <div key={i} className="flex items-center justify-between py-2 first:pt-0">
+                        <span className="text-sm text-foreground">{t.name}</span>
+                        <span
+                          className={cn(
+                            "rounded border px-2 py-0.5 font-mono text-[10px]",
+                            t.is_eol
+                              ? "border-line-strong font-semibold text-foreground"
+                              : "border-line text-subtle"
+                          )}
+                        >
+                          v{t.version || "?"}
+                          {t.is_eol ? " (EOL)" : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyPanel icon={Boxes} text="No tech stack detected." />
+                )}
+              </div>
+            </Card>
+
+            <Card className="p-4 sm:p-5 flex flex-col max-h-[340px]">
+              <div className="mb-4 flex items-center gap-2 shrink-0">
+                <Network className="size-4 text-muted" />
+                <span className="text-sm font-semibold text-foreground">
+                  Open Ports
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 tf-scrollbar">
+                {shodan ? (
+                  <div className="flex flex-col gap-4">
+                    <DataRow label="Ports">
+                      {shodan.open_ports?.length ? (
+                        shodan.open_ports.map((p) => (
+                          <span
+                            key={p}
+                            className="rounded border border-line bg-surface-2 px-2 py-1 font-mono text-xs tabular-nums text-foreground"
+                          >
+                            {p}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-subtle">None</span>
+                      )}
+                    </DataRow>
+                  </div>
+                ) : (
+                  <EmptyPanel icon={Network} text="No ports detected." />
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {cves.length > 0 && (
+            <Card className="flex flex-col p-4 sm:p-5 max-h-[400px]">
+              <div className="mb-4 flex items-center gap-2 shrink-0">
+                <Bug className="size-4 text-muted" />
+                <span className="text-sm font-semibold text-foreground">
+                  Vulnerabilities (CVEs)
+                </span>
+                <Badge variant="subtle">{cves.length}</Badge>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 tf-scrollbar">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {cves.map((c, i) => {
+                  const id = c.cve_id || c.id;
+                  const cvss = c.cvss_v3_score ?? c.cvss_score;
+                  return (
+                    <div
+                      key={id || i}
+                      className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2"
+                    >
+                      <span className="font-mono text-xs text-foreground">{id}</span>
+                      {cvss != null && (
+                        <span className="flex items-center gap-2">
+                          <RiskMeter score={Number(cvss) / 10} />
+                          <span className="font-mono text-xs tabular-nums text-muted">
+                            {Number(cvss).toFixed(1)}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                </div>
+              </div>
+<<<<<<< Updated upstream
             ))}
           </div>
         </Card>
@@ -743,6 +824,13 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
       <ReportThisSite scanId={result.scan_id} />
     </motion.div>
   );
+=======
+            </Card>
+          )}
+        </div>
+      </div>
+    </motion.div>  );
+>>>>>>> Stashed changes
 };
 
 function EmptyPanel({
