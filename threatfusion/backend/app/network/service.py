@@ -40,6 +40,7 @@ from typing import Any, Callable, Optional
 import aiosqlite
 
 from app.core.config import get_settings
+from app.network.aps import ApStore
 from app.network.baseline_store import BaselineStore
 from app.network.correlation import CorrelationEngine
 from app.network.enrichment.app_layer import AppLayerScorer
@@ -105,7 +106,8 @@ class NetworkMonitorService:
         self.store = BaselineStore(self._db_path, settings.BASELINE_MIN_OBSERVATIONS)
         self._app_scorer = AppLayerScorer()
         self._wigle = WigleClient(settings.WIGLE_API_NAME, settings.WIGLE_API_TOKEN)
-        self.engine = CorrelationEngine(self.store, self._app_scorer, self._wigle)
+        self.aps = ApStore(self._db_path)
+        self.engine = CorrelationEngine(self.store, self._app_scorer, self._wigle, ap_store=self.aps)
 
         # sensors → inbox (any thread) → consumer (event loop)
         self._inbox: "queue.Queue[SensorEvent]" = queue.Queue(maxsize=max(1, settings.NETWORK_EVENT_QUEUE_MAX))
@@ -142,6 +144,7 @@ class NetworkMonitorService:
     async def init(self) -> None:
         """Create tables, hydrate recent alerts and the saved interface choice from disk."""
         await self.store.init()
+        await self.aps.init()
         async with aiosqlite.connect(self._db_path) as db:
             await db.executescript(CREATE_ALERTS_SQL)
             await db.commit()
@@ -299,6 +302,7 @@ class NetworkMonitorService:
             return {"devices": 0, "domains": 0, "ports": 0, "alerts": 0}
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
         counts = await self.store.purge_older_than(cutoff)
+        counts["access_points"] = await self.aps.purge_older_than(cutoff)
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute("DELETE FROM net_alerts WHERE timestamp < ?", (cutoff,))
             await db.commit()
@@ -312,6 +316,7 @@ class NetworkMonitorService:
     async def delete_all_data(self) -> dict[str, int]:
         """Erase every stored device profile, domain history and alert (user-initiated)."""
         counts = await self.store.delete_all()
+        counts["access_points"] = await self.aps.delete_all()
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute("DELETE FROM net_alerts")
             await db.commit()
@@ -457,7 +462,8 @@ class NetworkMonitorService:
         if self._wifi is not None:
             w = self._wifi.status()
             sensors["wifi"] = {"available": w.get("available"), "running": w.get("running"), "reason": w.get("reason"), "packets": None,
-                               "events": w.get("events", 0), "last_event_at": w.get("last_event_at")}
+                               "events": w.get("events", 0), "last_event_at": w.get("last_event_at"), "fix": w.get("fix"),
+                               "backend": w.get("backend"), "ap_count": w.get("ap_count"), "last_scan_at": w.get("last_scan_at")}
         if not sensors:
             idle = {"available": None, "running": False, "reason": "not started", "packets": 0, "events": 0, "last_event_at": None}
             sensors = {name: dict(idle) for name in ("arp", "dns", "tls", "wifi")}

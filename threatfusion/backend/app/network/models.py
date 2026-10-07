@@ -68,6 +68,7 @@ class EventType(str, Enum):
     ARP_FLOOD = "arp_flood"
     ARP_MULTI_IP = "arp_multi_ip"
     AP_OBSERVED = "ap_observed"                # B14: an access point seen in a Wi-Fi scan (the correlator decides what it means)
+    WIFI_SCAN = "wifi_scan"                    # T2d: one Wi-Fi scan; the whole access-point list is in raw['aps']
     WIFI_AP = "wifi_ap"
     EVIL_TWIN = "evil_twin"
     ROGUE_AP = "rogue_ap"

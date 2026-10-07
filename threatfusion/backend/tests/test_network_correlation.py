@@ -228,12 +228,19 @@ def test_wigle_zero_history_raises_points_and_established_lowers() -> None:
 
 @pytest.mark.asyncio
 async def test_evil_twin_degrades_honestly_without_wigle(tmp_path) -> None:
-    engine = await _make_engine(tmp_path)
-    event = SensorEvent(
-        event_type=EventType.EVIL_TWIN, timestamp=_now(), sensor="wifi",
-        bssid="00:11:22:33:44:55", ssid="HomeNet", channel=36, signal=80,
-    )
-    alerts = await engine.correlate(event)
+    from app.network.aps import ApStore
+
+    store = await _make_store(tmp_path)
+    aps = ApStore(str(tmp_path / "net_test.db"))
+    engine = CorrelationEngine(store, AppLayerScorer(), WigleClient("", ""), ap_store=aps)
+
+    def scan(*bssids):
+        return SensorEvent(event_type=EventType.WIFI_SCAN, timestamp=_now(), sensor="wifi", raw={
+            "aps": [{"ssid": "HomeNet", "bssid": b, "oui": b[:8], "security": "WPA2-Personal/CCMP", "channel": 36} for b in bssids],
+            "connected_ssid": "HomeNet"})
+
+    assert await engine.correlate(scan("00:11:22:33:44:55")) == []
+    alerts = await engine.correlate(scan("00:11:22:33:44:55", "66:77:88:99:aa:bb"))
     assert len(alerts) == 1
     alert = alerts[0]
     assert alert.alert_type == AlertType.EVIL_TWIN

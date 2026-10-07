@@ -129,6 +129,36 @@ async def get_device(mac: str) -> DeviceProfile:
     return profile
 
 
+@router.get("/aps", summary="Access points seen in Wi-Fi scans")
+async def list_access_points(limit: int = Query(500, ge=1, le=2000)) -> list[dict]:
+    """Every access point remembered from the Wi-Fi scans, with the vendor prefix, security mode, channels used and whether it is confirmed
+    (``known``), flagged, or part of a watched network (the connected network and ``NETWORK_MONITORED_SSIDS``)."""
+    svc = get_service()
+    watched = svc.engine.watched_ssids()
+    rows = await svc.aps.list(limit)
+    for r in rows:
+        r["watched"] = (r["ssid"] or "").lower() in watched
+    return rows
+
+
+class KnownAp(BaseModel):
+    bssid: str = Field(..., max_length=17, description="aa:bb:cc:dd:ee:ff")
+    known: bool = Field(True, description="True = this is my access point; False = take the confirmation back")
+
+
+@router.post("/aps/known", summary="Confirm (or un-confirm) an access point")
+async def mark_access_point(body: KnownAp) -> dict:
+    """A confirmed access point is never reported again and its vendor prefix becomes part of the accepted set for its network."""
+    from app.network.sensor.wlan import normalize_bssid
+
+    bssid = normalize_bssid(body.bssid)
+    if bssid is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That is not a BSSID (expected aa:bb:cc:dd:ee:ff).")
+    if not await get_service().aps.set_known(bssid, body.known):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No access point {bssid} has been seen.")
+    return {"bssid": bssid, "known": body.known}
+
+
 @router.delete("/data", summary="Erase all stored network data")
 async def delete_network_data() -> dict:
     """Erase every stored device profile, per-device domain history and alert (irreversible).

@@ -7,7 +7,8 @@ Turns raw :class:`SensorEvent` observations into scored :class:`NetworkAlert` ob
 1. **Cross-layer correlation** — an observed name (a DNS query, a TLS SNI, or the name an IP was resolved from) goes through the
    reputation gate (``reputation_gate.py``): local lists and the URL model first, VirusTotal only for a flagged name inside the
    network's own budget.  A cross-layer alert needs *corroboration* (a list hit, or at least two VirusTotal engines).
-2. **WiGLE as a signal** — a candidate rogue / evil-twin AP's BSSID is looked up against WiGLE's public history.
+2. **Wi-Fi** (``aps.py``) — access points are remembered; only a *watched* network is judged: unfamiliar hardware (vendor prefix) or a new
+   security mode under its name, or a new channel.  A candidate evil twin's BSSID is also looked up against WiGLE's public history.
 3. **Behavioural baselining** — a name a *device* has never contacted, once its profile is established, and only if the name is not a
    popular one (a new popular site is normal behaviour, not a deviation).
 4. **TLS fingerprints** — a ClientHello whose JA3 hash is on abuse.ch's SSLBL list.  Capped at Medium: abuse.ch says these listings are
@@ -74,6 +75,8 @@ DGA_BURST_BASE = 45.0
 NAME_ANOMALY_BASE = 20.0
 BEACON_BASE = 45.0
 EVIL_TWIN_BASE = 50.0
+SECURITY_MISMATCH_POINTS = 45.0
+OPEN_TWIN_BONUS = 20.0
 ROGUE_AP_BASE = 20.0
 WIGLE_UNSEEN_BONUS = 32.0        # BSSID with zero public history → suspicious
 WIGLE_ESTABLISHED_PENALTY = -18.0  # long public history → reassuring
@@ -118,9 +121,10 @@ class CorrelationEngine:
     """
 
     def __init__(self, store: BaselineStore, app_scorer: AppLayerScorer, wigle: WigleClient, *, settings: Any = None,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time, ap_store: Any = None) -> None:
         s = settings or get_settings()
         self._store = store
+        self._aps = ap_store
         self._app = app_scorer
         self._wigle = wigle
         self._settings = s
@@ -135,6 +139,7 @@ class CorrelationEngine:
         self._recent_names: "OrderedDict[tuple[str, str], float]" = OrderedDict()
         self._alert_seen: "OrderedDict[tuple, float]" = OrderedDict()
         self._warmup_until = 0.0
+        self._connected_ssid: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Session
@@ -144,6 +149,13 @@ class CorrelationEngine:
         """Called when monitoring starts. ``fresh`` = no device has ever been profiled: learn quietly for the warm-up period."""
         seconds = float(self._settings.NETWORK_WARMUP_SECONDS)
         self._warmup_until = self._clock() + seconds if fresh and seconds > 0 else 0.0
+
+    def watched_ssids(self) -> set[str]:
+        """Lower-cased SSIDs whose access points are judged: those in NETWORK_MONITORED_SSIDS plus the network this machine is connected to."""
+        watched = {x.strip().lower() for x in self._settings.NETWORK_MONITORED_SSIDS.split(",") if x.strip()}
+        if self._connected_ssid:
+            watched.add(self._connected_ssid.lower())
+        return watched
 
     @property
     def warming_up(self) -> bool:
@@ -184,10 +196,8 @@ class CorrelationEngine:
                 return self._handle_dns_response(event)
             if t == EventType.TLS_CLIENT_HELLO:
                 return await self._handle_tls(event)
-            if t == EventType.EVIL_TWIN:
-                return await self._handle_evil_twin(event)
-            if t == EventType.ROGUE_AP:
-                return await self._handle_rogue_ap(event)
+            if t == EventType.WIFI_SCAN:
+                return await self._handle_wifi_scan(event)
         except Exception:
             logger.exception("Correlation failed for event %s", event.event_type)
         return []
@@ -497,80 +507,62 @@ class CorrelationEngine:
     # Wi-Fi
     # ------------------------------------------------------------------
 
-    async def _handle_evil_twin(self, event: SensorEvent) -> list[NetworkAlert]:
-        signals = [SignalContribution(
-            name="evil_twin",
-            label="Monitored SSID on unknown BSSID",
-            points=EVIL_TWIN_BASE,
-            detail=(
-                f"SSID '{event.ssid}' is being advertised by BSSID {event.bssid}, "
-                f"which has never carried that network name before."
-            ),
-        )]
-        wigle = await self._wigle_evidence(event.bssid)
-        self._apply_wigle(signals, wigle)
+    async def _handle_wifi_scan(self, event: SensorEvent) -> list[NetworkAlert]:
+        """One Wi-Fi scan: remember every access point, and judge the ones that carry a *watched* network's name.
 
-        score = _sum_points(signals)
-        return [NetworkAlert(
-            alert_id=uuid4().hex,
-            timestamp=event.timestamp,
-            alert_type=AlertType.EVIL_TWIN,
-            severity=severity_from_score(score),
-            fused_score=score,
-            title=f"Possible evil-twin for '{event.ssid}'",
-            involved=[x for x in [event.bssid, event.ssid] if x],
-            trigger_type="Monitored SSID advertised by an unrecognised BSSID",
-            evidence=AlertEvidence(
-                signals=signals, wigle=wigle,
-                raw={"channel": event.channel, "signal": event.signal, **event.raw},
-            ),
-            recommended_actions=[
-                f"Verify the legitimate BSSID for SSID '{event.ssid}'",
-                "Warn users not to connect until confirmed",
-                "Locate the rogue transmitter (signal strength / channel triangulation)",
-            ],
-        )]
-
-    async def _handle_rogue_ap(self, event: SensorEvent) -> list[NetworkAlert]:
-        signals = [SignalContribution(
-            name="rogue_ap",
-            label="New access point in RF environment",
-            points=ROGUE_AP_BASE,
-            detail=f"BSSID {event.bssid} (SSID '{event.ssid}') appeared after the RF baseline was learned.",
-        )]
-        wigle = await self._wigle_evidence(event.bssid)
-        self._apply_wigle(signals, wigle)
-
-        score = _sum_points(signals)
-
-        # Suppress low-value noise: an established, long-history neighbour AP
-        # (real WiGLE record) that scores below Medium is not worth an alert.
-        if (
-            wigle is not None and wigle.available and wigle.found
-            and wigle.total_observations >= WIGLE_ESTABLISHED_MIN_OBS
-            and score < 25.0
-        ):
+        Watched = the SSIDs in NETWORK_MONITORED_SSIDS plus the network this machine is connected to.  See ``aps.py`` for the rules.
+        """
+        if self._aps is None:
             return []
+        raw = event.raw
+        self._connected_ssid = raw.get("connected_ssid") or None
+        findings = await self._aps.observe(raw.get("aps") or [], self.watched_ssids())
+        alerts: list[NetworkAlert] = []
+        for f in findings:
+            if self._once("ap", f.bssid, f.kind):
+                alerts.append(await self._ap_alert(event, f))
+        return alerts
 
-        return [NetworkAlert(
-            alert_id=uuid4().hex,
-            timestamp=event.timestamp,
-            alert_type=AlertType.ROGUE_AP,
-            severity=severity_from_score(score),
-            fused_score=score,
-            title=f"New access point: {event.ssid or event.bssid}",
-            involved=[x for x in [event.bssid, event.ssid] if x],
-            trigger_type="Previously-unseen BSSID in the monitored RF environment",
-            evidence=AlertEvidence(
-                signals=signals, wigle=wigle,
-                raw={"channel": event.channel, "signal": event.signal, **event.raw},
-            ),
+    async def _ap_alert(self, event: SensorEvent, f: Any) -> NetworkAlert:
+        ev, ap = f.evidence, f.ap
+        if f.kind == "unexpected_oui":
+            signals = [SignalContribution(
+                name="evil_twin", label="Your network's name on different hardware", points=EVIL_TWIN_BASE,
+                detail=(f"SSID '{f.ssid}' is advertised by BSSID {f.bssid} whose vendor prefix is {ev['observed_oui']}, but the {ev['known_bssids']} "
+                        f"access point(s) you know for this network all use {', '.join(ev['known_ouis'])}. A real second access point of the same "
+                        f"system normally shares the prefix."))]
+            alert_type, title = AlertType.EVIL_TWIN, f"Possible evil-twin for '{f.ssid}' (unfamiliar hardware)"
+        elif f.kind == "security_mismatch":
+            observed = ev["observed_security"]
+            signals = [SignalContribution(
+                name="security_mismatch", label="Different security mode", points=SECURITY_MISMATCH_POINTS,
+                detail=f"'{f.ssid}' is being advertised by {f.bssid} with {observed}; it has only ever been seen with "
+                       f"{', '.join(ev['known_security']) or 'another mode'}.")]
+            if str(observed).lower().startswith("open"):
+                signals.append(SignalContribution(name="open_twin", label="Open network under a secured name", points=OPEN_TWIN_BONUS,
+                                                  detail="An open copy of a secured network lets anyone who joins it be intercepted."))
+            alert_type, title = AlertType.EVIL_TWIN, f"'{f.ssid}' advertised with a different security mode"
+        else:
+            signals = [SignalContribution(
+                name="unexpected_channel", label="Access point on a new channel", points=ROGUE_AP_BASE,
+                detail=f"{f.bssid} ('{f.ssid}') appeared on channel {ev['observed_channel']}; in {ev['sightings']} earlier sightings it used "
+                       f"{', '.join(str(c) for c in ev['channels_used_before'])}. Access points do change channel — this is the weakest signal.")]
+            alert_type, title = AlertType.ROGUE_AP, f"Access point {f.bssid} changed channel"
+        wigle = None
+        if f.kind != "unexpected_channel":
+            wigle = await self._wigle_evidence(f.bssid)
+            self._apply_wigle(signals, wigle)
+        score = _sum_points(signals)
+        return NetworkAlert(
+            alert_id=uuid4().hex, timestamp=event.timestamp, alert_type=alert_type, severity=severity_from_score(score), fused_score=score, title=title,
+            involved=[x for x in [f.bssid, f.ssid] if x], trigger_type=f"Watched network: {f.kind.replace('_', ' ')}",
+            evidence=AlertEvidence(signals=signals, wigle=wigle, raw={**ev, "bssid": f.bssid, "ssid": f.ssid, "channel": ap.get("channel"),
+                                                                      "signal_percent": ap.get("signal_percent"), "security": ap.get("security"),
+                                                                      "oui": ap.get("oui")}),
             recommended_actions=[
-                "Confirm whether this AP is authorised in your environment",
-                "If unknown, investigate its location and purpose",
-                "Consider it hostile until its WiGLE/physical provenance is verified",
-            ],
-        )]
+                "If this is your own access point, confirm it (Network → Access points → Mark known) and this alert will not repeat",
+                f"Otherwise verify the legitimate hardware for '{f.ssid}' before connecting to {f.bssid}",
+                "Locate the transmitter (signal strength, channel)"])
 
     # ------------------------------------------------------------------
     # Helpers
