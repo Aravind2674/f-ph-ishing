@@ -18,7 +18,7 @@ Version history
 * v5 – ``feedback``: user reports of false positives / negatives with provenance, reviewed before they can reach any
   training data (B20 — see ``api/feedback.py``).
 
-The network layer's tables (``net_*``) and ``verify_audit`` create themselves; they share this file but
+The network layer's tables (``net_*``) create themselves; they share this file but
 not this version counter.
 """
 

@@ -42,8 +42,6 @@ venv/Scripts/python.exe -m uvicorn app.main:app --reload   # run from backend/
   dashboard's **Settings** page and in the extension popup (**API token**); for the mitmproxy addon set
   `TF_API_TOKEN`. Requests must also use a local `Host` header (`ALLOWED_HOSTS`) and mutating requests must
   be `Content-Type: application/json`.
-- Active verification (`POST /verify`) is **off by default** — see `VERIFY_ENABLED` / `VERIFY_ALLOWED_HOSTS`
-  in `.env.example`.
 - Model files are checked against `ml/models/manifest.json` (SHA-256) at load time.
   After retraining run `python -m ml.hash_models` from `threatfusion/` and commit the
   new manifest; `MODEL_HASH_STRICT=false` relaxes only the "unlisted file" rule.

@@ -50,18 +50,6 @@ _CREDENTIAL_FIELDS = (
 )
 
 
-def parse_host_port(entry: str) -> tuple[str, Optional[int]]:
-    """``"host"`` / ``"host:8099"`` / ``"[::1]:8099"`` -> ``(host_lowercase, port | None)``."""
-    e = entry.strip().lower()
-    if e.startswith("["):                       # [ipv6]:port
-        host, _, rest = e[1:].partition("]")
-        return host, int(rest[1:]) if rest.startswith(":") and rest[1:].isdigit() else None
-    if e.count(":") == 1:                      # host:port (a bare IPv6 literal has several colons)
-        host, _, port = e.partition(":")
-        return host, int(port) if port.isdigit() else None
-    return e, None
-
-
 def is_placeholder_secret(value: str | None) -> bool:
     """True for empty values and template/sentinel strings (never a usable credential)."""
     v = (value or "").strip()
@@ -135,16 +123,6 @@ class Settings(BaseSettings):
     # then substituted the baseline score for the ML score). A relative value is resolved
     # against the threatfusion/ directory.
     MODEL_DIR: str = ""
-
-    # ── Active verification (A0-3) ──────────────────────────────────────
-    # POST /verify sends probe requests (XSS canary, SQLi checks) to a target. It is OFF unless an
-    # operator turns it on, and the scope is server configuration — NEVER taken from the request
-    # (the old `authorized_hosts` body field is ignored). Entries are `host` or `host:port`,
-    # comma-separated; a listed host may be a private/lab address, but never link-local/metadata.
-    VERIFY_ENABLED: bool = False
-    VERIFY_ALLOWED_HOSTS: str = "127.0.0.1:8099,localhost:8099"   # default: the bundled local lab only
-    VERIFY_RATE_PER_MINUTE: int = 6          # verification runs per target host per minute (0 = off)
-    VERIFY_TLS: bool = True                  # verify certificates when probing https targets
 
     # ── Data retention (A0-10) ──────────────────────────────────────────
     # The network layer stores which domains each device asked for — a browsing history. Rows older than
@@ -389,11 +367,6 @@ class Settings(BaseSettings):
         path = Path(raw).expanduser()
         backend_dir = Path(__file__).resolve().parents[2]
         return (path if path.is_absolute() else backend_dir / path).resolve()
-
-    @property
-    def verify_allowed_hosts(self) -> frozenset[tuple[str, Optional[int]]]:
-        """Parsed ``VERIFY_ALLOWED_HOSTS`` as ``{(host, port-or-None), ...}``."""
-        return frozenset(parse_host_port(e) for e in self.VERIFY_ALLOWED_HOSTS.split(",") if e.strip())
 
     @property
     def model_dir(self) -> Path:

@@ -46,7 +46,6 @@ PROTECTED = [
     ("GET", "/scan/some-id", None),
     ("POST", "/analyze", {"text": "x"}),
     ("POST", "/traffic/analyze", {"requests": []}),
-    ("POST", "/verify", {"target": "http://lab.test:8099/x?q=1"}),
     ("GET", "/network/status", None),
     ("GET", "/network/alerts", None),
     ("GET", "/network/devices", None),
@@ -102,7 +101,7 @@ def test_foreign_host_headers_are_rejected_even_with_a_valid_token(host: str) ->
 
 
 # ── JSON-only mutations (closes the body-less cross-site POST) ──────────────
-@pytest.mark.parametrize("path", ["/network/monitor/stop", "/network/monitor/start", "/scan", "/verify"])
+@pytest.mark.parametrize("path", ["/network/monitor/stop", "/network/monitor/start", "/scan"])
 def test_a_bodyless_post_is_rejected_with_415(path: str) -> None:
     r = _client().post(path)                       # no body, no content-type: a "simple" cross-site request
     assert r.status_code == 415

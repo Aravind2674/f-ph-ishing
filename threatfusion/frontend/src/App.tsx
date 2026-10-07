@@ -5,7 +5,6 @@ import { DashboardLayout } from './components/DashboardLayout';
 import { ScanForm } from './components/ScanForm';
 import { ScanResult } from './components/ScanResult';
 import { Inspector } from './components/Inspector';
-import { VerifyPanel } from './components/VerifyPanel';
 import { History } from './components/History';
 import { Settings } from './components/Settings';
 import { NetworkSection } from './components/NetworkSection';
@@ -122,12 +121,6 @@ function App() {
             <section className="flex flex-col gap-5">
               <SectionDivider step="02" label="Inspect a request or traffic" hint="neural attack classifier" />
               <Inspector />
-            </section>
-
-            {/* ── 03 · Verify a target ───────────────────────────────────── */}
-            <section className="flex flex-col gap-5">
-              <SectionDivider step="03" label="Verify a target" hint="safe active probes · localhost only" />
-              <VerifyPanel />
             </section>
 
           </div>

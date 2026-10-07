@@ -198,7 +198,6 @@ from app.api.health import router as health_router
 from app.api.scan import router as scan_router, stream_router as scan_stream_router
 from app.api.analyze import router as analyze_router
 from app.api.traffic import router as traffic_router
-from app.api.verify import router as verify_router
 from app.api.network import router as network_router, stream_router
 from app.api.feedback import router as feedback_router
 
@@ -207,7 +206,6 @@ app.include_router(scan_router)
 app.include_router(scan_stream_router)
 app.include_router(analyze_router)
 app.include_router(traffic_router)
-app.include_router(verify_router)
 app.include_router(feedback_router)
 app.include_router(network_router)
 app.include_router(stream_router)
