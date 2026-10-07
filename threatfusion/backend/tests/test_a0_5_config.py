@@ -176,11 +176,13 @@ def test_scan_without_virustotal_key_skips_virustotal_instead_of_sending_a_place
 async def test_app_layer_scorer_reports_unavailable_without_a_virustotal_key(live_env: None, monkeypatch) -> None:
     """Network layer: no VT credential => 'unavailable' with a reason, and no HTTP at all."""
     from app.network.enrichment.app_layer import AppLayerScorer
+    from tests.netfakes import url_model
 
     monkeypatch.setenv("VIRUSTOTAL_API_KEY", "PASTE_YOUR_VIRUSTOTAL_KEY_HERE")
     get_settings.cache_clear()
-    with respx.mock(assert_all_called=False) as router:   # unmatched request would raise
+    with url_model(flagged=True), respx.mock(assert_all_called=False) as router:   # an unmatched request would raise
         score = await AppLayerScorer().score("example.org", "domain")
         assert len(router.calls) == 0          # asserted inside: respx clears .calls on exit
-    assert score.available is False
+    # The URL model flagged it, VirusTotal cannot be asked: the answer says so and is never "corroborated".
+    assert score.source == "url_model_only" and score.corroborated is False and score.flagged is False
     assert "not configured" in (score.reason or "").lower()

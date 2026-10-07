@@ -102,6 +102,24 @@ def _fresh_provider_hub():
     hub.reset()
 
 
+@pytest.fixture(autouse=True)
+def _network_service_is_isolated(monkeypatch):
+    """No test runs the real capture probes (they open a packet handle and depend on the machine), and every test gets a fresh service.
+
+    The stub answers "cannot capture" instantly; tests that need a capable machine build ``NetworkMonitorService(preflight_fn=...)``.
+    """
+    from app.network import service as network_service
+    from app.network.preflight import CapturePreflight, CaptureState
+
+    def cannot_capture(interface: str = "") -> CapturePreflight:
+        return CapturePreflight(CaptureState.NO_NPCAP, False, "test stub: no capture backend", "test stub fix", details={"platform": "Windows"})
+
+    monkeypatch.setattr(network_service, "run_preflight", cannot_capture)
+    network_service.reset_service()
+    yield
+    network_service.reset_service()
+
+
 # Force mock mode for all tests
 os.environ['USE_MOCK_DATA'] = 'true'
 os.environ['VIRUSTOTAL_API_KEY'] = 'test-key'

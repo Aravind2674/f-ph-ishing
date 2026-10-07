@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Callable, Optional
 
 from app.network.models import SensorEvent
@@ -46,13 +47,21 @@ def load_scapy() -> Any:
         ) from e
 
 
+def _iso(epoch: Optional[float]) -> Optional[str]:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat() if epoch else None
+
+
 class BaseSensor:
     """Lifecycle + health bookkeeping shared by all sensors (polling-thread flavour)."""
 
     name: str = "base"
 
     def __init__(self, emit: EmitFn) -> None:
-        self._emit = emit
+        self._raw_emit = emit
+        self.events_emitted: int = 0            # events this sensor has handed to the service
+        self.last_event_at: Optional[float] = None
         self.available: bool = True
         self.reason: Optional[str] = None
         self.running: bool = False
@@ -60,6 +69,12 @@ class BaseSensor:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
+
+    def _emit(self, event: SensorEvent) -> None:
+        """Hand an event to the service, counting it (the status shows per-sensor event counts)."""
+        self.events_emitted += 1
+        self.last_event_at = time.time()
+        self._raw_emit(event)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -111,6 +126,8 @@ class BaseSensor:
             "running": self.running,
             "reason": self.reason,
             "packets_seen": self.packets_seen,
+            "events": self.events_emitted,
+            "last_event_at": _iso(self.last_event_at),
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────

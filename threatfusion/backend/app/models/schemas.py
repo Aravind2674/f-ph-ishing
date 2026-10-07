@@ -208,9 +208,9 @@ class VirusTotalResult(BaseModel):
     suspicious_count: int = Field(0, description="Number of engines flagging as suspicious")
     undetected_count: int = Field(0, description="Number of engines with no detection")
     total_engines: int = Field(0, description="Total number of engines that analysed")
-    reputation_score: int = Field(
-        0,
-        description="VT community reputation score (−100 … +100)",
+    reputation_score: Optional[int] = Field(
+        None,
+        description="VT community reputation score (−100 … +100); None when VirusTotal did not report one",
     )
     last_analysis_date: Optional[datetime] = Field(
         None,
@@ -312,11 +312,11 @@ class CVEResult(BaseModel):
         0,
         description="Total number of CVEs found",
     )
-    max_cvss_score: float = Field(
-        0.0,
+    max_cvss_score: Optional[float] = Field(
+        None,
         ge=0.0,
         le=10.0,
-        description="Highest CVSS v3 score among all CVEs",
+        description="Highest CVSS v3 score among the CVEs that have one; None when none of them is scored (never 0.0)",
     )
 
 
@@ -945,7 +945,8 @@ class ScanResult(BaseModel):
         None,
         ge=0.0,
         le=1.0,
-        description="Rule‑based heuristic score (0 = safe, 1 = critical)",
+        description="Provider-evidence score (rule-based weighted sum over VirusTotal / ports / CVEs / TLS / age; 0 = nothing found, "
+                    "1 = critical). None when no provider answered. Never adjusted after it is computed.",
     )
     baseline_label: Optional[str] = Field(
         None,
@@ -955,11 +956,26 @@ class ScanResult(BaseModel):
         None,
         ge=0.0,
         le=1.0,
-        description="ML fusion model predicted probability (0 = safe, 1 = critical)",
+        description="URL model: calibrated probability that the URL text looks like phishing (the stacked tree + character-CNN "
+                    "fusion). None for IP / hash targets or when the model is not loaded. Never adjusted after it is computed.",
     )
     ml_label: Optional[str] = Field(
         None,
-        description="Human‑readable risk label: low / medium / high / critical",
+        description="Low / Medium / High / Critical band of ml_score (the URL model's operating points); 'Unknown' without a score",
+    )
+    headline_band: Optional[str] = Field(
+        None,
+        description="The higher-risk band of the two channels (URL model, provider evidence); None when neither produced one",
+    )
+    driven_by: Optional[Literal["url_model", "provider_evidence", "both"]] = Field(
+        None, description="Which channel produced headline_band (both = the same band)",
+    )
+    agreement: Optional[bool] = Field(
+        None, description="|ml_score - baseline_score| <= 15 points; None when either score is missing",
+    )
+    baseline_terms: list[UrlRiskTerm] = Field(
+        default_factory=list,
+        description="What baseline_score is made of: each term's plain-English reason and its points on the 0..1 scale",
     )
 
     # ── Neural fusion model (char-CNN + tabular) ─────────────────────
@@ -1112,6 +1128,8 @@ class ScanHistoryItem(BaseModel):
     ml_label: Optional[str] = None
     neural_score: Optional[float] = None
     neural_label: Optional[str] = None
+    headline_band: Optional[str] = None
+    driven_by: Optional[str] = None
 
 
 class AttackChainNode(BaseModel):
@@ -1132,7 +1150,15 @@ class AttackPath(BaseModel):
 
     path_id: str = Field(..., description="Unique identifier for the attack path")
     nodes: list[AttackChainNode] = Field(default_factory=list, description="Sequence of chained vulnerability nodes")
-    total_risk_score: float = Field(0.0, description="Aggregated risk probability (0.0-1.0)")
+    total_risk_score: Optional[float] = Field(
+        None,
+        description="Probability (0.0-1.0) that at least one rated CVE on the path is exploited; None when no CVE on the path has "
+                    "a CVSS score, an EPSS score or a KEV listing",
+    )
+    unrated_cves: list[str] = Field(
+        default_factory=list,
+        description="CVEs on the path with no CVSS, EPSS or KEV data: left out of the risk figure, not given a made-up value",
+    )
     summary: str = Field("", description="Human-readable description of the attack sequence")
 
 
@@ -1274,60 +1300,6 @@ class TrafficAnalyzeResponse(BaseModel):
     )
     summary: str = Field("", description="Plain-language summary of the capture")
     error: Optional[str] = Field(None, description="Error message, if analysis failed")
-
-
-# ---------------------------------------------------------------------------
-# Phase 4 — active verification (scope-gated, non-destructive)
-# ---------------------------------------------------------------------------
-
-class VerifyRequest(BaseModel):
-    """Request body for ``POST /verify``.
-
-    ``target`` is the URL (with query parameters) to actively confirm. Probing is
-    **default-deny**: it only runs against localhost, or a host listed in
-    ``authorized_hosts`` — by which the caller attests it is authorised to test
-    that host. Anything else is refused before any request is sent.
-    """
-
-    target: str = Field(
-        ...,
-        min_length=1,
-        max_length=2048,
-        description="Target URL (with query params) to verify — localhost/authorised only",
-        examples=["http://127.0.0.1:8099/search?q=test"],
-    )
-    authorized_hosts: list[str] = Field(
-        default_factory=list,
-        description="Hosts you attest you are authorised to actively test (adds to localhost)",
-    )
-
-
-class ProbeResultModel(BaseModel):
-    """Outcome of one non-destructive active check against one parameter."""
-
-    param: str = Field(..., description="The parameter probed")
-    technique: str = Field(..., description="reflected-xss / error-sqli / boolean-sqli")
-    confirmed: bool = Field(..., description="True if the vulnerability was confirmed")
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    evidence: str = Field(..., description="Human-readable evidence for the verdict")
-    payload: str = Field(..., description="The non-destructive probe value used")
-
-
-class VerifyResponse(BaseModel):
-    """Top-level response for ``POST /verify``."""
-
-    success: bool = True
-    authorized: bool = Field(..., description="False when the target host was out of scope")
-    target: str = Field(..., description="The URL that was (or would have been) probed")
-    tested_params: list[str] = Field(default_factory=list)
-    confirmed_count: int = Field(0, description="Number of confirmed vulnerabilities")
-    probes: list[ProbeResultModel] = Field(default_factory=list)
-    summary: str = Field("", description="Plain-language summary")
-    error: Optional[str] = Field(None, description="Scope refusal or other error")
-    notice: Optional[str] = Field(
-        None,
-        description="Informational note, e.g. that `authorized_hosts` in the request was ignored",
-    )
 
 
 # ---------------------------------------------------------------------------

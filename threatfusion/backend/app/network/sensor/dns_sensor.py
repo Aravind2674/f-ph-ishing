@@ -32,6 +32,9 @@ class DnsSensor(CaptureSensor):
     name = "dns"
     bpf = "port 53"                 # udp + tcp, v4 + v6 (an answer too large for UDP arrives over TCP)
 
+    def wants(self, pkt: Any) -> bool:
+        return bool(pkt.haslayer("DNS"))
+
     def handle(self, pkt: Any) -> Iterable[SensorEvent]:
         obs, reason = parse_dns(pkt)
         if obs is None:

@@ -72,7 +72,8 @@ export interface AttackChainNode {
 export interface AttackPath {
   path_id: string;
   nodes: AttackChainNode[];
-  total_risk_score: number;
+  total_risk_score: number | null; // null = no CVE on the path has CVSS, EPSS or KEV data
+  unrated_cves?: string[];
   summary: string;
 }
 
@@ -88,7 +89,6 @@ export interface ProviderOutcome {
   fetched_at: string;
   cached: boolean;
   latency_ms?: number | null;
-  mock: boolean;
   retry_after?: number | null; // seconds until the provider's quota allows another call (rate_limited)
 }
 
@@ -303,9 +303,14 @@ export interface ScanResult {
   // Band of baseline_score ("Unknown" if no evidence). The baseline is the headline score:
   // the XGBoost model is experimental (VirusTotal features only) until retrained (A2-1).
   baseline_label?: string | null;
-  ml_score: number | null;
+  ml_score: number | null; // the URL model's calibrated probability (0..1), as computed
   ml_label: string; // "Unknown" when ml_score is null
   ml_status?: "ok" | "model_not_loaded" | "insufficient_evidence" | null;
+  // Headline = the higher-risk band of the two channels (URL model, provider evidence); neither score is adjusted.
+  headline_band?: string | null;
+  driven_by?: "url_model" | "provider_evidence" | "both" | null;
+  agreement?: boolean | null; // |URL model − provider evidence| <= 15 points; null when either is missing
+  baseline_terms?: { text: string; weight: number }[]; // what the provider-evidence score is made of
   // ok = every applicable source answered | partial | unknown = no reputation evidence
   verdict_status?: "ok" | "partial" | "unknown";
   verdict_reason?: string | null;
@@ -315,7 +320,6 @@ export interface ScanResult {
   model_versions?: Record<string, string>; // sha256[:12] from the model manifest, or "not_loaded"
   feature_schema_version?: number;
   app_version?: string | null;
-  mock_mode?: boolean;
   // Neural fusion model (char-CNN + tabular). Optional — present only when the
   // trained checkpoint is available on the backend.
   neural_score?: number | null;
@@ -378,55 +382,6 @@ export interface ScanResponse {
   fast?: FastVerdict | null;
 }
 
-// ── India: scam-message patterns and the report kit (B16) ──
-export interface TextMatch {
-  id: string;
-  category: string;
-  label: string;
-  weight: number;
-  evidence: string;
-  why: string;
-  advice: string;
-}
-
-export interface TextUrl {
-  url: string;
-  host: string | null;
-  shortener: boolean;
-  brand_check: BrandCheck | null;
-  note: string | null;
-}
-
-export interface TextAnalysis {
-  risk: "none" | "low" | "medium" | "high";
-  score: number;
-  matches: TextMatch[];
-  urls: TextUrl[];
-  advice: string[];
-  arithmetic: string;
-  limits: string[];
-  language: string;
-  truncated: boolean;
-}
-
-export interface ReportChannel {
-  id: string;
-  name: string;
-  how: string;
-  url: string | null;
-  use_when: string;
-  note: string | null;
-}
-
-export interface ReportKit {
-  kind: "website" | "message" | "call";
-  summary_text: string;
-  steps: string[];
-  channels: ReportChannel[];
-  reminders: string[];
-  generated_at: string;
-}
-
 export interface ScanHistoryItem {
   scan_id: string;
   target: string;
@@ -438,21 +393,20 @@ export interface ScanHistoryItem {
   ml_label: string | null;
   neural_score?: number | null;
   neural_label?: string | null;
+  headline_band?: string | null; // higher-risk band of the URL model and the provider evidence
+  driven_by?: "url_model" | "provider_evidence" | "both" | null;
 }
 
-// Mirrors backend HealthResponse (GET /health). `mock_mode` lets the UI show a
-// clear mock/live indicator so a viewer always knows whether data is synthetic.
+// Mirrors backend HealthResponse (GET /health).
 export interface ProviderHealth {
   configured: boolean;
-  mock: boolean;
-  // configured | placeholder | missing | keyless | local | mock  (never a credential value)
+  // configured | placeholder | missing | keyless | local  (never a credential value)
   state: string;
 }
 
 export interface HealthResponse {
   status: string;
   version: string;
-  mock_mode: boolean;
   providers?: Record<string, ProviderHealth>;
 }
 
@@ -507,29 +461,6 @@ export interface TrafficAnalyzeResponse {
   error: string | null;
 }
 
-// ── Phase 4 — active verification ─────────────────────────────────────────────
-export interface ProbeResult {
-  param: string;
-  technique: string;
-  confirmed: boolean;
-  confidence: number;
-  evidence: string;
-  payload: string;
-}
-
-export interface VerifyResponse {
-  success: boolean;
-  authorized: boolean;
-  target: string;
-  tested_params: string[];
-  confirmed_count: number;
-  probes: ProbeResult[];
-  summary: string;
-  error: string | null;
-  // e.g. "authorized_hosts in the request is ignored" — scope is server configuration.
-  notice?: string | null;
-}
-
 // ── Network Layer types (mirror app/network/models.py) ──────────────────
 
 export interface SignalContribution {
@@ -554,6 +485,11 @@ export interface AppLayerSubScore {
   flagged: boolean;
   top_explanations: string[];
   live: boolean;
+  source?: string | null; // virustotal | local_blocklist | popular_domain | url_model_only | budget_exhausted | cache
+  corroborated?: boolean;
+  blocklists?: string[];
+  popularity_rank?: number | null;
+  cached_from?: string | null;
 }
 
 export interface WigleResult {
@@ -589,13 +525,18 @@ export interface AlertEvidence {
 export type NetworkSeverity = "Low" | "Medium" | "High" | "Critical";
 
 export type NetworkAlertType =
-  | "deauth_flood"
   | "rogue_ap"
   | "evil_twin"
   | "new_device"
   | "cross_layer_hit"
   | "behavioral_deviation"
-  | "arp_spoof";
+  | "arp_spoof"
+  | "arp_flood"
+  | "arp_multi_ip"
+  | "tls_fingerprint"
+  | "dga_suspect"
+  | "beaconing"
+  | "dns_anomaly";
 
 export interface NetworkAlert {
   alert_id: string;
@@ -630,6 +571,42 @@ export interface SensorStatus {
   available: boolean | null;
   running: boolean;
   reason?: string | null;
+  packets?: number | null;
+  events?: number;
+  last_event_at?: string | null;
+  fix?: string | null; // Wi-Fi: what to do about a scan that cannot be made
+  backend?: string | null;
+  ap_count?: number | null;
+  last_scan_at?: string | null;
+}
+
+export type CaptureState =
+  | "no_scapy" | "no_npcap" | "not_elevated" | "no_interface" | "ready" | "starting" | "capturing" | "no_traffic" | "error";
+
+export interface NetworkInterface {
+  name: string;
+  description: string;
+  mac?: string | null;
+  ipv4: string[];
+  ipv6: string[];
+  virtual: boolean;
+  usable: boolean;
+  address?: string | null; // the first routable address
+}
+
+// What the machine can do about capture, and what it is doing. `state` is `capturing` only after a real packet was seen.
+export interface CaptureInfo {
+  state: CaptureState;
+  ok: boolean;
+  reason: string;
+  fix: string | null;
+  selected_interface: string | null;
+  interfaces: NetworkInterface[];
+  details: Record<string, any>;
+  packets_seen: number;
+  packets_per_second: number | null;
+  filter?: string | null;
+  filter_fallback?: boolean;
 }
 
 export interface MonitorStatus {
@@ -638,6 +615,34 @@ export interface MonitorStatus {
   alert_count: number;
   device_count: number;
   started_at?: string | null;
+  capture: CaptureInfo | null;
+  scope_note: string;
+  dropped_events: number;
+  reputation?: Record<string, number> | null;
+}
+
+export interface InterfaceChoice {
+  interfaces: NetworkInterface[];
+  selected: string | null;
+  configured: string | null;
+  source: string | null;
+  error: string | null;
+}
+
+export interface AccessPointRow {
+  bssid: string;
+  ssid: string;
+  oui: string;
+  security: string | null;
+  channels: number[];
+  first_seen: string;
+  last_seen: string;
+  sightings: number;
+  known: boolean;
+  flagged: boolean;
+  watched: boolean;
+  last_signal: number | null;
+  last_channel: number | null;
 }
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -785,32 +790,6 @@ export const waitForScan = async (scanId: string, intervalMs = 700, timeoutMs = 
   }
 };
 
-export const analyzeMessage = async (text: string): Promise<TextAnalysis> => {
-  const res = await fetch(`${API_BASE}/india/analyze-text`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()).analysis;
-};
-
-export const buildReportKit = async (body: { kind: "website" | "message" | "call"; host?: string; url?: string; reasons?: string[]; brand?: string; brand_domain?: string; message_excerpt?: string; lost_money?: boolean }): Promise<ReportKit> => {
-  const res = await fetch(`${API_BASE}/india/report-kit`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const reportKitForScan = async (scanId: string, lostMoney = false): Promise<ReportKit> => {
-  const res = await fetch(`${API_BASE}/india/scan/${encodeURIComponent(scanId)}/report-kit?lost_money=${lostMoney}`, { headers: authHeaders() });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
 export const fetchHistory = async (): Promise<ScanHistoryItem[]> => {
   const res = await fetch(`${API_BASE}/scan/history`, { headers: authHeaders() });
   if (!res.ok) {
@@ -819,8 +798,7 @@ export const fetchHistory = async (): Promise<ScanHistoryItem[]> => {
   return res.json();
 };
 
-// Lightweight liveness probe used by the dashboard shell to render the
-// mock/live badge. Additive only — existing call signatures are untouched.
+// Lightweight liveness probe used by the dashboard shell.
 export const fetchHealth = async (): Promise<HealthResponse> => {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) {
@@ -854,31 +832,6 @@ export const analyzeTraffic = async (
   });
   if (!res.ok) {
     throw await apiError(res);
-  }
-  return res.json();
-};
-
-// Phase 4 — actively confirm injection points (scope-gated by the SERVER: it is disabled
-// unless an operator enables it and lists the allowed hosts).
-// NOTE: the server decides the scope (VERIFY_ALLOWED_HOSTS); the UI no longer sends any
-// "authorised hosts" — a caller must not be able to authorise itself.
-export const verifyTarget = async (target: string): Promise<VerifyResponse> => {
-  const res = await fetch(`${API_BASE}/verify`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ target }),
-  });
-  if (!res.ok) {
-    // e.g. 429 {"detail": "Too many verification runs against …; retry in 42s."}
-    let detail = "";
-    try {
-      const body = await res.json();
-      detail = typeof body?.detail === "string" ? body.detail : "";
-    } catch {
-      /* non-JSON error body */
-    }
-    if (res.status === 401) throw await apiError(res);
-    throw new Error(detail || `API error: ${res.status}`);
   }
   return res.json();
 };
@@ -935,6 +888,38 @@ export const deleteNetworkData = async (): Promise<Record<string, number>> => {
   return res.json();
 };
 
+export const fetchInterfaces = async (): Promise<InterfaceChoice> => {
+  const res = await fetch(`${API_BASE}/network/interfaces`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+// Pick the capture interface ("" = automatic). The monitor must be stopped (409 otherwise).
+export const setCaptureInterface = async (name: string): Promise<InterfaceChoice> => {
+  const res = await fetch(`${API_BASE}/network/interface`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const fetchAccessPoints = async (): Promise<AccessPointRow[]> => {
+  const res = await fetch(`${API_BASE}/network/aps`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const markAccessPointKnown = async (bssid: string, known: boolean): Promise<void> => {
+  const res = await fetch(`${API_BASE}/network/aps/known`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ bssid, known }),
+  });
+  if (!res.ok) throw await apiError(res);
+};
+
 export const fetchDevices = async (): Promise<DeviceProfile[]> => {
   const res = await fetch(`${API_BASE}/network/devices`, { headers: authHeaders() });
   if (!res.ok) throw await apiError(res);
@@ -948,6 +933,8 @@ export const fetchDevices = async (): Promise<DeviceProfile[]> => {
  * access logs. So we trade the token for a short-lived, single-use ticket (POST /network/stream-ticket)
  * and open /network/stream?ticket=…. A ticket can be used once, so a dropped connection is re-opened
  * here with a *fresh* ticket and exponential backoff (native auto-reconnect would reuse the spent one).
+ * Every alert carries a sequence id; the last one seen is sent as `?last_event_id=` on each reconnect, and the backend replays the alerts
+ * (up to the last 500) that arrived while the page was away, so a restart or a network blip does not lose any.
  * Returns a handle; call `.close()` on unmount.
  */
 export const subscribeAlerts = (
@@ -958,6 +945,7 @@ export const subscribeAlerts = (
   let es: EventSource | null = null;
   let closed = false;
   let delay = 1000;
+  let lastId: string | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const retry = () => {
@@ -978,9 +966,12 @@ export const subscribeAlerts = (
       if (!res.ok) throw await apiError(res);
       const { ticket } = (await res.json()) as { ticket: string };
       if (closed) return;
-      es = new EventSource(`${API_BASE}/network/stream?ticket=${encodeURIComponent(ticket)}`);
+      const resume = lastId !== null ? `&last_event_id=${encodeURIComponent(lastId)}` : "";
+      es = new EventSource(`${API_BASE}/network/stream?ticket=${encodeURIComponent(ticket)}${resume}`);
       es.addEventListener("alert", (ev) => {
         try {
+          const id = (ev as MessageEvent).lastEventId;
+          if (id) lastId = id;
           onAlert(JSON.parse((ev as MessageEvent).data));
         } catch {
           /* malformed frame — ignore, next one will arrive */

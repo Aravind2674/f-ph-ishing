@@ -10,8 +10,11 @@ from app.network.preflight import (
     CaptureState,
     InterfaceInfo,
     Probes,
+    NO_PACKETS_AFTER_SECONDS,
     classify_open_error,
     effective_state,
+    fix_for,
+    make_interface_info,
     run_preflight,
 )
 
@@ -112,18 +115,90 @@ def pre_ok() -> "object":
     return run_preflight("", probes())
 
 
-def test_effective_state_ready_running_and_no_packets_seen() -> None:
+def test_effective_state_ready_starting_capturing_and_no_traffic() -> None:
     pre = pre_ok()
     assert effective_state(pre, sensors_running=False, packets_seen=0, seconds_running=0)[0] is CaptureState.READY
-    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=3)[0] is CaptureState.RUNNING       # still waiting
-    assert effective_state(pre, sensors_running=True, packets_seen=57, seconds_running=3)[0] is CaptureState.RUNNING
+    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=3)[0] is CaptureState.STARTING     # still waiting
+    assert effective_state(pre, sensors_running=True, packets_seen=57, seconds_running=3)[0] is CaptureState.CAPTURING
     state, reason, fix = effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=45)
-    assert state is CaptureState.NO_PACKETS_SEEN and "45 s" in reason and "mirror-port" in fix
+    assert state is CaptureState.NO_TRAFFIC and "45 s" in reason and "mirror-port" in fix
+
+
+def test_capturing_is_never_claimed_without_a_real_packet_and_no_traffic_comes_after_ten_seconds() -> None:
+    pre = pre_ok()
+    assert NO_PACKETS_AFTER_SECONDS == 10.0
+    for seconds in (0, 1, 9.9):
+        assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=seconds)[0] is CaptureState.STARTING
+    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=10)[0] is CaptureState.NO_TRAFFIC
+    assert effective_state(pre, sensors_running=True, packets_seen=1, seconds_running=10)[0] is CaptureState.CAPTURING
+
+
+# ── interface choice (revamp T2a) ───────────────────────────────────────────
+VBOX = InterfaceInfo(name="VirtualBox Host-Only Network", description="VirtualBox Host-Only Ethernet Adapter", ipv4=["192.168.56.1"], virtual=True, usable=True)
+HYPERV = InterfaceInfo(name="vEthernet (WSL)", description="Hyper-V Virtual Ethernet Adapter", ipv4=["172.20.0.1"], virtual=True, usable=True)
+
+
+def test_the_default_route_interface_wins_even_when_virtual_adapters_are_listed_first() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX, WIFI, ETH], default_interface=lambda: "Wi-Fi"))
+    assert pre.selected_interface == "Wi-Fi" and pre.details["interface_source"] == "default route"
+
+
+def test_without_a_default_route_virtual_adapters_are_skipped() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX, ETH, WIFI], default_interface=lambda: None))
+    assert pre.selected_interface == "Ethernet" and pre.details["interface_source"] == "first physical interface"
+
+
+def test_only_virtual_adapters_are_still_usable_but_said_so() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX], default_interface=lambda: None))
+    assert pre.ok and pre.selected_interface == "vEthernet (WSL)" and pre.details["interface_source"] == "first usable interface"
+
+
+def test_a_default_route_through_a_virtual_adapter_is_respected() -> None:
+    """A VPN / VM-routed machine really sends its traffic that way: the route is the truth, the name heuristic is only a fallback."""
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, WIFI], default_interface=lambda: "vEthernet (WSL)"))
+    assert pre.selected_interface == "vEthernet (WSL)"
+
+
+def test_the_default_gateway_is_reported_for_arp_checks() -> None:
+    assert run_preflight("", probes(default_gateway=lambda: "192.168.0.1")).details["gateway"] == "192.168.0.1"
+    assert run_preflight("", probes(default_gateway=lambda: None)).details["gateway"] is None
+
+
+def test_only_adapters_with_a_routable_address_are_usable() -> None:
+    wifi = make_interface_info("Wi-Fi", "Intel Wi-Fi 6", "aa:bb", ["192.168.0.50"], ["fe80::1"])
+    unplugged = make_interface_info("Ethernet", "Realtek PCIe GbE", None, ["169.254.23.191"], ["fe80::2"])
+    host_only = make_interface_info("VMware Network Adapter VMnet1", "VMware Virtual Ethernet Adapter", None, ["169.254.219.250"], [])
+    wsl = make_interface_info("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", None, ["172.20.0.1"], [])
+    ipv6_only = make_interface_info("Cellular", "Mobile broadband", None, [], ["2406:7400::5", "fe80::5"])
+    wfp = make_interface_info("Wi-Fi-WFP Native MAC Layer LightWeight Filter-0000", "WFP", None, ["192.168.0.50"], [])
+    assert (wifi.usable, wifi.address, wifi.virtual) == (True, "192.168.0.50", False)
+    assert unplugged.usable is False and unplugged.address is None, "a self-assigned address means nothing is connected"
+    assert host_only.usable is False
+    assert (wsl.usable, wsl.virtual, wsl.address) == (True, True, "172.20.0.1"), "a virtual adapter with a real address is offered, marked virtual"
+    assert (ipv6_only.usable, ipv6_only.address) == (True, "2406:7400::5"), "fe80:: is on every adapter and is never the reason one is usable"
+    assert wfp.usable is False, "filter bindings are not something to capture on"
+
+
+def test_the_fix_text_names_the_action_for_each_platform() -> None:
+    assert "npcap.com" in fix_for(CaptureState.NO_NPCAP) and "WinPcap API-compatible mode" in fix_for(CaptureState.NO_NPCAP)
+    assert fix_for(CaptureState.NOT_ELEVATED, "Windows").startswith("Run as Administrator")
+    assert "CAP_NET_RAW" in fix_for(CaptureState.NOT_ELEVATED, "Linux")
+    assert fix_for(CaptureState.READY) is None
 
 
 def test_a_failed_preflight_keeps_its_state_whatever_the_sensors_say() -> None:
     pre = run_preflight("", probes(npcap_present=lambda: False))
     assert effective_state(pre, sensors_running=True, packets_seen=10, seconds_running=99)[0] is CaptureState.NO_NPCAP
+
+
+def test_warm_up_never_raises_even_without_scapy(monkeypatch) -> None:
+    import app.network.preflight as pf
+
+    def boom() -> str:
+        raise ImportError("No module named 'scapy'")
+
+    monkeypatch.setattr(pf, "_scapy_version", boom)
+    pf.warm_up()                                                      # swallowed: the preflight reports a missing scapy, start-up must not fail
 
 
 def test_the_real_probes_run_and_never_raise() -> None:

@@ -62,6 +62,16 @@ class CaptureSensor(BaseSensor):
     def handle(self, pkt: Any) -> Iterable[SensorEvent]:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def wants(self, pkt: Any) -> bool:
+        """Is this packet this sensor's business?  Used when several parsers share one sniffer (``shared.SharedCapture``): a parser
+        only counts and handles the packets it asks for.  A sensor with its own sniffer takes everything its BPF filter lets through."""
+        return True
+
+    def reset_counters(self) -> None:
+        self.packets_seen, self.handler_errors, self.last_packet_at = 0, 0, None
+        self.events_emitted, self.last_event_at = 0, None
+        self.filtered = {}
+
     # ── lifecycle ────────────────────────────────────────────────────────
     def _alive(self) -> bool:
         s = self._sniffer
@@ -74,8 +84,7 @@ class CaptureSensor(BaseSensor):
                 return                                     # idempotent
             self._sniffer = None
             self.available, self.reason = True, None
-            self.packets_seen, self.handler_errors, self.last_packet_at = 0, 0, None
-            self.filtered = {}
+            self.reset_counters()
             try:
                 factory = self._factory or load_scapy().AsyncSniffer
             except RuntimeError as exc:

@@ -41,7 +41,7 @@ class Severity(str, Enum):
 class AlertType(str, Enum):
     """The kind of suspicious activity an alert represents."""
 
-    DEAUTH_FLOOD = "deauth_flood"
+    DEAUTH_FLOOD = "deauth_flood"              # no longer produced (needs monitor mode); kept so alerts stored by older versions still load
     ROGUE_AP = "rogue_ap"
     EVIL_TWIN = "evil_twin"
     NEW_DEVICE = "new_device"
@@ -51,7 +51,9 @@ class AlertType(str, Enum):
     TLS_FINGERPRINT = "tls_fingerprint"        # B13: a client TLS fingerprint listed for malware
     DGA_SUSPECT = "dga_suspect"                # B13: machine-generated-looking domain names / NXDOMAIN bursts
     BEACONING = "beaconing"                    # B13: periodic connections to one destination
-    DNS_ANOMALY = "dns_anomaly"                # B13: very long / high-entropy names, TXT volume
+    DNS_ANOMALY = "dns_anomaly"                # B13: very long / high-entropy names
+    ARP_FLOOD = "arp_flood"                    # one MAC announcing itself over and over (cache-poisoning tools do)
+    ARP_MULTI_IP = "arp_multi_ip"              # one MAC claiming many different IP addresses
 
 
 class EventType(str, Enum):
@@ -63,7 +65,10 @@ class EventType(str, Enum):
     DNS_QUERY = "dns_query"
     DNS_RESPONSE = "dns_response"              # A3-3: rcode + answers (domain → IPs, TTL)
     TLS_CLIENT_HELLO = "tls_client_hello"      # A3-3: SNI + JA3/JA4 from the unencrypted ClientHello
+    ARP_FLOOD = "arp_flood"
+    ARP_MULTI_IP = "arp_multi_ip"
     AP_OBSERVED = "ap_observed"                # B14: an access point seen in a Wi-Fi scan (the correlator decides what it means)
+    WIFI_SCAN = "wifi_scan"                    # T2d: one Wi-Fi scan; the whole access-point list is in raw['aps']
     WIFI_AP = "wifi_ap"
     EVIL_TWIN = "evil_twin"
     ROGUE_AP = "rogue_ap"
@@ -86,7 +91,7 @@ class SensorEvent(BaseModel):
 
     event_type: EventType = Field(..., description="Kind of raw observation")
     timestamp: datetime = Field(..., description="UTC time the sensor observed it")
-    sensor: str = Field(..., description="Which sensor produced this (arp/dns/wifi/dot11)")
+    sensor: str = Field(..., description="Which sensor produced this (arp/dns/tls/wifi)")
 
     # ── Device identity (populated for L2/L3 events) ─────────────────────
     mac: Optional[str] = Field(None, description="Source device MAC address")
@@ -172,6 +177,7 @@ class AppLayerSubScore(BaseModel):
                            "a URL-text model score alone never raises a cross-layer alert")
     blocklists: list[str] = Field(default_factory=list, description="Local lists that name this domain")
     popularity_rank: Optional[int] = Field(None, description="Tranco rank (a prior, not a verdict)")
+    cached_from: Optional[str] = Field(None, description="When source is 'cache': the stage that produced the cached answer")
 
 
 class WigleResult(BaseModel):
@@ -315,3 +321,6 @@ class MonitorStatus(BaseModel):
         "traffic of other devices. Watching other devices needs a sensor at the gateway or on a mirror port, or Zeek / Suricata logs.",
         description="What the sensor can and cannot see (A3-6)")
     dropped_events: int = Field(0, description="Sensor events discarded because the processing queue was full (never silent)")
+    reputation: Optional[dict[str, Any]] = Field(
+        None, description="What the reputation gate did with the names it saw: names, cache_hits, dedup_joins, popular, listed, model_clear, "
+                          "vt_calls, budget_exhausted (and the VirusTotal budget per minute)")

@@ -1,4 +1,4 @@
-"""A3-2 / A3-3: sensor lifecycle on AsyncSniffer, and PCAP-fixture replay of the DNS / TLS / ARP / 802.11 parsers.
+"""A3-2 / A3-3: sensor lifecycle on AsyncSniffer, and PCAP-fixture replay of the DNS / TLS / ARP parsers.
 
 The capture here is **synthetic** (built with scapy in the fixture below, with fixed packet timestamps) — there is no Npcap on the
 development machine and a real capture would contain someone's traffic.  AsyncSniffer's offline reader needs neither, and runs the
@@ -12,13 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from scapy.all import ARP, DNS, DNSQR, DNSRR, Dot11, Dot11Deauth, Ether, IP, IPv6, RadioTap, Raw, TCP, UDP, wrpcap
+from scapy.all import ARP, DNS, DNSQR, DNSRR, Ether, IP, IPv6, Raw, TCP, UDP, wrpcap
 
 from app.network.models import EventType
 from app.network.sensor.arp_sensor import ArpSensor
 from app.network.sensor.capture import CaptureSensor
 from app.network.sensor.dns_sensor import DnsSensor
-from app.network.sensor.dot11_sensor import Dot11Sensor
 from app.network.sensor.packets import name_filter_reason, parse_dns
 from app.network.sensor.tls_sensor import TlsSensor
 from tests.test_a3_tls_hello import build_hello
@@ -168,35 +167,6 @@ def test_arp_replay_reports_presence_once_and_the_conflict(pcap: Path) -> None:
     conflict = next(e for e in events if e.event_type == EventType.ARP_CONFLICT)
     assert (conflict.old_mac, conflict.new_mac, conflict.ip) == (ROUTER_MAC, "de:ad:be:ef:00:66", ROUTER_IP)
     assert conflict.raw["is_gateway"] is True
-
-
-# ── 802.11 deauth (monitor mode) ────────────────────────────────────────────
-def _deauth_pcap(tmp_path: Path, n: int, spread: float) -> Path:
-    bssid = "00:11:22:33:44:55"
-    pkts = [RadioTap() / Dot11(type=0, subtype=12, addr1="ff:ff:ff:ff:ff:ff", addr2=bssid, addr3=bssid) / Dot11Deauth(reason=7) for _ in range(n)]
-    for i, p in enumerate(pkts):
-        p.time = T0 + i * spread
-    path = tmp_path / "deauth.pcap"
-    wrpcap(str(path), pkts)
-    return path
-
-
-def test_a_deauth_flood_is_declared_from_counted_frames_on_their_capture_times(tmp_path: Path) -> None:
-    _, events = replay(Dot11Sensor, _deauth_pcap(tmp_path, 25, 0.1), "wlan0mon", 20, 10)
-    assert len(events) == 1 and events[0].event_type == EventType.DEAUTH_FLOOD
-    assert events[0].bssid == "00:11:22:33:44:55" and events[0].raw["frame_count"] >= 20 and events[0].raw["reason_code"] == 7
-
-
-def test_a_slow_trickle_of_deauth_frames_is_not_a_flood(tmp_path: Path) -> None:
-    _, events = replay(Dot11Sensor, _deauth_pcap(tmp_path, 25, 2.0), "wlan0mon", 20, 10)
-    assert events == []
-
-
-def test_dot11_without_a_monitor_interface_is_unavailable_with_the_reason() -> None:
-    s = Dot11Sensor(lambda e: None, "")
-    s.start()
-    assert not s.available and "monitor-mode interface" in s.reason and not s.running
-    s.stop()
 
 
 # ── A3-2: lifecycle ─────────────────────────────────────────────────────────

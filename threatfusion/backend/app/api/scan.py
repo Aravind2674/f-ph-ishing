@@ -27,7 +27,8 @@ from app.ingestion.reputation import Subject
 from app.ingestion.reputation_set import EVIDENCE_SOURCES, LOCAL_FEEDS, SOURCES as REPUTATION_SOURCES, pick_public_ip, summarize, with_ip
 from app.ingestion.shodan import ShodanClient
 from app.ingestion.techfingerprint import TechFingerprintClient
-from app.ml.baseline import baseline_score
+from app.ml.baseline import baseline_score, baseline_terms
+from app.ml.verdict import headline_verdict
 from app.ml.features import FEATURE_SCHEMA_VERSION, extract_features_with_coverage
 from app.ml.runtime import url_risk_service
 import app as _app_pkg
@@ -54,6 +55,7 @@ from app.models.schemas import (
     FastVerdict,
     ScanResult,
     TargetType,
+    UrlRiskTerm,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,14 +204,19 @@ def _assess_verdict(outcomes: list[ProviderResult], vt_res: ProviderResult | Non
 
 
 def _build_summary(verdict_status: str, verdict_reason: str | None, risk_label: str | None,
-                   vt, shodan, cve, brand_check: BrandCheck | None = None, listed_by: list[str] | None = None) -> str:
+                   vt, shodan, cve, brand_check: BrandCheck | None = None, listed_by: list[str] | None = None,
+                   url_flagged: bool = False, provider_evidence: bool = True) -> str:
     """Plain-language summary that never claims more than the evidence supports."""
     if verdict_status == "unknown":
-        return f"Risk could not be assessed. {verdict_reason}"
+        text = f"Risk could not be assessed from provider evidence. {verdict_reason}"
+        return text + (" The URL text itself looks like phishing." if url_flagged else "")
     parts = []
-    # The label of the HEADLINE score (the transparent baseline) — never the experimental model's.
+    # The label of the HEADLINE: the higher-risk band of the URL model and the provider evidence.
     if risk_label and risk_label != "Unknown":
-        parts.append(f"This target presents a {risk_label.lower()} risk profile.")
+        if provider_evidence:
+            parts.append(f"This target presents a {risk_label.lower()} risk profile.")
+        else:        # only the URL text speaks: say so rather than claim a profile of the target
+            parts.append(f"The URL text alone scores {risk_label.lower()} risk; there is no provider evidence.")
     if vt is not None:
         if vt.malicious_count > 0:
             parts.append(f"It is flagged by {vt.malicious_count} AV engines.")
@@ -624,11 +631,12 @@ async def _execute_scan(request: ScanRequest) -> ScanResponse:
         _emit({"type": "stage", "stage": "features"})
         features, coverage = extract_features_with_coverage(vt, shodan, cve, tech, tls, rdap, dns, ct)
 
-        # ── 3. Rule-Based Baseline ──────────────────────────────────────
+        # ── 3. Provider-evidence score ──────────────────────────────────
         _emit({"type": "stage", "stage": "scoring"})
-        # With no evidence at all there is nothing to score: None, not a reassuring 0.0.
-        any_ok = any(o.ok for o in outcomes)
-        b_score = baseline_score(features) if any_ok else None
+        # Is the evidence complete, partial, or missing? When no reputation source answered, a score built from the host signals
+        # alone (tech stack, certificate) would read "0 = nothing found" — so there is no score: None, not a reassuring 0.0.
+        verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
+        b_score = None if verdict_status == "unknown" else baseline_score(features)
 
         # ── 4. URL-level ML (A2): calibrated tree model + char CNN + stacked fusion, SHAP evidence ──────────
         # These models read the URL *text* only (canonicalised: scheme / www do not matter), so they apply to URL and
@@ -661,10 +669,16 @@ async def _execute_scan(request: ScanRequest) -> ScanResponse:
                 logger.exception("URL model scoring failed: %s", e)
                 ml_status = "error"
 
-        # ── 5. Verdict status + plain-language summary ──────────────────
-        verdict_status, verdict_reason = _assess_verdict(outcomes, vt_res)
-        summary_text = _build_summary(verdict_status, verdict_reason, _baseline_label(b_score), vt, shodan, cve, brand_check,
-                                  reputation.listed_by if reputation else None)
+        # ── 4b. Headline: the higher-risk band of the two channels; neither score is touched ──────────
+        verdict = headline_verdict(b_score, _baseline_label(b_score), m_score, m_label)
+        provider_terms = ([UrlRiskTerm(text=text, weight=round(points, 4)) for text, points in baseline_terms(features)]
+                          if b_score is not None else [])
+
+        # ── 5. Plain-language summary ───────────────────────────────────
+        summary_text = _build_summary(verdict_status, verdict_reason, verdict.headline_band, vt, shodan, cve, brand_check,
+                                      reputation.listed_by if reputation else None,
+                                      url_flagged=bool(url_risk is not None and url_risk.flagged),
+                                      provider_evidence=b_score is not None)
         buckets = _bucket_sources(outcomes)
 
         # Assemble the final payload
@@ -694,6 +708,10 @@ async def _execute_scan(request: ScanRequest) -> ScanResponse:
             ml_score=m_score,
             ml_label=m_label,
             ml_status=ml_status,
+            headline_band=verdict.headline_band,
+            driven_by=verdict.driven_by,
+            agreement=verdict.agreement,
+            baseline_terms=provider_terms,
             neural_score=neural_score,
             neural_label=neural_label,
             neural_url_score=neural_url_score,

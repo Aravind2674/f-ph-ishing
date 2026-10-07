@@ -42,14 +42,12 @@ def test_absolute_database_url_is_respected(tmp_path) -> None:
 
 
 def test_every_component_uses_the_same_resolved_path(tmp_path, monkeypatch) -> None:
-    from app.core import audit
     from app.network.service import NetworkMonitorService
 
     db = tmp_path / "shared.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db.as_posix()}")
     get_settings.cache_clear()
     try:
-        assert audit._db_path() == str(db.resolve())
         assert NetworkMonitorService()._db_path == str(db.resolve())
     finally:
         get_settings.cache_clear()

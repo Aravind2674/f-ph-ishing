@@ -24,6 +24,8 @@ import pytest
 
 from app.network.baseline_store import BaselineStore
 from app.network.correlation import (
+    BLOCKLIST_POINTS,
+    CROSS_LAYER_BASE,
     CorrelationEngine,
     WIGLE_ESTABLISHED_PENALTY,
     WIGLE_UNSEEN_BONUS,
@@ -31,6 +33,7 @@ from app.network.correlation import (
 )
 from app.network.enrichment.app_layer import AppLayerScorer
 from app.network.enrichment.wigle import WigleClient, to_evidence
+from tests.netfakes import url_model
 from app.network.models import (
     AlertType,
     EventType,
@@ -144,19 +147,16 @@ async def test_cross_layer_hit_uses_real_app_layer_score(tmp_path) -> None:
     assert len(cross) == 1
     alert = cross[0]
 
-    # The App-Layer sub-score must be present, real and flagged.
+    # The gate found the host on a (mock) local blocklist: flagged, corroborated, and no third-party call was needed.
     assert alert.evidence.app_layer is not None
     assert alert.evidence.app_layer.available is True
-    assert alert.evidence.app_layer.flagged is True
-    assert alert.evidence.app_layer.vt_malicious_count > 0
-    # The app_layer signal must actually contribute points, and the fused
-    # score must exceed the cross-layer base alone — i.e. the real App-Layer
-    # sub-score materially drives the number (not over-fitting the exact ML
-    # calibration on a mock VT input).
+    assert alert.evidence.app_layer.flagged is True and alert.evidence.app_layer.corroborated is True
+    assert alert.evidence.app_layer.source == "local_blocklist" and alert.evidence.app_layer.blocklists
+    # The app_layer signal contributes explicit points, so the fused score exceeds the cross-layer base alone.
     app_sig = next(s for s in alert.evidence.signals if s.name == "app_layer")
     assert app_sig.available is True
-    assert app_sig.points > 0
-    assert alert.fused_score > 20.0  # 20 = cross-layer base; > means app added
+    assert app_sig.points == BLOCKLIST_POINTS
+    assert alert.fused_score == CROSS_LAYER_BASE + BLOCKLIST_POINTS
 
 
 @pytest.mark.asyncio
@@ -183,16 +183,29 @@ async def test_behavioral_deviation_on_novel_benign_domain(tmp_path) -> None:
     for _ in range(4):
         await engine._store.record_dns(mac, "google.com", "192.168.1.32")
 
-    # A novel (but not App-Layer-flagged) domain for an established device.
+    # A novel domain (not popular, not flagged) for an established device.
     event = SensorEvent(
         event_type=EventType.DNS_QUERY, timestamp=_now(), sensor="dns",
-        mac=mac, ip="192.168.1.32", domain="microsoft.com", raw={"qtype": 1},
+        mac=mac, ip="192.168.1.32", domain="quiet-novel-service.example.org", raw={"qtype": 1},
     )
-    alerts = await engine.correlate(event)
+    with url_model(score=0.02, flagged=False):                       # the URL model finds nothing odd about the name
+        alerts = await engine.correlate(event)
     dev = [a for a in alerts if a.alert_type == AlertType.BEHAVIORAL_DEVIATION]
     assert len(dev) == 1
     assert dev[0].evidence.baseline is not None
     assert dev[0].evidence.baseline.is_new_domain is True
+
+
+@pytest.mark.asyncio
+async def test_a_new_popular_domain_is_not_a_behavioural_deviation(tmp_path) -> None:
+    """A device visiting a popular site for the first time is normal behaviour; deviation is for rare names."""
+    engine = await _make_engine(tmp_path)
+    mac = "aa:bb:cc:dd:ee:22"
+    for _ in range(4):
+        await engine._store.record_dns(mac, "google.com", "192.168.1.33")
+    event = SensorEvent(event_type=EventType.DNS_QUERY, timestamp=_now(), sensor="dns", mac=mac, ip="192.168.1.33",
+                        domain="microsoft.com", raw={"qtype": 1})            # mock Tranco ranks microsoft.com
+    assert [a for a in await engine.correlate(event) if a.alert_type == AlertType.BEHAVIORAL_DEVIATION] == []
 
 
 # ── WiGLE folding + honest degradation ────────────────────────────────────
@@ -215,12 +228,19 @@ def test_wigle_zero_history_raises_points_and_established_lowers() -> None:
 
 @pytest.mark.asyncio
 async def test_evil_twin_degrades_honestly_without_wigle(tmp_path) -> None:
-    engine = await _make_engine(tmp_path)
-    event = SensorEvent(
-        event_type=EventType.EVIL_TWIN, timestamp=_now(), sensor="wifi",
-        bssid="00:11:22:33:44:55", ssid="HomeNet", channel=36, signal=80,
-    )
-    alerts = await engine.correlate(event)
+    from app.network.aps import ApStore
+
+    store = await _make_store(tmp_path)
+    aps = ApStore(str(tmp_path / "net_test.db"))
+    engine = CorrelationEngine(store, AppLayerScorer(), WigleClient("", ""), ap_store=aps)
+
+    def scan(*bssids):
+        return SensorEvent(event_type=EventType.WIFI_SCAN, timestamp=_now(), sensor="wifi", raw={
+            "aps": [{"ssid": "HomeNet", "bssid": b, "oui": b[:8], "security": "WPA2-Personal/CCMP", "channel": 36} for b in bssids],
+            "connected_ssid": "HomeNet"})
+
+    assert await engine.correlate(scan("00:11:22:33:44:55")) == []
+    alerts = await engine.correlate(scan("00:11:22:33:44:55", "66:77:88:99:aa:bb"))
     assert len(alerts) == 1
     alert = alerts[0]
     assert alert.alert_type == AlertType.EVIL_TWIN
@@ -231,22 +251,6 @@ async def test_evil_twin_degrades_honestly_without_wigle(tmp_path) -> None:
     wigle_sig = next(s for s in alert.evidence.signals if s.name == "wigle")
     assert wigle_sig.available is False
     assert wigle_sig.points == 0.0
-
-
-@pytest.mark.asyncio
-async def test_deauth_flood_scores_high(tmp_path) -> None:
-    engine = await _make_engine(tmp_path)
-    event = SensorEvent(
-        event_type=EventType.DEAUTH_FLOOD, timestamp=_now(), sensor="dot11",
-        bssid="66:77:88:99:aa:bb",
-        raw={"frame_count": 80, "threshold": 20, "window_seconds": 10,
-             "frame_type": "deauth", "reason_code": 7},
-    )
-    alerts = await engine.correlate(event)
-    assert len(alerts) == 1
-    assert alerts[0].alert_type == AlertType.DEAUTH_FLOOD
-    assert alerts[0].severity in (Severity.HIGH, Severity.CRITICAL)
-    assert alerts[0].fused_score >= 70.0
 
 
 # ── WiGLE client honest degradation (no network) ──────────────────────────

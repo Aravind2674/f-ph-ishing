@@ -51,6 +51,10 @@ def test_with_no_baseline_the_summary_does_not_invent_a_risk_profile(mock_scan_c
     monkeypatch.setattr(scan_module, "baseline_score", lambda features: None)
     r = mock_scan_client.post("/scan", json={"target": "plain.example.com", "target_type": "domain"}).json()["result"]
     assert r["baseline_score"] is None and "risk profile" not in r["summary"].lower()
+    # the headline then rests on the URL text alone, and the summary says exactly that
+    assert r["driven_by"] in ("url_model", None)
+    if r["headline_band"]:
+        assert "url text alone" in r["summary"].lower() and "no provider evidence" in r["summary"].lower()
 
 
 def test_a_mock_mode_scan_makes_no_dns_lookup_at_all(mock_scan_client, monkeypatch) -> None:

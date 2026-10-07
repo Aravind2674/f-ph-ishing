@@ -137,32 +137,6 @@ no requests of its own. Raw packet capture (tshark/PCAP) and out-of-band blind
 detection are future additions; HTTPS payloads are covered via the mitmproxy CA
 or a HAR export rather than raw TLS sniffing.
 
-## Phase 4 — Active Verification (scope-gated, non-destructive)
-
-Phases 2–3 *flag* likely injection points; Phase 4 *confirms* them by actively
-probing the target — the "simulate the attack and check" step that separates a
-real finding from a false positive. `app/verify/active.py` + `POST /verify`.
-
-Safety is the design:
-
-- **Scope gate (default-deny).** `host_is_authorized` only permits **loopback**
-  or a host the caller explicitly attests to in `authorized_hosts`. Every other
-  host is refused *before any packet is sent* — the tool is a scoped assessment
-  aid, not a weapon.
-- **Non-destructive probes only.** Three read-only signals: a **reflected-XSS
-  canary** (a unique inert marker with raw angle brackets — confirmed only if it
-  returns unescaped), **error-based SQLi** (a lone quote; a real SQL error string
-  is the evidence), and **boolean-based SQLi** (a TRUE tautology vs a FALSE
-  contradiction; a large, consistent divergence means the condition is evaluated
-  server-side). There is deliberately no payload that writes, deletes,
-  exfiltrates, executes, or calls out-of-band.
-- **Bounded.** Short timeouts and a hard cap on parameters probed.
-
-`tools/vuln_lab.py` is a tiny local intentionally-vulnerable app (reflected-XSS,
-SQLi, and a safe/escaped control) — the local equivalent of standing up Juice
-Shop/DVWA. Verified: the engine confirms the XSS and SQLi endpoints, correctly
-clears the escaped control, and refuses any non-loopback host.
-
 ## Security & data-integrity architecture (Phase A0)
 
 The post-audit hardening added these cross-cutting components (all under `backend/app/core/` unless noted):
@@ -173,7 +147,6 @@ The post-audit hardening added these cross-cutting components (all under `backen
 | Missing evidence | `ml/features.py` | A provider that did not answer leaves its features `None` (XGBoost sees NaN); coverage flags (`FeatureCoverage`) are reported; verdict is `ok / partial / unknown`. |
 | Outbound safety | `safe_http.py` | User-supplied targets are fetched only through `SafeFetcher`: all A/AAAA checked, connection pinned to the validated IP, redirects re-validated per hop, size/time caps. |
 | Access control | `auth.py`, `security.py` | Bearer token on every route but `/health`; `Host` allow-list; JSON-only mutations; body-size cap; single-use SSE tickets. |
-| Active probing | `verify/active.py`, `audit.py` | Off by default; scope is server config; every call appended to `verify_audit` (append-only triggers). |
 | Privacy | `privacy.py` | Private/local/reverse-DNS/invalid names and private IPs never sent to third parties; URL scans strip userinfo/query/fragment unless opted in; sensitive headers redacted; network data retention + erase. |
 | Persistence | `db.py`, `scan_store.py` | `PRAGMA user_version` migrations; every scan stored with mock flag, provider provenance, model versions, feature-schema version. |
 | Model integrity | `artifacts.py`, `ml/models/manifest.json` | Model files verified by SHA-256 before loading; `weights_only=True`. |

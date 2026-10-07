@@ -115,8 +115,9 @@ def extract_features_with_coverage(
 
         # VT reputation ranges from -100 to +100.
         # We normalize this to [0.0, 1.0] where 1.0 is maximum positive reputation
-        # (meaning 0.0 represents -100, which is maximum bad reputation).
-        vec.vt_reputation_score = max(0.0, min(1.0, (vt.reputation_score + 100.0) / 200.0))
+        # (meaning 0.0 represents -100, which is maximum bad reputation). Unreported = unknown (None).
+        if vt.reputation_score is not None:
+            vec.vt_reputation_score = max(0.0, min(1.0, (vt.reputation_score + 100.0) / 200.0))
 
         if vt.last_analysis_date:
             now = datetime.now(timezone.utc)

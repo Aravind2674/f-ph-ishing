@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  VerdictCache, apiHeaders, badgeFor, bannerHeadline, bannerReasons, checkable, fastRequestBody, feedbackBody, isPrivateHost, needsBanner,
+  VerdictCache, apiHeaders, badgeFor, bannerHeadline, bannerReasons, checkable, dashboardLink, fastRequestBody, feedbackBody, isPrivateHost, needsBanner, popupView,
 } from "../lib.mjs";
 
 test("only ordinary web pages are checked", () => {
@@ -85,4 +85,42 @@ test("a report carries the host only by default, a capped note and what the verd
 test("the token goes in a header only when there is one", () => {
   assert.equal(apiHeaders("").Authorization, undefined);
   assert.equal(apiHeaders("abc").Authorization, "Bearer abc");
+});
+
+test("the popup shows the band and the top three reasons, strongest evidence first", () => {
+  const v = popupView({
+    headline_band: "High",
+    reputation: { listed_by: ["urlhaus", "openphish"] },
+    brand_check: { status: "lookalike", match: { brand: "HDFC Bank", brand_domain: "hdfcbank.com" } },
+    virustotal: { malicious_count: 4, total_engines: 72 },
+    url_risk: { flagged: true, headline_score: 0.74 },
+    baseline_terms: [{ text: "newly registered", weight: 0.1 }],
+  });
+  assert.equal(v.band, "High");
+  assert.deepEqual(v.reasons, ["Listed by URLhaus, OpenPhish", "Imitates HDFC Bank — the real site is hdfcbank.com", "4 of 72 antivirus engines flag it"]);
+});
+
+test("the popup falls back to the provider-evidence terms by weight, without repeating a reason", () => {
+  const v = popupView({ headline_band: "Medium", baseline_terms: [{ text: "a", weight: 0.1 }, { text: "b", weight: 0.4 }, { text: "a", weight: 0.05 }, { text: "c", weight: 0.2 }] });
+  assert.deepEqual(v.reasons, ["b", "c", "a"]);
+});
+
+test("the popup never words an empty or unknown result as safe", () => {
+  assert.deepEqual(popupView({ headline_band: "Low" }), { band: "Low", reasons: ["Nothing found"] });
+  assert.deepEqual(popupView({ headline_band: "Unknown" }), { band: "Unknown", reasons: ["No evidence — risk unknown"] });
+  assert.deepEqual(popupView({ headline_band: null, baseline_terms: [{ text: "x", weight: 1 }] }), { band: "Unknown", reasons: ["x"] });
+  assert.deepEqual(popupView(null), { band: "Unknown", reasons: ["No evidence — risk unknown"] });
+  for (const r of [popupView({ headline_band: "Low" }), popupView(null)].flatMap((x) => x.reasons)) assert.doesNotMatch(r, /\bsafe\b/i);
+});
+
+test("'Open in ThreatFusion' pre-fills the host; the full URL only when opted in", () => {
+  const page = checkable("https://login.example.com/reset?token=SECRET");
+  const link = new URL(dashboardLink(page));
+  assert.equal(link.origin, "http://localhost:5173");
+  assert.equal(link.searchParams.get("target"), "login.example.com");
+  assert.equal(link.searchParams.get("type"), "domain");
+  assert.equal(dashboardLink(page).includes("SECRET"), false);
+  const full = new URL(dashboardLink(page, { fullUrl: true }));
+  assert.equal(full.searchParams.get("type"), "url");
+  assert.match(full.searchParams.get("target"), /token=SECRET/);
 });

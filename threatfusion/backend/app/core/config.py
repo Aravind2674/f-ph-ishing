@@ -8,9 +8,9 @@ Design decisions
 * ``@lru_cache`` on ``get_settings()`` guarantees a single Settings
   instance across the entire process (singleton pattern without the
   boilerplate).
-* ``USE_MOCK_DATA`` defaults to **True** so that the app starts cleanly
-  out-of-the-box, even when the student hasn't obtained API keys yet.
-  A loud console warning reminds them to switch to live data.
+* ``USE_MOCK_DATA`` defaults to **False**: the running service only ever reports real provider answers, local feeds, captured
+  packets and model inferences. A provider with no key is skipped and reported as such, never replaced by fake data. Mock mode
+  exists for the test-suite only; :func:`assert_mock_mode_allowed` refuses to start the service with it.
 """
 
 from __future__ import annotations
@@ -48,18 +48,6 @@ _CREDENTIAL_FIELDS = (
     "ABUSECH_AUTH_KEY", "GOOGLE_SAFE_BROWSING_API_KEY", "ABUSEIPDB_API_KEY", "OTX_API_KEY", "URLSCAN_API_KEY",
     "GREYNOISE_API_KEY", "PHISHTANK_APP_KEY",
 )
-
-
-def parse_host_port(entry: str) -> tuple[str, Optional[int]]:
-    """``"host"`` / ``"host:8099"`` / ``"[::1]:8099"`` -> ``(host_lowercase, port | None)``."""
-    e = entry.strip().lower()
-    if e.startswith("["):                       # [ipv6]:port
-        host, _, rest = e[1:].partition("]")
-        return host, int(rest[1:]) if rest.startswith(":") and rest[1:].isdigit() else None
-    if e.count(":") == 1:                      # host:port (a bare IPv6 literal has several colons)
-        host, _, port = e.partition(":")
-        return host, int(port) if port.isdigit() else None
-    return e, None
 
 
 def is_placeholder_secret(value: str | None) -> bool:
@@ -113,10 +101,9 @@ class Settings(BaseSettings):
     WIGLE_API_TOKEN: str = ""
 
     # ── Feature flags ───────────────────────────────────────────────────
-    # When True, enrichment services return deterministic fake data.
-    # This lets students develop the UI and ML pipeline without burning
-    # API quota.
-    USE_MOCK_DATA: bool = True
+    # Test-suite only: when True, enrichment clients return deterministic fake data. The service refuses to start with it
+    # outside pytest (see assert_mock_mode_allowed).
+    USE_MOCK_DATA: bool = False
 
     # ── Database ────────────────────────────────────────────────────────
     # SQLite is the default for local development; swap to PostgreSQL in
@@ -136,16 +123,6 @@ class Settings(BaseSettings):
     # then substituted the baseline score for the ML score). A relative value is resolved
     # against the threatfusion/ directory.
     MODEL_DIR: str = ""
-
-    # ── Active verification (A0-3) ──────────────────────────────────────
-    # POST /verify sends probe requests (XSS canary, SQLi checks) to a target. It is OFF unless an
-    # operator turns it on, and the scope is server configuration — NEVER taken from the request
-    # (the old `authorized_hosts` body field is ignored). Entries are `host` or `host:port`,
-    # comma-separated; a listed host may be a private/lab address, but never link-local/metadata.
-    VERIFY_ENABLED: bool = False
-    VERIFY_ALLOWED_HOSTS: str = "127.0.0.1:8099,localhost:8099"   # default: the bundled local lab only
-    VERIFY_RATE_PER_MINUTE: int = 6          # verification runs per target host per minute (0 = off)
-    VERIFY_TLS: bool = True                  # verify certificates when probing https targets
 
     # ── Data retention (A0-10) ──────────────────────────────────────────
     # The network layer stores which domains each device asked for — a browsing history. Rows older than
@@ -291,9 +268,49 @@ class Settings(BaseSettings):
     # ── Network Layer — capture & monitoring ────────────────────────────
     # Interface names are passed straight to scapy. Empty string means
     # "let scapy pick the default interface".
-    NETWORK_CAPTURE_INTERFACE: str = ""       # ARP/DNS sniff interface
-    NETWORK_MONITOR_INTERFACE: str = ""       # 802.11 monitor-mode interface (deauth)
-    NETWORK_GATEWAY_IP: str = ""              # optional; emphasises gateway ARP spoofing
+    NETWORK_CAPTURE_INTERFACE: str = ""       # ARP/DNS/TLS sniff interface; empty = the interface carrying the default route
+    NETWORK_GATEWAY_IP: str = ""              # empty = the default route's gateway (detected at start)
+    # Sensor events cross from capture threads to the event loop through a bounded inbox; when it is full events are dropped
+    # and counted (`dropped_events` in /network/status), never silently and never by blocking a sniffer.
+    NETWORK_EVENT_QUEUE_MAX: int = 10_000
+    # Capture that has seen no packet this long after starting is reported as `no_traffic`, not as healthy.
+    NETWORK_NO_TRAFFIC_SECONDS: int = 10
+    # Alerts kept in a ring so an SSE client that reconnects with Last-Event-ID does not miss any.
+    NETWORK_ALERT_RING: int = 500
+    # A fresh install knows no devices yet: for this long after the first start it only *learns* (no "new device" alert for every
+    # machine already on the network). 0 disables the warm-up.
+    NETWORK_WARMUP_SECONDS: int = 120
+    # The same alert (type + device + subject) is raised at most once per this many seconds.
+    NETWORK_ALERT_DEDUP_SECONDS: int = 600
+
+    # ── Network reputation gate (T2c): what may cost a third-party call ──
+    # Order per observed name: private filter -> cache by registered domain -> in-flight de-dup -> Tranco / OpenPhish / PhishTank ->
+    # the local URL model -> VirusTotal ONLY if the model flags it AND this budget has room. Monitoring must not starve user scans.
+    NETWORK_VT_PER_MINUTE: int = 1
+    NETWORK_GATE_CACHE_SECONDS: int = 3600           # a decided name is not asked about again for this long
+    NETWORK_GATE_RETRY_SECONDS: int = 300            # ... but one that could not be decided (budget used up, provider down) is retried sooner
+    NETWORK_VT_TIMEOUT_SECONDS: float = 8.0          # the consumer never waits longer than this for VirusTotal
+
+    # ── Network heuristics (T2c). Fixed, documented thresholds; each alert carries the evidence that triggered it. ──
+    NXDOMAIN_BURST_THRESHOLD: int = 20               # "no such domain" answers to one device ...
+    NXDOMAIN_BURST_WINDOW_SECONDS: int = 60          # ... within this window (a domain-generation algorithm walks through generated names)
+    NAME_LABEL_MIN_LENGTH: int = 16                  # a label at least this long ...
+    NAME_LABEL_MIN_ENTROPY: float = 3.8              # ... with at least this many bits of entropy per character looks generated
+    #   (measured by ml/name_heuristic_eval.py on real host names: 0.41 % of benign hosts, 7.9 % of phishing hosts)
+    NAME_LABEL_LONG: int = 40                        # a label this long is suspicious by itself (DNS tunnelling packs data into labels)
+    BEACON_MIN_EVENTS: int = 8                       # a destination contacted at least this many times ...
+    BEACON_MIN_SPAN_SECONDS: int = 300               # ... over at least this long ...
+    BEACON_MAX_JITTER: float = 0.15                  # ... with intervals whose std/mean is at most this
+    ARP_CONFLICT_WINDOW_SECONDS: int = 300           # an IP re-bound to another MAC counts as a conflict only if the old MAC spoke this recently
+    ARP_FLOOD_THRESHOLD: int = 30                    # gratuitous ARP packets from one MAC ...
+    ARP_FLOOD_WINDOW_SECONDS: int = 10               # ... within this window
+    ARP_MULTI_IP_THRESHOLD: int = 8                  # one MAC claiming at least this many different IPs ...
+    ARP_MULTI_IP_WINDOW_SECONDS: int = 60            # ... within this window (the gateway MAC is exempt: proxy ARP is normal for a router)
+
+    # ── abuse.ch SSLBL: TLS client fingerprints (JA3) listed for malware. Not false-positive tested by abuse.ch: severity is capped. ──
+    SSLBL_JA3_ENABLED: bool = True
+    SSLBL_JA3_FEED_URL: str = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+    SSLBL_JA3_MAX_AGE_HOURS: int = 24
     # Auto-start capture on API boot. Requires Npcap + elevated (Administrator)
     # process. When capture can't start it degrades honestly (see MonitorStatus).
     NETWORK_AUTO_START: bool = False
@@ -306,9 +323,6 @@ class Settings(BaseSettings):
     BASELINE_MIN_OBSERVATIONS: int = 15
     # WiFi scan cadence (seconds) for the AP/evil-twin sensor.
     WIFI_SCAN_INTERVAL_SECONDS: int = 30
-    # Deauth flood detection: N deauth/disassoc frames within the window.
-    DEAUTH_FLOOD_THRESHOLD: int = 20
-    DEAUTH_WINDOW_SECONDS: int = 10
 
     # Names of credential fields that were present but still template placeholders
     # (recorded by the validator below so startup can say "placeholder" vs "missing").
@@ -353,11 +367,6 @@ class Settings(BaseSettings):
         path = Path(raw).expanduser()
         backend_dir = Path(__file__).resolve().parents[2]
         return (path if path.is_absolute() else backend_dir / path).resolve()
-
-    @property
-    def verify_allowed_hosts(self) -> frozenset[tuple[str, Optional[int]]]:
-        """Parsed ``VERIFY_ALLOWED_HOSTS`` as ``{(host, port-or-None), ...}``."""
-        return frozenset(parse_host_port(e) for e in self.VERIFY_ALLOWED_HOSTS.split(",") if e.strip())
 
     @property
     def model_dir(self) -> Path:
@@ -420,6 +429,7 @@ class Settings(BaseSettings):
             "openphish": status("openphish", True, "keyless"),
             "phishtank": status("phishtank", True, "keyless"),
             "tranco": status("tranco", True, "keyless"),
+            "sslbl_ja3": status("sslbl_ja3", True, "keyless"),
         }
 
     # ── Pydantic-settings configuration ─────────────────────────────────
@@ -444,26 +454,29 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def startup_warnings() -> None:
-    """Emit a highly visible warning when mock mode is active.
+class MockModeRefused(RuntimeError):
+    """The service was asked to start on synthetic data."""
 
-    This runs once during the FastAPI lifespan startup so the operator
-    immediately knows whether they're seeing real or synthetic data.
+
+def assert_mock_mode_allowed(settings: "Settings | None" = None) -> None:
+    """Refuse to serve synthetic data. Only the test-suite may run with ``USE_MOCK_DATA=true``.
+
+    pytest sets ``PYTEST_CURRENT_TEST`` while a test runs, so a test that starts the app (``TestClient``) is allowed; a
+    normal ``uvicorn`` start is not. Raised at start-up, before anything is bound or opened.
     """
-    settings = get_settings()
-    logger = logging.getLogger("threatfusion.config")
+    import os
 
-    if settings.USE_MOCK_DATA:
-        banner = (
-            "\n"
-            "╔══════════════════════════════════════════════════════════════════╗\n"
-            "║  ⚠  Running with MOCK data — set USE_MOCK_DATA=false and add   ║\n"
-            "║     real API keys in .env for live results                      ║\n"
-            "╚══════════════════════════════════════════════════════════════════╝\n"
+    settings = settings or get_settings()
+    if settings.USE_MOCK_DATA and "PYTEST_CURRENT_TEST" not in os.environ:
+        raise MockModeRefused(
+            "USE_MOCK_DATA=true is only for the test-suite: ThreatFusion reports real data only. "
+            "Set USE_MOCK_DATA=false in backend/.env (providers without a key are skipped, not faked)."
         )
-        logger.warning(banner)
-    else:
-        logger.info("Live mode active — using real API keys for enrichment.")
+
+
+def startup_warnings() -> None:
+    """Log that the service runs on live data (mock mode is refused earlier, outside pytest)."""
+    logging.getLogger("threatfusion.config").info("Live mode: real provider answers, local feeds and model inferences only.")
 
 
 def log_provider_table(settings: Settings | None = None) -> None:

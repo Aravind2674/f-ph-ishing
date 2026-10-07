@@ -378,16 +378,19 @@ async def test_the_network_layer_shares_the_scans_quota_and_uses_the_ip_endpoint
     from app.core.config import get_settings
     from app.core.hub import hub
     from app.network.enrichment.app_layer import AppLayerScorer
+    from tests.netfakes import url_model
 
     monkeypatch.setenv("USE_MOCK_DATA", "false")
     monkeypatch.setenv("VIRUSTOTAL_API_KEY", "vt-key-for-tests-123456")
+    monkeypatch.setenv("NETWORK_VT_PER_MINUTE", "10")
     get_settings.cache_clear()
     try:
-        with respx.mock(assert_all_called=False) as router:
+        with url_model(flagged=True), respx.mock(assert_all_called=False) as router:
             route = router.get(url__regex=VT_ANY).respond(200, json=VT_OK_JSON)
-            router.get(url__regex=r"https://internetdb\.shodan\.io/.*").respond(404)
             ip_score = await AppLayerScorer().score("8.8.8.8", "ip")
-            assert ip_score.available and [str(c.request.url) for c in router.calls][0].endswith("/ip_addresses/8.8.8.8")
+            assert ip_score.available is False and "not looked up passively" in ip_score.reason and route.call_count == 0
+            first = await AppLayerScorer().score("flagged-one.example.org", "domain")     # the model flagged it: VirusTotal is asked
+            assert first.source == "virustotal" and route.call_count == 1
             hub.virustotal()._limiter.penalize(300)             # e.g. a scan just got a 429 + Retry-After
             before = route.call_count
             blocked = await AppLayerScorer().score("another.example.org", "domain")

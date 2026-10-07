@@ -1,64 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  RefreshCw,
-  Inbox,
-  Radar,
-  ShieldAlert,
-  Fingerprint,
-} from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { fetchHistory, type ScanHistoryItem } from "@/api";
 import { cn } from "@/lib/utils";
 import { resolveSeverity } from "@/lib/severity";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RiskMeter, SeverityTag } from "@/components/RiskIndicators";
 
 type SortKey = "target" | "timestamp" | "baseline_score" | "ml_score";
 type SortDir = "asc" | "desc";
 
-// Headline = the transparent baseline. The ML score is experimental (VirusTotal-only model) and
-// is shown in its own column; a missing score stays missing ("—") — no silent substitution.
-const finalScore = (s: ScanHistoryItem): number | null => s.baseline_score;
+// The severity shown is the headline: the higher-risk band of the URL model and the provider evidence.
+const bandOf = (s: ScanHistoryItem): string | null | undefined => s.headline_band ?? s.baseline_label;
+const levelOf = (s: ScanHistoryItem) => resolveSeverity(s.baseline_score, bandOf(s)).level;
 const fmt100 = (n: number | null | undefined) => (n == null ? "—" : (n * 100).toFixed(0));
-
-/** A single monochrome KPI tile. */
-function Kpi({
-  label,
-  value,
-  icon: Icon,
-  hint,
-}: {
-  label: string;
-  value: React.ReactNode;
-  icon: typeof Radar;
-  hint?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-2 p-4">
-      <div className="flex items-center justify-between">
-        <span className="tf-eyebrow">{label}</span>
-        <Icon className="size-4 text-subtle" />
-      </div>
-      <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-        {value}
-      </span>
-      {hint && <span className="text-xs text-subtle">{hint}</span>}
-    </div>
-  );
-}
 
 export const History: React.FC = () => {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
@@ -71,10 +28,8 @@ export const History: React.FC = () => {
     setLoading(true);
     setErrored(false);
     try {
-      const data = await fetchHistory();
-      setHistory(data as ScanHistoryItem[]);
-    } catch (err) {
-      console.error("Failed to fetch history", err);
+      setHistory((await fetchHistory()) as ScanHistoryItem[]);
+    } catch {
       setErrored(true);
     } finally {
       setLoading(false);
@@ -85,27 +40,20 @@ export const History: React.FC = () => {
     loadHistory();
   }, []);
 
-  // ── Derived summary metrics (all monochrome) ──────────────────────────
-  const total = history.length;
-  const highRisk = history.filter((s) => (finalScore(s) ?? 0) >= 0.6).length;
+  const highRisk = history.filter((s) => levelOf(s) === "high" || levelOf(s) === "critical").length;
   const uniqueTargets = new Set(history.map((s) => s.target)).size;
 
-  // ── Client-side sort ──────────────────────────────────────────────────
+  // A missing score sorts last in either direction; it is never treated as 0.
   const sorted = useMemo(() => {
-    const rows = [...history];
-    rows.sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "target") {
-        cmp = a.target.localeCompare(b.target);
-      } else if (sortKey === "timestamp") {
-        cmp =
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-      } else {
-        cmp = (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
-      }
+    const value = (s: ScanHistoryItem): string | number | null =>
+      sortKey === "target" ? s.target : sortKey === "timestamp" ? new Date(s.timestamp).getTime() : s[sortKey];
+    return [...history].sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
+      const cmp = typeof x === "string" ? x.localeCompare(String(y)) : x - (y as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
-    return rows;
   }, [history, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
@@ -117,90 +65,44 @@ export const History: React.FC = () => {
     }
   };
 
-  const SortHead = ({
-    label,
-    col,
-    align = "left",
-  }: {
-    label: string;
-    col: SortKey;
-    align?: "left" | "right";
-  }) => {
+  const SortHead = ({ label, col, align = "left" }: { label: string; col: SortKey; align?: "left" | "right" }) => {
     const activeCol = sortKey === col;
     const Icon = !activeCol ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
     return (
-      <TableHead className={align === "right" ? "text-right" : ""}>
+      <TableHead className={cn(align === "right" && "text-right")} aria-sort={activeCol ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
         <button
+          type="button"
           onClick={() => toggleSort(col)}
-          className={cn(
-            "inline-flex items-center gap-1.5 transition-colors hover:text-foreground",
-            activeCol && "text-foreground",
-            align === "right" && "flex-row-reverse"
-          )}
+          className={cn("inline-flex items-center gap-1.5 transition-colors hover:text-foreground", activeCol && "text-foreground", align === "right" && "flex-row-reverse")}
         >
           {label}
-          <Icon className="size-3" />
+          <Icon className="size-3" aria-hidden />
         </button>
       </TableHead>
     );
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col gap-5"
-    >
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            Past Scans
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            A record of your previous scans, sorted by most recent.
-          </p>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-xs text-muted">
+          {loading ? "—" : `${history.length} scans · ${highRisk} high risk · ${uniqueTargets} targets`}
+        </p>
         <Button variant="outline" size="sm" onClick={loadHistory} disabled={loading}>
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} aria-hidden />
           Refresh
         </Button>
       </div>
 
-      {/* KPI strip */}
-      <Card>
-        <div className="grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          <Kpi
-            label="Total Scans"
-            value={loading ? "—" : total}
-            icon={Radar}
-            hint="Total targets scanned"
-          />
-          <Kpi
-            label="High Risk"
-            value={loading ? "—" : highRisk}
-            icon={ShieldAlert}
-            hint="Targets with a score of 60+"
-          />
-          <Kpi
-            label="Unique Targets"
-            value={loading ? "—" : uniqueTargets}
-            icon={Fingerprint}
-            hint="Distinct domains, IPs, or hashes"
-          />
-        </div>
-      </Card>
-
-      {/* Data table */}
       <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <SortHead label="Target" col="target" />
               <TableHead>Type</TableHead>
-              <SortHead label="Timestamp" col="timestamp" />
-              <SortHead label="Experimental ML" col="ml_score" align="right" />
-              <SortHead label="Baseline" col="baseline_score" align="right" />
+              <SortHead label="Time" col="timestamp" />
+              <SortHead label="URL model" col="ml_score" align="right" />
+              <SortHead label="Provider" col="baseline_score" align="right" />
               <TableHead className="text-right">Severity</TableHead>
             </TableRow>
           </TableHeader>
@@ -208,102 +110,44 @@ export const History: React.FC = () => {
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i} className="hover:bg-transparent">
-                  <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-14" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   <TableCell><Skeleton className="ml-auto h-4 w-10" /></TableCell>
                   <TableCell><Skeleton className="ml-auto h-4 w-10" /></TableCell>
-                  <TableCell><Skeleton className="ml-auto h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="ml-auto h-4 w-16" /></TableCell>
                 </TableRow>
               ))
             ) : errored ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6}>
-                  <EmptyState
-                    icon={ShieldAlert}
-                    title="Backend Unreachable"
-                    body="Please ensure the FastAPI backend is running, then refresh."
-                  />
-                </TableCell>
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-danger">Backend unreachable — start it, then Refresh</TableCell>
               </TableRow>
             ) : sorted.length === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6}>
-                  <EmptyState
-                    icon={Inbox}
-                    title="No Scans Found"
-                    body="Your scan history will appear here once you run a scan."
-                  />
-                </TableCell>
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-subtle">No scans yet</TableCell>
               </TableRow>
             ) : (
-              sorted.map((scan) => {
-                const sev = resolveSeverity(finalScore(scan), scan.baseline_label);
-                return (
-                  <TableRow key={scan.scan_id}>
-                    <TableCell className="max-w-[240px] truncate font-mono text-xs text-foreground">
-                      {scan.target}
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono text-[10px] uppercase tracking-wide2 text-subtle">
-                        {scan.target_type}
-                      </span>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap font-mono text-xs text-muted">
-                      {new Date(scan.timestamp || "").toLocaleString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs tabular-nums text-muted">
-                      {fmt100(scan.ml_score)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
-                      {fmt100(finalScore(scan))}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-2.5">
-                        <RiskMeter score={finalScore(scan)} label={scan.baseline_label} />
-                        <SeverityTag
-                          score={finalScore(scan)}
-                          label={scan.baseline_label}
-                          showIcon={false}
-                          className={cn("w-[62px] justify-end", sev.weight)}
-                        />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+              sorted.map((scan) => (
+                <TableRow key={scan.scan_id}>
+                  <TableCell className="max-w-[240px] truncate font-mono text-xs text-foreground">{scan.target}</TableCell>
+                  <TableCell className="font-mono text-[10px] uppercase tracking-wide2 text-subtle">{scan.target_type}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono text-xs text-muted">
+                    {new Date(scan.timestamp || "").toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs text-muted">{fmt100(scan.ml_score)}</TableCell>
+                  <TableCell className="text-right font-mono text-xs text-muted">{fmt100(scan.baseline_score)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-2.5">
+                      <RiskMeter score={scan.baseline_score} label={bandOf(scan)} />
+                      <SeverityTag score={scan.baseline_score} label={bandOf(scan)} showIcon={false} className="w-[62px] justify-end" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
       </Card>
-    </motion.div>
-  );
-};
-
-function EmptyState({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof Inbox;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <div className="flex size-12 items-center justify-center rounded-lg border border-line bg-surface-2">
-        <Icon className="size-5 text-subtle" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="mx-auto mt-1 max-w-sm text-xs text-subtle">{body}</p>
-      </div>
     </div>
   );
-}
+};

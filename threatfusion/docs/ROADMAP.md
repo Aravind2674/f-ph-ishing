@@ -12,7 +12,7 @@
 - [x] A0-1 Three-state provider results; unknown stays unknown; verdict `ok | partial | unknown`
 - [x] A0-2 Models located independently of the CWD; baseline is the headline, XGBoost labelled experimental
 - [x] A0-4 One SSRF-safe fetcher (DNS pinning, per-hop redirect validation, size/time caps)
-- [x] A0-3 `/verify`: server-side scope, off by default, audited, rate-limited, TLS-verified
+- [x] A0-3 `/verify`: server-side scope, off by default, audited, rate-limited, TLS-verified — *removed in the revamp (`revamp(T1a): cut active verification`)*
 - [x] A0-6 Scans persisted (versioned migrations, absolute DB path, provenance incl. model/feature-schema versions)
 - [x] A0-8 Local API token, Host allow-list, JSON-only mutations, no credentialed CORS, SSE tickets
 - [x] A0-9 Rate limit, body/batch caps, inference off the event loop, scan deadline + provider timeouts

@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings, log_provider_table, startup_warnings
+from app.core.config import assert_mock_mode_allowed, get_settings, log_provider_table, startup_warnings
 from app.core.auth import get_api_token, log_token_location
 from app.core.db import init_db
 from app.core.hub import hub
@@ -60,6 +60,8 @@ async def _feed_refresh_loop() -> None:
                 for feed in hub.reputation().feeds():
                     if enabled.get(feed.source, True):
                         await feed._safe_refresh()          # logs its own failure; keeps the previous copy
+                if s.SSLBL_JA3_ENABLED:
+                    await hub.ja3()._safe_refresh()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -78,7 +80,8 @@ async def lifespan(app: FastAPI):
     4. Signal readiness
     """
     settings = get_settings()
-    
+    assert_mock_mode_allowed(settings)      # synthetic data is for tests only: refuse before anything is opened
+
     # Step 1: Set up logging before anything else so all startup messages
     # are properly formatted
     setup_logging(settings.LOG_LEVEL)
@@ -113,6 +116,9 @@ async def lifespan(app: FastAPI):
     from app.ingestion.techfingerprint import warm_up as _warm_fingerprints
     warm_task = asyncio.create_task(asyncio.to_thread(_warm_fingerprints), name="wappalyzer-warmup")
     warm_task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or logger.error("fingerprint warm-up failed: %s", t.exception()))
+
+    from app.network.preflight import warm_up as _warm_scapy
+    asyncio.create_task(asyncio.to_thread(_warm_scapy), name="scapy-warmup")      # the first capture check imports scapy: do it now, off the loop
 
     feed_task = asyncio.create_task(_feed_refresh_loop(), name="feed-refresh")
 
@@ -192,18 +198,14 @@ from app.api.health import router as health_router
 from app.api.scan import router as scan_router, stream_router as scan_stream_router
 from app.api.analyze import router as analyze_router
 from app.api.traffic import router as traffic_router
-from app.api.verify import router as verify_router
 from app.api.network import router as network_router, stream_router
 from app.api.feedback import router as feedback_router
-from app.api.india import router as india_router
 
 app.include_router(health_router)
 app.include_router(scan_router)
 app.include_router(scan_stream_router)
 app.include_router(analyze_router)
 app.include_router(traffic_router)
-app.include_router(verify_router)
 app.include_router(feedback_router)
-app.include_router(india_router)
 app.include_router(network_router)
 app.include_router(stream_router)

@@ -113,6 +113,41 @@ export function feedbackBody(page, verdict, label, { fullUrl = false, note = "" 
   };
 }
 
+export const DASHBOARD_URL = "http://localhost:5173";
+
+/** The dashboard link for "Open in ThreatFusion": it pre-fills the scan form (the dashboard never scans from a link). */
+export function dashboardLink(page, { fullUrl = false } = {}) {
+  const link = new URL(DASHBOARD_URL);
+  link.searchParams.set("target", fullUrl ? page.url : page.host);
+  link.searchParams.set("type", fullUrl ? "url" : "domain");
+  return link.href;
+}
+
+const pct = (p) => `${Math.round(p * 100)} %`;
+const SOURCE_NAMES = { openphish: "OpenPhish", phishtank: "PhishTank", urlhaus: "URLhaus", threatfox: "ThreatFox", safebrowsing: "Google Safe Browsing", otx: "AlienVault OTX", abuseipdb: "AbuseIPDB", urlscan: "urlscan.io", greynoise: "GreyNoise" };
+
+/**
+ * What the popup shows for a finished scan: the headline band and the top three reasons, strongest evidence first
+ * (a listing, a look-alike, antivirus detections, flagged URL text, then the provider-evidence terms by weight).
+ * An unknown band stays "Unknown" and says so; "nothing found" is never worded as safe.
+ */
+export function popupView(result) {
+  const r = result || {};
+  const band = r.headline_band && r.headline_band !== "Unknown" ? r.headline_band : null;
+  const reasons = [];
+  const listed = (r.reputation && r.reputation.listed_by) || [];
+  if (listed.length) reasons.push(`Listed by ${listed.map((s) => SOURCE_NAMES[s] || s).join(", ")}`);
+  const brand = r.brand_check && r.brand_check.status === "lookalike" && r.brand_check.match;
+  if (brand) reasons.push(`Imitates ${brand.brand} — the real site is ${brand.brand_domain}`);
+  const vt = r.virustotal;
+  if (vt && vt.malicious_count > 0) reasons.push(vt.total_engines ? `${vt.malicious_count} of ${vt.total_engines} antivirus engines flag it` : `${vt.malicious_count} antivirus engines flag it`);
+  if (r.url_risk && r.url_risk.flagged && r.url_risk.headline_score != null) reasons.push(`URL text looks like phishing (${pct(r.url_risk.headline_score)})`);
+  for (const t of [...(r.baseline_terms || [])].sort((a, b) => b.weight - a.weight)) reasons.push(t.text);
+  const top = [...new Set(reasons)].slice(0, 3);
+  if (band === null) return { band: "Unknown", reasons: top.length ? top : ["No evidence — risk unknown"] };
+  return { band, reasons: top.length ? top : ["Nothing found"] };
+}
+
 /** Headers for the local backend: the API token lives in this browser profile's storage. */
 export function apiHeaders(token) {
   const h = { "Content-Type": "application/json" };
