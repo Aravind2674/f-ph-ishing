@@ -1,22 +1,11 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-/*
- * Card primitives. `interactive` opts a card into the low-opacity white
- * border-glow on hover (no colour, per the design system).
- */
 const Card = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { interactive?: boolean }
->(({ className, interactive, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      interactive ? "tf-card-interactive" : "tf-card",
-      className
-    )}
-    {...props}
-  />
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("rounded-lg border border-line bg-surface", className)} {...props} />
 ));
 Card.displayName = "Card";
 

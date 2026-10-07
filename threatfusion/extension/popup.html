@@ -5,95 +5,35 @@
   <title>ThreatFusion</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Same two typefaces as the dashboard: Inter (UI) + JetBrains Mono (data). -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <!-- Header -->
-  <header class="header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/>
-          <path d="M4 6h.01"/>
-          <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/>
-          <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/>
-          <path d="M12 18h.01"/>
-          <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/>
-          <circle cx="12" cy="12" r="2"/>
-          <path d="m13.41 10.59 5.66-5.66"/>
-        </svg>
-      </span>
-      <span class="brand-name">THREAT<span class="brand-dim">FUSION</span></span>
-    </div>
-    <span id="mode-badge" class="badge">···</span>
-  </header>
+  <header class="brand"><span class="mark" aria-hidden="true"></span>ThreatFusion</header>
 
-  <main class="container">
-    <!-- Target -->
-    <section class="target">
-      <span class="eyebrow">Current Target</span>
-      <div id="target-url" class="target-url">Loading…</div>
+  <main>
+    <div id="target" class="target">Loading…</div>
+
+    <button id="scan" class="primary" type="button" disabled>Scan</button>
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <section id="result" class="result" hidden>
+      <div id="band" class="band"></div>
+      <ul id="reasons" class="reasons"></ul>
+      <a id="open" class="open" target="_blank" rel="noopener">Open in ThreatFusion</a>
     </section>
 
-    <!-- API token (A0-8): the backend requires it on every request except /health. -->
-    <details class="token">
+    <label class="check"><input id="full-url" type="checkbox"> Send full URL (path and query)</label>
+
+    <details id="token-box" class="token">
       <summary>API token</summary>
       <div class="token-row">
-        <input id="token-input" type="password" autocomplete="off" placeholder="Paste token" />
+        <input id="token" type="password" autocomplete="off" placeholder="Paste token" aria-label="API token">
         <button id="token-save" type="button">Save</button>
       </div>
-      <p class="token-hint">Print it with <code>python -m app.core.auth</code>. Stored in this browser profile only.</p>
     </details>
-
-    <!-- Privacy (A0-10): by default only the hostname leaves the browser. -->
-    <label class="privacy">
-      <input id="full-url" type="checkbox" />
-      <span>Send full URL (path &amp; query) to analysers. Off by default: only the <b>hostname</b> is sent.</span>
-    </label>
-
-    <button id="scan-btn" class="btn" disabled>
-      <span id="btn-text">Scan This Page</span>
-      <span id="btn-loader" class="loader hidden" aria-hidden="true"></span>
-    </button>
-
-    <div id="error-box" class="error-box hidden"></div>
-
-    <!-- Result -->
-    <section id="result-box" class="result hidden">
-      <div class="result-head">
-        <div>
-          <span class="eyebrow">Baseline Score</span>
-          <div id="ml-score" class="score">0</div>
-        </div>
-        <div class="sev">
-          <div id="risk-meter" class="meter" aria-hidden="true">
-            <span></span><span></span><span></span><span></span><span></span>
-          </div>
-          <span id="risk-label" class="sev-label">UNKNOWN</span>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="stats">
-        <div class="stat">
-          <span class="stat-label">Experimental ML</span>
-          <span id="baseline-score" class="stat-value">0</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">AV Detections</span>
-          <span id="av-detects" class="stat-value">0/0</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Open Ports</span>
-          <span id="open-ports" class="stat-value">0</span>
-        </div>
-      </div>
-    </section>
   </main>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

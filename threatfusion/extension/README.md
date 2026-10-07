@@ -14,7 +14,7 @@ Checks every page you open against **your own ThreatFusion backend** (on this co
   the page cannot hide it) with the reason, a *Go back* button and a **Report a mistake** button (a false-positive report that
   goes to the backend's review queue — it is **not** used for anything until a person accepts it), and **outlines password
   fields** on that page.
-* The popup (`popup.html`) still runs a full scan on demand.
+* The popup (`popup.html`) runs a full scan on demand and shows the host, the verdict, the top three reasons and an **Open in ThreatFusion** link. That link opens the dashboard (`DASHBOARD_URL` in `lib.mjs`, default `http://localhost:5173`) with the scan form pre-filled; it never starts a scan by itself.
 
 ## What is sent where
 
@@ -41,7 +41,7 @@ Never checked at all: non-web pages (`chrome://`, `file://`, `about:`), single-l
 
 1. Start the backend (`python -m uvicorn app.main:app --port 8000` in `backend/`) and print the API token: `python -m app.core.auth`.
 2. Chrome → `chrome://extensions` → *Developer mode* → *Load unpacked* → this folder.
-3. Open the popup, paste the token under *API token*, *Save*.
+3. Open the popup, paste the token under *API token*, *Save* (the field opens by itself until a token is saved).
 
 ## Tests
 

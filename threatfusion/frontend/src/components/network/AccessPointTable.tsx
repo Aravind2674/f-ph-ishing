@@ -35,7 +35,7 @@ export function AccessPointTable({ aps, error, fix, onMark }: Props) {
       )}
       <label className="flex items-center gap-2 text-xs text-muted">
         <input type="checkbox" checked={onlyWatched} onChange={(e) => setOnlyWatched(e.target.checked)} />
-        Only the networks being watched (the one you are connected to, and NETWORK_MONITORED_SSIDS)
+        Watched networks only (connected + NETWORK_MONITORED_SSIDS)
       </label>
       {shown.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted">{aps.length === 0 ? "No access points seen yet" : "No access points on a watched network"}</p>

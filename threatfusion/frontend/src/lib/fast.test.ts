@@ -18,18 +18,16 @@ test("no verdict, or an invalid target, means no card", () => {
 
 test("it always says the checks were local and how fast they were", () => {
   const v = fastView(verdict())!;
-  assert.match(v.caption, /Local checks only/);
-  assert.match(v.caption, /42 ms/);
-  assert.match(v.caption, /nothing about this target was sent anywhere/);
+  assert.equal(v.caption, "Local only · 42 ms");
 });
 
-test("'nothing found' is never a clean bill of health while the full scan runs", () => {
+test("'nothing found' is never a clearance while the full scan runs", () => {
   const running = fastView(verdict())!;
-  assert.equal(running.headline, "Nothing found in the local checks");
-  assert.match(running.slowTierNote, /may find more/);
-  assert.match(running.slowTierNote, /not a clean bill of health/);
+  assert.equal(running.headline, "Nothing found locally");
+  assert.match(running.slowTierNote, /running/);
+  assert.match(running.slowTierNote, /not a clearance/);
   assert.doesNotMatch(running.headline, /\bsafe\b|\bclean\b/i);
-  assert.match(fastView(verdict(), false)!.slowTierNote, /finished/);
+  assert.equal(fastView(verdict(), false)!.slowTierNote, "Full scan done");
 });
 
 test("levels have their own headline and chips name the evidence", () => {

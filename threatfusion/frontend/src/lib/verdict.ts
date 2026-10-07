@@ -14,7 +14,6 @@ export type DrivenBy = "url_model" | "provider_evidence" | "both";
 export interface ChannelView {
   key: "url_model" | "provider_evidence";
   label: string;
-  hint: string;
   /** 0..100, or null when the channel produced no score. */
   value: number | null;
   /** "87", or "—". */
@@ -83,8 +82,8 @@ export function verdictView(r: VerdictInput): VerdictView {
     reason: reasonFor(headline, drivenBy, urlBand, providerBand, r.url_risk?.flagged, r.verdict_status === "unknown"),
     disagree: r.agreement === false,
     channels: [
-      { key: "url_model", label: "URL model", hint: "URL text only", value: url, text: scoreText(url), band: urlBand },
-      { key: "provider_evidence", label: "Provider evidence", hint: "Reputation, ports, CVEs, TLS", value: provider, text: scoreText(provider), band: providerBand },
+      { key: "url_model", label: "URL model", value: url, text: scoreText(url), band: urlBand },
+      { key: "provider_evidence", label: "Provider evidence", value: provider, text: scoreText(provider), band: providerBand },
     ],
     providerReasons: drivenBy === "provider_evidence" ? [...(r.baseline_terms ?? [])].sort((a, b) => b.weight - a.weight).slice(0, 3).map((t) => t.text) : [],
     prevalence: prevalence ? `At ${prevalence[0].replace("%", " %")} phishing: ${percent(prevalence[1])}` : null,
