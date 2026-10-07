@@ -46,6 +46,9 @@ class ArpSensor(CaptureSensor):
         # persisted baseline decide genuine newness).
         self._seen_macs: set[str] = set()
 
+    def wants(self, pkt: Any) -> bool:
+        return bool(pkt.haslayer("ARP"))
+
     def handle(self, pkt: Any) -> Iterable[SensorEvent]:
         if not pkt.haslayer("ARP"):
             return ()

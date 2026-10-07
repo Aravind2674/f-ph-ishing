@@ -290,9 +290,15 @@ class Settings(BaseSettings):
     # ── Network Layer — capture & monitoring ────────────────────────────
     # Interface names are passed straight to scapy. Empty string means
     # "let scapy pick the default interface".
-    NETWORK_CAPTURE_INTERFACE: str = ""       # ARP/DNS sniff interface
-    NETWORK_MONITOR_INTERFACE: str = ""       # 802.11 monitor-mode interface (deauth)
-    NETWORK_GATEWAY_IP: str = ""              # optional; emphasises gateway ARP spoofing
+    NETWORK_CAPTURE_INTERFACE: str = ""       # ARP/DNS/TLS sniff interface; empty = the interface carrying the default route
+    NETWORK_GATEWAY_IP: str = ""              # empty = the default route's gateway (detected at start)
+    # Sensor events cross from capture threads to the event loop through a bounded inbox; when it is full events are dropped
+    # and counted (`dropped_events` in /network/status), never silently and never by blocking a sniffer.
+    NETWORK_EVENT_QUEUE_MAX: int = 10_000
+    # Capture that has seen no packet this long after starting is reported as `no_traffic`, not as healthy.
+    NETWORK_NO_TRAFFIC_SECONDS: int = 10
+    # Alerts kept in a ring so an SSE client that reconnects with Last-Event-ID does not miss any.
+    NETWORK_ALERT_RING: int = 500
     # Auto-start capture on API boot. Requires Npcap + elevated (Administrator)
     # process. When capture can't start it degrades honestly (see MonitorStatus).
     NETWORK_AUTO_START: bool = False
@@ -305,9 +311,6 @@ class Settings(BaseSettings):
     BASELINE_MIN_OBSERVATIONS: int = 15
     # WiFi scan cadence (seconds) for the AP/evil-twin sensor.
     WIFI_SCAN_INTERVAL_SECONDS: int = 30
-    # Deauth flood detection: N deauth/disassoc frames within the window.
-    DEAUTH_FLOOD_THRESHOLD: int = 20
-    DEAUTH_WINDOW_SECONDS: int = 10
 
     # Names of credential fields that were present but still template placeholders
     # (recorded by the validator below so startup can say "placeholder" vs "missing").

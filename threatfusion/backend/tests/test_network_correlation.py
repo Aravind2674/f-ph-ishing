@@ -233,22 +233,6 @@ async def test_evil_twin_degrades_honestly_without_wigle(tmp_path) -> None:
     assert wigle_sig.points == 0.0
 
 
-@pytest.mark.asyncio
-async def test_deauth_flood_scores_high(tmp_path) -> None:
-    engine = await _make_engine(tmp_path)
-    event = SensorEvent(
-        event_type=EventType.DEAUTH_FLOOD, timestamp=_now(), sensor="dot11",
-        bssid="66:77:88:99:aa:bb",
-        raw={"frame_count": 80, "threshold": 20, "window_seconds": 10,
-             "frame_type": "deauth", "reason_code": 7},
-    )
-    alerts = await engine.correlate(event)
-    assert len(alerts) == 1
-    assert alerts[0].alert_type == AlertType.DEAUTH_FLOOD
-    assert alerts[0].severity in (Severity.HIGH, Severity.CRITICAL)
-    assert alerts[0].fused_score >= 70.0
-
-
 # ── WiGLE client honest degradation (no network) ──────────────────────────
 
 @pytest.mark.asyncio

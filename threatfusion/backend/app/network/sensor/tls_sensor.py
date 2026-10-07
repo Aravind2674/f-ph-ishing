@@ -32,6 +32,9 @@ class TlsSensor(CaptureSensor):
         super().__init__(emit, interface, **kw)
         self._assembler = HelloAssembler()
 
+    def wants(self, pkt: Any) -> bool:
+        return bool(pkt.haslayer("TCP") and pkt.haslayer("Raw") and int(pkt["TCP"].dport) == 443)
+
     def handle(self, pkt: Any) -> Iterable[SensorEvent]:
         if not pkt.haslayer("TCP") or not pkt.haslayer("Raw"):
             return ()

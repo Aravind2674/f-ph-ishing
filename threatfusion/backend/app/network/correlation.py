@@ -22,7 +22,6 @@ The fusion weights below are transparent expert priors (mirroring the
 philosophy of the App-Layer ``baseline`` scorer), chosen so that:
 * a confirmed malicious-domain contact by a known device lands High/Critical,
 * an evil-twin whose BSSID has *zero* WiGLE history lands High,
-* a deauth flood lands High/Critical,
 * a brand-new device or a novel-but-benign domain lands Low/Medium.
 """
 
@@ -64,8 +63,6 @@ ROGUE_AP_BASE = 20.0
 WIGLE_UNSEEN_BONUS = 32.0        # BSSID with zero public history → suspicious
 WIGLE_ESTABLISHED_PENALTY = -18.0  # long public history → reassuring
 WIGLE_ESTABLISHED_MIN_OBS = 5
-DEAUTH_BASE = 70.0
-DEAUTH_INTENSITY_BONUS = 20.0    # scales with how far over threshold
 
 
 def _clamp(x: float) -> float:
@@ -136,8 +133,6 @@ class CorrelationEngine:
                 return await self._handle_evil_twin(event)
             if event.event_type == EventType.ROGUE_AP:
                 return await self._handle_rogue_ap(event)
-            if event.event_type == EventType.DEAUTH_FLOOD:
-                return await self._handle_deauth(event)
         except Exception:
             logger.exception("Correlation failed for event %s", event.event_type)
         return []
@@ -395,47 +390,6 @@ class CorrelationEngine:
                 "Confirm whether this AP is authorised in your environment",
                 "If unknown, investigate its location and purpose",
                 "Consider it hostile until its WiGLE/physical provenance is verified",
-            ],
-        )]
-
-    async def _handle_deauth(self, event: SensorEvent) -> list[NetworkAlert]:
-        count = int(event.raw.get("frame_count", 0))
-        threshold = int(event.raw.get("threshold", 1)) or 1
-        over = max(0.0, (count - threshold) / threshold)
-        intensity = min(1.0, over) * DEAUTH_INTENSITY_BONUS
-        signals = [
-            SignalContribution(
-                name="deauth_flood",
-                label="802.11 deauth/disassoc flood",
-                points=DEAUTH_BASE,
-                detail=(
-                    f"{count} {event.raw.get('frame_type', 'deauth')} frames in "
-                    f"{event.raw.get('window_seconds')}s attributed to BSSID {event.bssid} "
-                    f"(threshold {threshold})."
-                ),
-            ),
-            SignalContribution(
-                name="flood_intensity",
-                label="Flood intensity",
-                points=round(intensity, 1),
-                detail=f"Frame rate is {over * 100:.0f}% over the alerting threshold.",
-            ),
-        ]
-        score = _sum_points(signals)
-        return [NetworkAlert(
-            alert_id=uuid4().hex,
-            timestamp=event.timestamp,
-            alert_type=AlertType.DEAUTH_FLOOD,
-            severity=severity_from_score(score),
-            fused_score=score,
-            title=f"Deauth flood against {event.bssid or 'nearby AP'}",
-            involved=[x for x in [event.bssid] if x],
-            trigger_type="802.11 deauthentication/disassociation frame flood",
-            evidence=AlertEvidence(signals=signals, raw=event.raw),
-            recommended_actions=[
-                "Enable 802.11w (Protected Management Frames) on the AP",
-                "Locate the source of the flood (it must be within RF range)",
-                "Move critical clients to a different channel/band if possible",
             ],
         )]
 

@@ -41,7 +41,7 @@ class Severity(str, Enum):
 class AlertType(str, Enum):
     """The kind of suspicious activity an alert represents."""
 
-    DEAUTH_FLOOD = "deauth_flood"
+    DEAUTH_FLOOD = "deauth_flood"              # no longer produced (needs monitor mode); kept so alerts stored by older versions still load
     ROGUE_AP = "rogue_ap"
     EVIL_TWIN = "evil_twin"
     NEW_DEVICE = "new_device"
@@ -86,7 +86,7 @@ class SensorEvent(BaseModel):
 
     event_type: EventType = Field(..., description="Kind of raw observation")
     timestamp: datetime = Field(..., description="UTC time the sensor observed it")
-    sensor: str = Field(..., description="Which sensor produced this (arp/dns/wifi/dot11)")
+    sensor: str = Field(..., description="Which sensor produced this (arp/dns/tls/wifi)")
 
     # ── Device identity (populated for L2/L3 events) ─────────────────────
     mac: Optional[str] = Field(None, description="Source device MAC address")

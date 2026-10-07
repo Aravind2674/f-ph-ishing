@@ -10,8 +10,10 @@ from app.network.preflight import (
     CaptureState,
     InterfaceInfo,
     Probes,
+    NO_PACKETS_AFTER_SECONDS,
     classify_open_error,
     effective_state,
+    fix_for,
     run_preflight,
 )
 
@@ -112,13 +114,60 @@ def pre_ok() -> "object":
     return run_preflight("", probes())
 
 
-def test_effective_state_ready_running_and_no_packets_seen() -> None:
+def test_effective_state_ready_starting_capturing_and_no_traffic() -> None:
     pre = pre_ok()
     assert effective_state(pre, sensors_running=False, packets_seen=0, seconds_running=0)[0] is CaptureState.READY
-    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=3)[0] is CaptureState.RUNNING       # still waiting
-    assert effective_state(pre, sensors_running=True, packets_seen=57, seconds_running=3)[0] is CaptureState.RUNNING
+    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=3)[0] is CaptureState.STARTING     # still waiting
+    assert effective_state(pre, sensors_running=True, packets_seen=57, seconds_running=3)[0] is CaptureState.CAPTURING
     state, reason, fix = effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=45)
-    assert state is CaptureState.NO_PACKETS_SEEN and "45 s" in reason and "mirror-port" in fix
+    assert state is CaptureState.NO_TRAFFIC and "45 s" in reason and "mirror-port" in fix
+
+
+def test_capturing_is_never_claimed_without_a_real_packet_and_no_traffic_comes_after_ten_seconds() -> None:
+    pre = pre_ok()
+    assert NO_PACKETS_AFTER_SECONDS == 10.0
+    for seconds in (0, 1, 9.9):
+        assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=seconds)[0] is CaptureState.STARTING
+    assert effective_state(pre, sensors_running=True, packets_seen=0, seconds_running=10)[0] is CaptureState.NO_TRAFFIC
+    assert effective_state(pre, sensors_running=True, packets_seen=1, seconds_running=10)[0] is CaptureState.CAPTURING
+
+
+# ── interface choice (revamp T2a) ───────────────────────────────────────────
+VBOX = InterfaceInfo(name="VirtualBox Host-Only Network", description="VirtualBox Host-Only Ethernet Adapter", ipv4=["192.168.56.1"], virtual=True, usable=True)
+HYPERV = InterfaceInfo(name="vEthernet (WSL)", description="Hyper-V Virtual Ethernet Adapter", ipv4=["172.20.0.1"], virtual=True, usable=True)
+
+
+def test_the_default_route_interface_wins_even_when_virtual_adapters_are_listed_first() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX, WIFI, ETH], default_interface=lambda: "Wi-Fi"))
+    assert pre.selected_interface == "Wi-Fi" and pre.details["interface_source"] == "default route"
+
+
+def test_without_a_default_route_virtual_adapters_are_skipped() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX, ETH, WIFI], default_interface=lambda: None))
+    assert pre.selected_interface == "Ethernet" and pre.details["interface_source"] == "first physical interface"
+
+
+def test_only_virtual_adapters_are_still_usable_but_said_so() -> None:
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, VBOX], default_interface=lambda: None))
+    assert pre.ok and pre.selected_interface == "vEthernet (WSL)" and pre.details["interface_source"] == "first usable interface"
+
+
+def test_a_default_route_through_a_virtual_adapter_is_respected() -> None:
+    """A VPN / VM-routed machine really sends its traffic that way: the route is the truth, the name heuristic is only a fallback."""
+    pre = run_preflight("", probes(list_interfaces=lambda: [HYPERV, WIFI], default_interface=lambda: "vEthernet (WSL)"))
+    assert pre.selected_interface == "vEthernet (WSL)"
+
+
+def test_the_default_gateway_is_reported_for_arp_checks() -> None:
+    assert run_preflight("", probes(default_gateway=lambda: "192.168.0.1")).details["gateway"] == "192.168.0.1"
+    assert run_preflight("", probes(default_gateway=lambda: None)).details["gateway"] is None
+
+
+def test_the_fix_text_names_the_action_for_each_platform() -> None:
+    assert "npcap.com" in fix_for(CaptureState.NO_NPCAP) and "WinPcap API-compatible mode" in fix_for(CaptureState.NO_NPCAP)
+    assert fix_for(CaptureState.NOT_ELEVATED, "Windows").startswith("Run as Administrator")
+    assert "CAP_NET_RAW" in fix_for(CaptureState.NOT_ELEVATED, "Linux")
+    assert fix_for(CaptureState.READY) is None
 
 
 def test_a_failed_preflight_keeps_its_state_whatever_the_sensors_say() -> None:
