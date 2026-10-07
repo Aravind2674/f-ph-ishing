@@ -23,7 +23,6 @@ pip install uv                          # or use plain pip + venv
 uv venv --python 3.12 venv              # creates backend/venv (git-ignored)
 uv pip sync requirements-dev.txt --python venv/Scripts/python.exe   # Windows
 #   Linux/macOS: --python venv/bin/python
-# The app runs in mock mode by default — no API keys needed
 venv/Scripts/python.exe -m uvicorn app.main:app --reload   # run from backend/
 ```
 - `requirements.txt` = runtime only · `requirements-ml.txt` = + training/eval tooling ·
@@ -64,26 +63,18 @@ cd ../frontend
 npm test          # evidence / host-signal view models (Node's built-in runner, no extra dependency)
 ```
 
-## Going Live
+## API keys
 
-To switch from demo mode (mock data) to live mode with real threat intelligence:
+The service always uses real sources; it refuses to start on mock data (`USE_MOCK_DATA` exists for the test suite only).
+A source with no key is reported as "not configured" and left out of the scan. Add the keys you have to `backend/.env`
+(see `backend/.env.example` for the full list), then restart the backend:
 
-1. **Add your API keys** to `backend/.env`:
-   ```
-   VIRUSTOTAL_API_KEY=your_real_key_here
-   SHODAN_API_KEY=your_real_key_here
-   NVD_API_KEY=your_real_key_here
-   ```
+```
+VIRUSTOTAL_API_KEY=your_real_key_here
+NVD_API_KEY=your_real_key_here
+```
 
-2. **Flip the mock switch** in `backend/.env`:
-   ```
-   USE_MOCK_DATA=false
-   ```
-
-That's it. No code changes needed — the same function signatures and response
-shapes are used in both modes.
-
-### What live mode contacts (and what it never sends)
+### What a scan contacts (and what it never sends)
 
 | Source | Needs a key? | Contacted with | Notes |
 |---|---|---|---|
@@ -103,9 +94,8 @@ shapes are used in both modes.
 | AbuseIPDB · GreyNoise Community | AbuseIPDB yes, GreyNoise optional | a resolved **public** IP | `ABUSEIPDB_ENABLED`, `GREYNOISE_ENABLED` |
 | urlscan.io (search only) · AlienVault OTX | OTX yes, urlscan optional | the host name (nothing is ever *submitted* to urlscan) | `URLSCAN_ENABLED`, `OTX_ENABLED` |
 
-Private / local / single-label names and internal addresses are never sent to any third party. **Mock mode touches
-no network at all** (no DNS lookups either). Every scan shows which sources answered ("Based on 4 of 7 sources"),
-which did not and why, and where each feature came from.
+Private / local / single-label names and internal addresses are never sent to any third party. Every scan shows which
+sources answered ("Based on 4 of 7 sources") and, for the ones that did not, why.
 
 ## Network Layer (real-time defensive monitoring)
 
