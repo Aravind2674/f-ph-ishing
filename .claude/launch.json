@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend-isolated",
+      "runtimeExecutable": "C:/Users/jaipr/Downloads/f-ph-ishing/threatfusion/backend/venv312/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/jaipr/AppData/Local/Temp/claude/C--Users-jaipr-Downloads-f-ph-ishing/6fba9984-6f0c-4981-82c7-ccdd2c30c506/scratchpad/run_isolated_backend.py"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/jaipr/AppData/Local/Temp/claude/C--Users-jaipr-Downloads-f-ph-ishing/6fba9984-6f0c-4981-82c7-ccdd2c30c506/scratchpad/run_vite.mjs"],
+      "port": 5173
+    }
+  ]
+}
