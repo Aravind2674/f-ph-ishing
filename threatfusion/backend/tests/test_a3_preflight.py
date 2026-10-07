@@ -14,6 +14,7 @@ from app.network.preflight import (
     classify_open_error,
     effective_state,
     fix_for,
+    make_interface_info,
     run_preflight,
 )
 
@@ -163,6 +164,21 @@ def test_the_default_gateway_is_reported_for_arp_checks() -> None:
     assert run_preflight("", probes(default_gateway=lambda: None)).details["gateway"] is None
 
 
+def test_only_adapters_with_a_routable_address_are_usable() -> None:
+    wifi = make_interface_info("Wi-Fi", "Intel Wi-Fi 6", "aa:bb", ["192.168.0.50"], ["fe80::1"])
+    unplugged = make_interface_info("Ethernet", "Realtek PCIe GbE", None, ["169.254.23.191"], ["fe80::2"])
+    host_only = make_interface_info("VMware Network Adapter VMnet1", "VMware Virtual Ethernet Adapter", None, ["169.254.219.250"], [])
+    wsl = make_interface_info("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", None, ["172.20.0.1"], [])
+    ipv6_only = make_interface_info("Cellular", "Mobile broadband", None, [], ["2406:7400::5", "fe80::5"])
+    wfp = make_interface_info("Wi-Fi-WFP Native MAC Layer LightWeight Filter-0000", "WFP", None, ["192.168.0.50"], [])
+    assert (wifi.usable, wifi.address, wifi.virtual) == (True, "192.168.0.50", False)
+    assert unplugged.usable is False and unplugged.address is None, "a self-assigned address means nothing is connected"
+    assert host_only.usable is False
+    assert (wsl.usable, wsl.virtual, wsl.address) == (True, True, "172.20.0.1"), "a virtual adapter with a real address is offered, marked virtual"
+    assert (ipv6_only.usable, ipv6_only.address) == (True, "2406:7400::5"), "fe80:: is on every adapter and is never the reason one is usable"
+    assert wfp.usable is False, "filter bindings are not something to capture on"
+
+
 def test_the_fix_text_names_the_action_for_each_platform() -> None:
     assert "npcap.com" in fix_for(CaptureState.NO_NPCAP) and "WinPcap API-compatible mode" in fix_for(CaptureState.NO_NPCAP)
     assert fix_for(CaptureState.NOT_ELEVATED, "Windows").startswith("Run as Administrator")
@@ -173,6 +189,16 @@ def test_the_fix_text_names_the_action_for_each_platform() -> None:
 def test_a_failed_preflight_keeps_its_state_whatever_the_sensors_say() -> None:
     pre = run_preflight("", probes(npcap_present=lambda: False))
     assert effective_state(pre, sensors_running=True, packets_seen=10, seconds_running=99)[0] is CaptureState.NO_NPCAP
+
+
+def test_warm_up_never_raises_even_without_scapy(monkeypatch) -> None:
+    import app.network.preflight as pf
+
+    def boom() -> str:
+        raise ImportError("No module named 'scapy'")
+
+    monkeypatch.setattr(pf, "_scapy_version", boom)
+    pf.warm_up()                                                      # swallowed: the preflight reports a missing scapy, start-up must not fail
 
 
 def test_the_real_probes_run_and_never_raise() -> None:

@@ -557,6 +557,11 @@ export interface AppLayerSubScore {
   flagged: boolean;
   top_explanations: string[];
   live: boolean;
+  source?: string | null; // virustotal | local_blocklist | popular_domain | url_model_only | budget_exhausted | cache
+  corroborated?: boolean;
+  blocklists?: string[];
+  popularity_rank?: number | null;
+  cached_from?: string | null;
 }
 
 export interface WigleResult {
@@ -592,13 +597,18 @@ export interface AlertEvidence {
 export type NetworkSeverity = "Low" | "Medium" | "High" | "Critical";
 
 export type NetworkAlertType =
-  | "deauth_flood"
   | "rogue_ap"
   | "evil_twin"
   | "new_device"
   | "cross_layer_hit"
   | "behavioral_deviation"
-  | "arp_spoof";
+  | "arp_spoof"
+  | "arp_flood"
+  | "arp_multi_ip"
+  | "tls_fingerprint"
+  | "dga_suspect"
+  | "beaconing"
+  | "dns_anomaly";
 
 export interface NetworkAlert {
   alert_id: string;
@@ -633,6 +643,42 @@ export interface SensorStatus {
   available: boolean | null;
   running: boolean;
   reason?: string | null;
+  packets?: number | null;
+  events?: number;
+  last_event_at?: string | null;
+  fix?: string | null; // Wi-Fi: what to do about a scan that cannot be made
+  backend?: string | null;
+  ap_count?: number | null;
+  last_scan_at?: string | null;
+}
+
+export type CaptureState =
+  | "no_scapy" | "no_npcap" | "not_elevated" | "no_interface" | "ready" | "starting" | "capturing" | "no_traffic" | "error";
+
+export interface NetworkInterface {
+  name: string;
+  description: string;
+  mac?: string | null;
+  ipv4: string[];
+  ipv6: string[];
+  virtual: boolean;
+  usable: boolean;
+  address?: string | null; // the first routable address
+}
+
+// What the machine can do about capture, and what it is doing. `state` is `capturing` only after a real packet was seen.
+export interface CaptureInfo {
+  state: CaptureState;
+  ok: boolean;
+  reason: string;
+  fix: string | null;
+  selected_interface: string | null;
+  interfaces: NetworkInterface[];
+  details: Record<string, any>;
+  packets_seen: number;
+  packets_per_second: number | null;
+  filter?: string | null;
+  filter_fallback?: boolean;
 }
 
 export interface MonitorStatus {
@@ -641,6 +687,34 @@ export interface MonitorStatus {
   alert_count: number;
   device_count: number;
   started_at?: string | null;
+  capture: CaptureInfo | null;
+  scope_note: string;
+  dropped_events: number;
+  reputation?: Record<string, number> | null;
+}
+
+export interface InterfaceChoice {
+  interfaces: NetworkInterface[];
+  selected: string | null;
+  configured: string | null;
+  source: string | null;
+  error: string | null;
+}
+
+export interface AccessPointRow {
+  bssid: string;
+  ssid: string;
+  oui: string;
+  security: string | null;
+  channels: number[];
+  first_seen: string;
+  last_seen: string;
+  sightings: number;
+  known: boolean;
+  flagged: boolean;
+  watched: boolean;
+  last_signal: number | null;
+  last_channel: number | null;
 }
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -937,6 +1011,38 @@ export const deleteNetworkData = async (): Promise<Record<string, number>> => {
   return res.json();
 };
 
+export const fetchInterfaces = async (): Promise<InterfaceChoice> => {
+  const res = await fetch(`${API_BASE}/network/interfaces`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+// Pick the capture interface ("" = automatic). The monitor must be stopped (409 otherwise).
+export const setCaptureInterface = async (name: string): Promise<InterfaceChoice> => {
+  const res = await fetch(`${API_BASE}/network/interface`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const fetchAccessPoints = async (): Promise<AccessPointRow[]> => {
+  const res = await fetch(`${API_BASE}/network/aps`, { headers: authHeaders() });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const markAccessPointKnown = async (bssid: string, known: boolean): Promise<void> => {
+  const res = await fetch(`${API_BASE}/network/aps/known`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ bssid, known }),
+  });
+  if (!res.ok) throw await apiError(res);
+};
+
 export const fetchDevices = async (): Promise<DeviceProfile[]> => {
   const res = await fetch(`${API_BASE}/network/devices`, { headers: authHeaders() });
   if (!res.ok) throw await apiError(res);
@@ -950,6 +1056,8 @@ export const fetchDevices = async (): Promise<DeviceProfile[]> => {
  * access logs. So we trade the token for a short-lived, single-use ticket (POST /network/stream-ticket)
  * and open /network/stream?ticket=…. A ticket can be used once, so a dropped connection is re-opened
  * here with a *fresh* ticket and exponential backoff (native auto-reconnect would reuse the spent one).
+ * Every alert carries a sequence id; the last one seen is sent as `?last_event_id=` on each reconnect, and the backend replays the alerts
+ * (up to the last 500) that arrived while the page was away, so a restart or a network blip does not lose any.
  * Returns a handle; call `.close()` on unmount.
  */
 export const subscribeAlerts = (
@@ -960,6 +1068,7 @@ export const subscribeAlerts = (
   let es: EventSource | null = null;
   let closed = false;
   let delay = 1000;
+  let lastId: string | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const retry = () => {
@@ -980,9 +1089,12 @@ export const subscribeAlerts = (
       if (!res.ok) throw await apiError(res);
       const { ticket } = (await res.json()) as { ticket: string };
       if (closed) return;
-      es = new EventSource(`${API_BASE}/network/stream?ticket=${encodeURIComponent(ticket)}`);
+      const resume = lastId !== null ? `&last_event_id=${encodeURIComponent(lastId)}` : "";
+      es = new EventSource(`${API_BASE}/network/stream?ticket=${encodeURIComponent(ticket)}${resume}`);
       es.addEventListener("alert", (ev) => {
         try {
+          const id = (ev as MessageEvent).lastEventId;
+          if (id) lastId = id;
           onAlert(JSON.parse((ev as MessageEvent).data));
         } catch {
           /* malformed frame — ignore, next one will arrive */

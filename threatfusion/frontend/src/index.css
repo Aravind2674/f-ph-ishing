@@ -28,6 +28,12 @@
     --line: 0 0% 100% / 0.12;
     --line-strong: 0 0% 100% / 0.16;
 
+    /* Status colours. Severity and state always carry text as well: colour is never the only signal. */
+    --ok: 160 60% 45%;       /* capturing / answered           */
+    --warn: 38 92% 56%;      /* needs a look                   */
+    --danger: 0 78% 63%;     /* failed / high severity         */
+    --accent-2: 171 66% 50%; /* second accent                  */
+
     --radius: 0.375rem;
   }
 }

@@ -117,6 +117,9 @@ async def lifespan(app: FastAPI):
     warm_task = asyncio.create_task(asyncio.to_thread(_warm_fingerprints), name="wappalyzer-warmup")
     warm_task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or logger.error("fingerprint warm-up failed: %s", t.exception()))
 
+    from app.network.preflight import warm_up as _warm_scapy
+    asyncio.create_task(asyncio.to_thread(_warm_scapy), name="scapy-warmup")      # the first capture check imports scapy: do it now, off the loop
+
     feed_task = asyncio.create_task(_feed_refresh_loop(), name="feed-refresh")
 
     # Step 4: Initialize the Network Layer (baseline store + alert tables).

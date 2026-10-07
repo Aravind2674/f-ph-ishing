@@ -30,6 +30,7 @@ labelled as such: a probe that cannot decide returns ``None`` and the check is s
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import logging
 import os
 import platform
@@ -83,6 +84,7 @@ class InterfaceInfo:
     ipv6: list[str] = field(default_factory=list)
     virtual: bool = False
     usable: bool = True
+    address: Optional[str] = None            # the first routable address (what a person recognises the adapter by)
 
 
 @dataclass
@@ -113,6 +115,14 @@ def _scapy_version() -> str:
     return str(scapy.__version__)
 
 
+def warm_up() -> None:
+    """Import scapy now (it takes seconds) so the first status request does not pay for it.  Never raises: a missing scapy is the preflight's to report."""
+    try:
+        _scapy_version()
+    except Exception as exc:
+        logger.info("scapy warm-up skipped: %s", exc)
+
+
 def _npcap_dirs() -> tuple[Path, Path]:
     root = Path(os.environ.get("SystemRoot") or r"C:\Windows")
     return root / "System32" / "Npcap" / "wpcap.dll", root / "System32" / "wpcap.dll"
@@ -137,6 +147,24 @@ def _is_elevated() -> Optional[bool]:
         return None
 
 
+def _routable(ip: str) -> bool:
+    """False for the addresses every adapter carries without being connected: link-local (169.254.x.x, fe80::), loopback, unspecified."""
+    try:
+        a = ipaddress.ip_address(ip.split("%")[0])
+    except ValueError:
+        return False
+    return not (a.is_loopback or a.is_link_local or a.is_unspecified or a.is_multicast)
+
+
+def make_interface_info(name: str, description: str, mac: Optional[str], v4: list[str], v6: list[str]) -> InterfaceInfo:
+    """An interface is *usable* only if it is not a filter binding / pseudo-device AND has a routable address: an unplugged Ethernet port or a
+    host-only adapter that holds just a self-assigned 169.254.x.x (and the fe80:: every adapter has) cannot see any traffic."""
+    low = f"{name} {description}".lower()
+    routable = [ip for ip in v4 if _routable(ip)] or [ip for ip in v6 if _routable(ip)]
+    return InterfaceInfo(name=name, description=description, mac=mac, ipv4=v4, ipv6=v6, virtual=any(v in low for v in _VIRTUAL),
+                         usable=not any(p in low for p in _PSEUDO) and bool(routable), address=routable[0] if routable else None)
+
+
 def _list_interfaces() -> list[InterfaceInfo]:
     from scapy.interfaces import get_working_ifaces                     # noqa: WPS433
 
@@ -147,12 +175,7 @@ def _list_interfaces() -> list[InterfaceInfo]:
         ips = getattr(i, "ips", None) or {}
         v4 = [ip for ip in (ips.get(4, []) if hasattr(ips, "get") else []) if ip]
         v6 = [ip for ip in (ips.get(6, []) if hasattr(ips, "get") else []) if ip]
-        low = f"{name} {desc}".lower()
-        out.append(InterfaceInfo(
-            name=name, description=desc, mac=(getattr(i, "mac", None) or None), ipv4=v4, ipv6=v6,
-            virtual=any(v in low for v in _VIRTUAL),
-            usable=not any(p in low for p in _PSEUDO) and bool(v4 or v6),
-        ))
+        out.append(make_interface_info(name, desc, getattr(i, "mac", None) or None, v4, v6))
     return out
 
 

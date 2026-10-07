@@ -24,22 +24,13 @@ import {
 } from "lucide-react";
 import type { NetworkAlert, SignalContribution } from "@/api";
 import { cn } from "@/lib/utils";
+import { alertTypeLabel } from "@/lib/network";
 import { verdictView } from "@/lib/verdict";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SeverityTag } from "@/components/RiskIndicators";
 import { RiskScorePanel } from "@/components/RiskScorePanel";
-
-const ALERT_TYPE_LABEL: Record<string, string> = {
-  deauth_flood: "Deauth flood",
-  rogue_ap: "Rogue AP",
-  evil_twin: "Evil twin",
-  new_device: "New device",
-  cross_layer_hit: "Cross-layer hit",
-  behavioral_deviation: "Behavioural deviation",
-  arp_spoof: "ARP spoofing",
-};
 
 interface Props {
   alert: NetworkAlert;
@@ -62,14 +53,14 @@ export function NetworkAlertDetail({ alert, onBack }: Props) {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div>
         <Button variant="subtle" size="sm" onClick={onBack} className="mb-4">
-          Back to feed
+          Back
         </Button>
         <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-3">
               <SeverityTag score={alert.fused_score / 100} label={alert.severity} />
               <Badge variant="subtle">
-                {ALERT_TYPE_LABEL[alert.alert_type] ?? alert.alert_type}
+                {alertTypeLabel(alert.alert_type)}
               </Badge>
               <span className="font-mono text-xs text-subtle">
                 {alert.alert_id.slice(0, 8).toUpperCase()}

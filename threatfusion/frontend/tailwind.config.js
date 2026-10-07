@@ -27,6 +27,10 @@ export default {
         subtle: "hsl(var(--subtle) / <alpha-value>)",         // tertiary text / labels
         accent: "hsl(var(--accent) / <alpha-value>)",         // near-white emphasis fill
         ring: "hsl(var(--ring) / <alpha-value>)",
+        ok: "hsl(var(--ok) / <alpha-value>)",
+        warn: "hsl(var(--warn) / <alpha-value>)",
+        danger: "hsl(var(--danger) / <alpha-value>)",
+        "accent-2": "hsl(var(--accent-2) / <alpha-value>)",
         // Hairline borders carry their alpha inside the variable itself, so they
         // are intentionally NOT alpha-value driven.
         line: "hsl(var(--line))",
