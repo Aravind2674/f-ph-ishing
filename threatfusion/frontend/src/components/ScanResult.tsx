@@ -33,8 +33,6 @@ import { ExposurePanel } from "@/components/ExposurePanel";
 import { LookalikePanel } from "@/components/LookalikePanel";
 import { ReputationPanel } from "@/components/ReputationPanel";
 import { UrlRiskPanel } from "@/components/UrlRiskPanel";
-import { ReportKitPanel } from "@/components/ReportKitPanel";
-import { reportKitForScan, type ReportKit } from "@/api";
 import { FeatureProvenance } from "@/components/FeatureProvenance";
 import { HostSignals } from "@/components/HostSignals";
 import { SourceChips } from "@/components/SourceChip";
@@ -356,31 +354,6 @@ function NeuralPanel({ result }: { result: IScanResult }) {
       )}
     </Card>
   );
-}
-
-function ReportThisSite({ scanId }: { scanId: string }) {
-  const [kit, setKit] = useState<ReportKit | null>(null);
-  const [lost, setLost] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const load = async (lostMoney: boolean) => {
-    setLost(lostMoney);
-    setError(null);
-    try {
-      setKit(await reportKitForScan(scanId, lostMoney));
-    } catch (e: any) {
-      setError(e.message || "Could not prepare the report");
-    }
-  };
-  if (!kit) {
-    return (
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={() => load(false)}>Report this site</Button>
-        <span className="text-xs text-subtle">Prepares text and lists the official channels (cybercrime.gov.in, 1930, CERT-In). Nothing is sent for you.</span>
-        {error && <span className="font-mono text-xs text-foreground">{error}</span>}
-      </div>
-    );
-  }
-  return <ReportKitPanel kit={kit} lostMoney={lost} onToggleLost={load} />;
 }
 
 export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
@@ -735,9 +708,6 @@ export const ScanResult: React.FC<ScanResultProps> = ({ result, onRescan }) => {
           </div>
         </Card>
       )}
-
-      {/* ── Report (B16): prepares the text and lists the official channels; nothing is submitted for the user ─ */}
-      <ReportThisSite scanId={result.scan_id} />
     </motion.div>
   );
 };

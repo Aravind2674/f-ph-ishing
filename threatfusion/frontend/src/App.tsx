@@ -16,7 +16,6 @@ import { newScanId, submitScan, subscribeScanEvents, waitForScan, type FastVerdi
 import type { ScanResult as IScanResult, ScanRequest } from './api';
 import { LiveSources } from './components/LiveSources';
 import { FastVerdictCard } from './components/FastVerdictCard';
-import { MessageCheck } from './components/MessageCheck';
 import { applyLiveEvent, emptyLiveState, type LiveState } from './lib/evidence';
 
 function App() {
@@ -131,11 +130,6 @@ function App() {
               <VerifyPanel />
             </section>
 
-            {/* ── 04 · Check a message (India) ───────────────────────────── */}
-            <section className="flex flex-col gap-5">
-              <SectionDivider step="04" label="Check a message" hint="scam patterns · report helpers" />
-              <MessageCheck />
-            </section>
           </div>
         )}
       </DashboardLayout>
