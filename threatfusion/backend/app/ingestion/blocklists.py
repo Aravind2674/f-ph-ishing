@@ -307,6 +307,46 @@ def _index(items) -> dict[str, Any]:
     return entries
 
 
+# ── abuse.ch SSLBL: JA3 fingerprints of malware TLS clients ─────────────────
+class Ja3BlacklistFeed(BulkFeed):
+    """The SSLBL JA3 blacklist: ``ja3_md5,Firstseen,Lastseen,Listingreason`` (``#`` lines are comments).
+
+    A JA3 hash identifies a *TLS client implementation*, not a host, so a listing means "this TLS stack has been seen in malware", and
+    the same stack can belong to legitimate software: abuse.ch itself says these are not false-positive tested.  Callers cap the severity.
+    "Not downloaded yet" is *unknown* (``feed_unavailable``), never "not listed".  No fingerprint is hard-coded anywhere in this project.
+    """
+
+    source = "sslbl_ja3"
+    display = "abuse.ch SSLBL"
+    default_url = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+    category = "malware_tls_client"
+    max_bytes = 8 * 1024 * 1024
+
+    def parse(self, body: bytes) -> dict[str, Any]:
+        entries: dict[str, Any] = {}
+        for row in csv.reader(io.StringIO(body.decode("utf-8", errors="replace"))):
+            if not row or row[0].lstrip().startswith("#"):
+                continue
+            ja3 = row[0].strip().lower()
+            if len(ja3) != 32 or any(c not in "0123456789abcdef" for c in ja3):
+                continue                                              # a header, a blank, or a line that is not a JA3 MD5
+            meta = {"first": row[1].strip() if len(row) > 1 else "", "last": row[2].strip() if len(row) > 2 else "",
+                    "reason": row[3].strip() if len(row) > 3 else ""}
+            entries[ja3] = {k: v for k, v in meta.items() if v}
+        return entries
+
+    async def match(self, ja3: str) -> tuple[str, Optional[dict[str, Any]]]:
+        """``("listed", row)`` · ``("not_listed", None)`` · ``("unavailable", None)`` (never downloaded: unknown) for a JA3 MD5."""
+        if await self._store.meta(self.source) is None:
+            self.kick()                                               # (a no-op in mock mode: mock never downloads)
+            return "unavailable", None
+        age = await self._store.age_days(self.source)
+        if age is not None and age > self._max_age_days:
+            self.kick()
+        row = await self._store.get(self.source, (ja3 or "").lower())
+        return ("listed", row if isinstance(row, dict) else {}) if row is not None else ("not_listed", None)
+
+
 # ── Tranco ──────────────────────────────────────────────────────────────────
 class TrancoFeed(BulkFeed):
     """Tranco popularity ranking: ``{domain: rank}`` for the top N. A prior, never a verdict."""

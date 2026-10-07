@@ -206,7 +206,10 @@ class NetworkMonitorService:
             emit = self._make_emit()
             iface = pre.selected_interface or ""
             gateway = s.NETWORK_GATEWAY_IP.strip() or (pre.details.get("gateway") or "")
-            parsers = [ArpSensor(emit, iface, gateway), DnsSensor(emit, iface), TlsSensor(emit, iface)]
+            arp = ArpSensor(emit, iface, gateway, conflict_window=s.ARP_CONFLICT_WINDOW_SECONDS, flood_threshold=s.ARP_FLOOD_THRESHOLD,
+                            flood_window=s.ARP_FLOOD_WINDOW_SECONDS, multi_ip_threshold=s.ARP_MULTI_IP_THRESHOLD,
+                            multi_ip_window=s.ARP_MULTI_IP_WINDOW_SECONDS)
+            parsers = [arp, DnsSensor(emit, iface), TlsSensor(emit, iface)]
             capture = SharedCapture(emit, iface, parsers, sniffer_factory=self._sniffer_factory)
             await asyncio.to_thread(capture.start)               # waits (bounded) for the handle to open or fail
             self._capture, self._parsers = capture, parsers
@@ -218,6 +221,7 @@ class NetworkMonitorService:
             self._wifi = self._wifi_factory(emit, s.WIFI_SCAN_INTERVAL_SECONDS, monitored)
             self._wifi.start()
 
+            self.engine.begin_session(fresh=(await self.store.device_count()) == 0)     # a first run learns quietly for a while
             self._consumer_task = asyncio.create_task(self._consume(), name="net-consumer")
             self.running = True
             self.started_at = datetime.now(timezone.utc)
@@ -466,6 +470,7 @@ class NetworkMonitorService:
             started_at=self.started_at if running else None,
             capture=capture_dict,
             dropped_events=self.dropped_events,
+            reputation=self._app_scorer.gate.summary(),
         )
 
 

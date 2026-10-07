@@ -299,6 +299,40 @@ class Settings(BaseSettings):
     NETWORK_NO_TRAFFIC_SECONDS: int = 10
     # Alerts kept in a ring so an SSE client that reconnects with Last-Event-ID does not miss any.
     NETWORK_ALERT_RING: int = 500
+    # A fresh install knows no devices yet: for this long after the first start it only *learns* (no "new device" alert for every
+    # machine already on the network). 0 disables the warm-up.
+    NETWORK_WARMUP_SECONDS: int = 120
+    # The same alert (type + device + subject) is raised at most once per this many seconds.
+    NETWORK_ALERT_DEDUP_SECONDS: int = 600
+
+    # ── Network reputation gate (T2c): what may cost a third-party call ──
+    # Order per observed name: private filter -> cache by registered domain -> in-flight de-dup -> Tranco / OpenPhish / PhishTank ->
+    # the local URL model -> VirusTotal ONLY if the model flags it AND this budget has room. Monitoring must not starve user scans.
+    NETWORK_VT_PER_MINUTE: int = 1
+    NETWORK_GATE_CACHE_SECONDS: int = 3600           # a decided name is not asked about again for this long
+    NETWORK_GATE_RETRY_SECONDS: int = 300            # ... but one that could not be decided (budget used up, provider down) is retried sooner
+    NETWORK_VT_TIMEOUT_SECONDS: float = 8.0          # the consumer never waits longer than this for VirusTotal
+
+    # ── Network heuristics (T2c). Fixed, documented thresholds; each alert carries the evidence that triggered it. ──
+    NXDOMAIN_BURST_THRESHOLD: int = 20               # "no such domain" answers to one device ...
+    NXDOMAIN_BURST_WINDOW_SECONDS: int = 60          # ... within this window (a domain-generation algorithm walks through generated names)
+    NAME_LABEL_MIN_LENGTH: int = 16                  # a label at least this long ...
+    NAME_LABEL_MIN_ENTROPY: float = 3.8              # ... with at least this many bits of entropy per character looks generated
+    #   (measured by ml/name_heuristic_eval.py on real host names: 0.41 % of benign hosts, 7.9 % of phishing hosts)
+    NAME_LABEL_LONG: int = 40                        # a label this long is suspicious by itself (DNS tunnelling packs data into labels)
+    BEACON_MIN_EVENTS: int = 8                       # a destination contacted at least this many times ...
+    BEACON_MIN_SPAN_SECONDS: int = 300               # ... over at least this long ...
+    BEACON_MAX_JITTER: float = 0.15                  # ... with intervals whose std/mean is at most this
+    ARP_CONFLICT_WINDOW_SECONDS: int = 300           # an IP re-bound to another MAC counts as a conflict only if the old MAC spoke this recently
+    ARP_FLOOD_THRESHOLD: int = 30                    # gratuitous ARP packets from one MAC ...
+    ARP_FLOOD_WINDOW_SECONDS: int = 10               # ... within this window
+    ARP_MULTI_IP_THRESHOLD: int = 8                  # one MAC claiming at least this many different IPs ...
+    ARP_MULTI_IP_WINDOW_SECONDS: int = 60            # ... within this window (the gateway MAC is exempt: proxy ARP is normal for a router)
+
+    # ── abuse.ch SSLBL: TLS client fingerprints (JA3) listed for malware. Not false-positive tested by abuse.ch: severity is capped. ──
+    SSLBL_JA3_ENABLED: bool = True
+    SSLBL_JA3_FEED_URL: str = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+    SSLBL_JA3_MAX_AGE_HOURS: int = 24
     # Auto-start capture on API boot. Requires Npcap + elevated (Administrator)
     # process. When capture can't start it degrades honestly (see MonitorStatus).
     NETWORK_AUTO_START: bool = False
@@ -422,6 +456,7 @@ class Settings(BaseSettings):
             "openphish": status("openphish", True, "keyless"),
             "phishtank": status("phishtank", True, "keyless"),
             "tranco": status("tranco", True, "keyless"),
+            "sslbl_ja3": status("sslbl_ja3", True, "keyless"),
         }
 
     # ── Pydantic-settings configuration ─────────────────────────────────

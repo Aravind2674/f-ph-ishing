@@ -24,6 +24,8 @@ import pytest
 
 from app.network.baseline_store import BaselineStore
 from app.network.correlation import (
+    BLOCKLIST_POINTS,
+    CROSS_LAYER_BASE,
     CorrelationEngine,
     WIGLE_ESTABLISHED_PENALTY,
     WIGLE_UNSEEN_BONUS,
@@ -31,6 +33,7 @@ from app.network.correlation import (
 )
 from app.network.enrichment.app_layer import AppLayerScorer
 from app.network.enrichment.wigle import WigleClient, to_evidence
+from tests.netfakes import url_model
 from app.network.models import (
     AlertType,
     EventType,
@@ -144,19 +147,16 @@ async def test_cross_layer_hit_uses_real_app_layer_score(tmp_path) -> None:
     assert len(cross) == 1
     alert = cross[0]
 
-    # The App-Layer sub-score must be present, real and flagged.
+    # The gate found the host on a (mock) local blocklist: flagged, corroborated, and no third-party call was needed.
     assert alert.evidence.app_layer is not None
     assert alert.evidence.app_layer.available is True
-    assert alert.evidence.app_layer.flagged is True
-    assert alert.evidence.app_layer.vt_malicious_count > 0
-    # The app_layer signal must actually contribute points, and the fused
-    # score must exceed the cross-layer base alone — i.e. the real App-Layer
-    # sub-score materially drives the number (not over-fitting the exact ML
-    # calibration on a mock VT input).
+    assert alert.evidence.app_layer.flagged is True and alert.evidence.app_layer.corroborated is True
+    assert alert.evidence.app_layer.source == "local_blocklist" and alert.evidence.app_layer.blocklists
+    # The app_layer signal contributes explicit points, so the fused score exceeds the cross-layer base alone.
     app_sig = next(s for s in alert.evidence.signals if s.name == "app_layer")
     assert app_sig.available is True
-    assert app_sig.points > 0
-    assert alert.fused_score > 20.0  # 20 = cross-layer base; > means app added
+    assert app_sig.points == BLOCKLIST_POINTS
+    assert alert.fused_score == CROSS_LAYER_BASE + BLOCKLIST_POINTS
 
 
 @pytest.mark.asyncio
@@ -183,16 +183,29 @@ async def test_behavioral_deviation_on_novel_benign_domain(tmp_path) -> None:
     for _ in range(4):
         await engine._store.record_dns(mac, "google.com", "192.168.1.32")
 
-    # A novel (but not App-Layer-flagged) domain for an established device.
+    # A novel domain (not popular, not flagged) for an established device.
     event = SensorEvent(
         event_type=EventType.DNS_QUERY, timestamp=_now(), sensor="dns",
-        mac=mac, ip="192.168.1.32", domain="microsoft.com", raw={"qtype": 1},
+        mac=mac, ip="192.168.1.32", domain="quiet-novel-service.example.org", raw={"qtype": 1},
     )
-    alerts = await engine.correlate(event)
+    with url_model(score=0.02, flagged=False):                       # the URL model finds nothing odd about the name
+        alerts = await engine.correlate(event)
     dev = [a for a in alerts if a.alert_type == AlertType.BEHAVIORAL_DEVIATION]
     assert len(dev) == 1
     assert dev[0].evidence.baseline is not None
     assert dev[0].evidence.baseline.is_new_domain is True
+
+
+@pytest.mark.asyncio
+async def test_a_new_popular_domain_is_not_a_behavioural_deviation(tmp_path) -> None:
+    """A device visiting a popular site for the first time is normal behaviour; deviation is for rare names."""
+    engine = await _make_engine(tmp_path)
+    mac = "aa:bb:cc:dd:ee:22"
+    for _ in range(4):
+        await engine._store.record_dns(mac, "google.com", "192.168.1.33")
+    event = SensorEvent(event_type=EventType.DNS_QUERY, timestamp=_now(), sensor="dns", mac=mac, ip="192.168.1.33",
+                        domain="microsoft.com", raw={"qtype": 1})            # mock Tranco ranks microsoft.com
+    assert [a for a in await engine.correlate(event) if a.alert_type == AlertType.BEHAVIORAL_DEVIATION] == []
 
 
 # ── WiGLE folding + honest degradation ────────────────────────────────────

@@ -28,7 +28,7 @@ from app.ingestion.eol import EolClient
 from app.ingestion.epss import EpssClient
 from app.ingestion.kev import KevFeed
 from app.ingestion.vulnrichment import VulnrichmentClient
-from app.ingestion.blocklists import OpenPhishFeed, PhishTankFeed, TrancoFeed
+from app.ingestion.blocklists import Ja3BlacklistFeed, OpenPhishFeed, PhishTankFeed, TrancoFeed
 from app.ingestion.ct import CtClient
 from app.ingestion.reputation import (AbuseIpdbChannel, GreyNoiseChannel, OtxChannel, SafeBrowsingChannel, ThreatFoxChannel,
                                       UrlhausChannel, UrlscanChannel)
@@ -72,6 +72,8 @@ class ProviderHub:
         self._kev_key: Optional[tuple] = None
         self._vuln: Optional[VulnrichmentClient] = None
         self._vuln_key: Optional[tuple] = None
+        self._ja3: Optional[Ja3BlacklistFeed] = None
+        self._ja3_key: Optional[tuple] = None
 
     def virustotal(self) -> VirusTotalClient:
         s = get_settings()
@@ -198,6 +200,15 @@ class ProviderHub:
             self._vuln_key = key
         return self._vuln
 
+    def ja3(self) -> Ja3BlacklistFeed:
+        """The SSLBL JA3 blacklist (local feed; the network layer's TLS fingerprint check)."""
+        s = get_settings()
+        key = (s.USE_MOCK_DATA, s.SSLBL_JA3_FEED_URL, s.SSLBL_JA3_MAX_AGE_HOURS)
+        if self._ja3 is None or key != self._ja3_key:
+            self._ja3 = Ja3BlacklistFeed(s.USE_MOCK_DATA, store=self.feeds, url=s.SSLBL_JA3_FEED_URL, max_age_hours=s.SSLBL_JA3_MAX_AGE_HOURS)
+            self._ja3_key = key
+        return self._ja3
+
     def reputation(self) -> ReputationSet:
         """One client per independent reputation source (B2), rebuilt only when their settings change."""
         import app as _app_pkg
@@ -275,8 +286,8 @@ class ProviderHub:
         self._nvd_key = None
         self._tls = self._rdap = self._dns = self._eol = self._ct = None
         self._tls_key = self._rdap_key = self._dns_key = self._eol_key = self._ct_key = None
-        self._epss = self._kev = self._vuln = None
-        self._epss_key = self._kev_key = self._vuln_key = None
+        self._epss = self._kev = self._vuln = self._ja3 = None
+        self._epss_key = self._kev_key = self._vuln_key = self._ja3_key = None
         self._brands = None
         self._brands_key = None
         self._reputation = None

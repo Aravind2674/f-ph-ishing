@@ -60,6 +60,8 @@ async def _feed_refresh_loop() -> None:
                 for feed in hub.reputation().feeds():
                     if enabled.get(feed.source, True):
                         await feed._safe_refresh()          # logs its own failure; keeps the previous copy
+                if s.SSLBL_JA3_ENABLED:
+                    await hub.ja3()._safe_refresh()
         except asyncio.CancelledError:
             raise
         except Exception:
