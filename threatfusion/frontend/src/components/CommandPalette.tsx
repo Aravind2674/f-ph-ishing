@@ -73,7 +73,7 @@ export function CommandPalette({
         id: "settings",
         label: "Settings",
         hint: "Ingestion sources & mode",
-        keywords: "settings config keys sources mock live",
+        keywords: "settings config keys sources",
         icon: SettingsIcon,
         run: () => onNavigate("settings"),
       },

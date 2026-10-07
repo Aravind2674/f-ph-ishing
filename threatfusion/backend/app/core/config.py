@@ -8,9 +8,9 @@ Design decisions
 * ``@lru_cache`` on ``get_settings()`` guarantees a single Settings
   instance across the entire process (singleton pattern without the
   boilerplate).
-* ``USE_MOCK_DATA`` defaults to **True** so that the app starts cleanly
-  out-of-the-box, even when the student hasn't obtained API keys yet.
-  A loud console warning reminds them to switch to live data.
+* ``USE_MOCK_DATA`` defaults to **False**: the running service only ever reports real provider answers, local feeds, captured
+  packets and model inferences. A provider with no key is skipped and reported as such, never replaced by fake data. Mock mode
+  exists for the test-suite only; :func:`assert_mock_mode_allowed` refuses to start the service with it.
 """
 
 from __future__ import annotations
@@ -113,10 +113,9 @@ class Settings(BaseSettings):
     WIGLE_API_TOKEN: str = ""
 
     # ── Feature flags ───────────────────────────────────────────────────
-    # When True, enrichment services return deterministic fake data.
-    # This lets students develop the UI and ML pipeline without burning
-    # API quota.
-    USE_MOCK_DATA: bool = True
+    # Test-suite only: when True, enrichment clients return deterministic fake data. The service refuses to start with it
+    # outside pytest (see assert_mock_mode_allowed).
+    USE_MOCK_DATA: bool = False
 
     # ── Database ────────────────────────────────────────────────────────
     # SQLite is the default for local development; swap to PostgreSQL in
@@ -444,26 +443,29 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def startup_warnings() -> None:
-    """Emit a highly visible warning when mock mode is active.
+class MockModeRefused(RuntimeError):
+    """The service was asked to start on synthetic data."""
 
-    This runs once during the FastAPI lifespan startup so the operator
-    immediately knows whether they're seeing real or synthetic data.
+
+def assert_mock_mode_allowed(settings: "Settings | None" = None) -> None:
+    """Refuse to serve synthetic data. Only the test-suite may run with ``USE_MOCK_DATA=true``.
+
+    pytest sets ``PYTEST_CURRENT_TEST`` while a test runs, so a test that starts the app (``TestClient``) is allowed; a
+    normal ``uvicorn`` start is not. Raised at start-up, before anything is bound or opened.
     """
-    settings = get_settings()
-    logger = logging.getLogger("threatfusion.config")
+    import os
 
-    if settings.USE_MOCK_DATA:
-        banner = (
-            "\n"
-            "╔══════════════════════════════════════════════════════════════════╗\n"
-            "║  ⚠  Running with MOCK data — set USE_MOCK_DATA=false and add   ║\n"
-            "║     real API keys in .env for live results                      ║\n"
-            "╚══════════════════════════════════════════════════════════════════╝\n"
+    settings = settings or get_settings()
+    if settings.USE_MOCK_DATA and "PYTEST_CURRENT_TEST" not in os.environ:
+        raise MockModeRefused(
+            "USE_MOCK_DATA=true is only for the test-suite: ThreatFusion reports real data only. "
+            "Set USE_MOCK_DATA=false in backend/.env (providers without a key are skipped, not faked)."
         )
-        logger.warning(banner)
-    else:
-        logger.info("Live mode active — using real API keys for enrichment.")
+
+
+def startup_warnings() -> None:
+    """Log that the service runs on live data (mock mode is refused earlier, outside pytest)."""
+    logging.getLogger("threatfusion.config").info("Live mode: real provider answers, local feeds and model inferences only.")
 
 
 def log_provider_table(settings: Settings | None = None) -> None:

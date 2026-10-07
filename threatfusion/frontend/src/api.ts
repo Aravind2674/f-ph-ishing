@@ -72,7 +72,8 @@ export interface AttackChainNode {
 export interface AttackPath {
   path_id: string;
   nodes: AttackChainNode[];
-  total_risk_score: number;
+  total_risk_score: number | null; // null = no CVE on the path has CVSS, EPSS or KEV data
+  unrated_cves?: string[];
   summary: string;
 }
 
@@ -88,7 +89,6 @@ export interface ProviderOutcome {
   fetched_at: string;
   cached: boolean;
   latency_ms?: number | null;
-  mock: boolean;
   retry_after?: number | null; // seconds until the provider's quota allows another call (rate_limited)
 }
 
@@ -303,9 +303,14 @@ export interface ScanResult {
   // Band of baseline_score ("Unknown" if no evidence). The baseline is the headline score:
   // the XGBoost model is experimental (VirusTotal features only) until retrained (A2-1).
   baseline_label?: string | null;
-  ml_score: number | null;
+  ml_score: number | null; // the URL model's calibrated probability (0..1), as computed
   ml_label: string; // "Unknown" when ml_score is null
   ml_status?: "ok" | "model_not_loaded" | "insufficient_evidence" | null;
+  // Headline = the higher-risk band of the two channels (URL model, provider evidence); neither score is adjusted.
+  headline_band?: string | null;
+  driven_by?: "url_model" | "provider_evidence" | "both" | null;
+  agreement?: boolean | null; // |URL model − provider evidence| <= 15 points; null when either is missing
+  baseline_terms?: { text: string; weight: number }[]; // what the provider-evidence score is made of
   // ok = every applicable source answered | partial | unknown = no reputation evidence
   verdict_status?: "ok" | "partial" | "unknown";
   verdict_reason?: string | null;
@@ -315,7 +320,6 @@ export interface ScanResult {
   model_versions?: Record<string, string>; // sha256[:12] from the model manifest, or "not_loaded"
   feature_schema_version?: number;
   app_version?: string | null;
-  mock_mode?: boolean;
   // Neural fusion model (char-CNN + tabular). Optional — present only when the
   // trained checkpoint is available on the backend.
   neural_score?: number | null;
@@ -438,21 +442,20 @@ export interface ScanHistoryItem {
   ml_label: string | null;
   neural_score?: number | null;
   neural_label?: string | null;
+  headline_band?: string | null; // higher-risk band of the URL model and the provider evidence
+  driven_by?: "url_model" | "provider_evidence" | "both" | null;
 }
 
-// Mirrors backend HealthResponse (GET /health). `mock_mode` lets the UI show a
-// clear mock/live indicator so a viewer always knows whether data is synthetic.
+// Mirrors backend HealthResponse (GET /health).
 export interface ProviderHealth {
   configured: boolean;
-  mock: boolean;
-  // configured | placeholder | missing | keyless | local | mock  (never a credential value)
+  // configured | placeholder | missing | keyless | local  (never a credential value)
   state: string;
 }
 
 export interface HealthResponse {
   status: string;
   version: string;
-  mock_mode: boolean;
   providers?: Record<string, ProviderHealth>;
 }
 
@@ -819,8 +822,7 @@ export const fetchHistory = async (): Promise<ScanHistoryItem[]> => {
   return res.json();
 };
 
-// Lightweight liveness probe used by the dashboard shell to render the
-// mock/live badge. Additive only — existing call signatures are untouched.
+// Lightweight liveness probe used by the dashboard shell.
 export const fetchHealth = async (): Promise<HealthResponse> => {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) {

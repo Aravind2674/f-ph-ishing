@@ -28,7 +28,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   const [health, setHealth] = useState<HealthResponse | null | "error">(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Poll health once on mount for the mock/live badge (best-effort).
+  // Poll health once on mount to detect an unreachable API (best-effort).
   useEffect(() => {
     let alive = true;
     fetchHealth()

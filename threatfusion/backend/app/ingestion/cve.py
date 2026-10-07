@@ -661,9 +661,9 @@ class CVEClient:
         details, failures, from_cache = await self._resolve_cves(valid_ids)
 
         if details:
-            max_score = max((d.cvss_v3_score for d in details if d.cvss_v3_score is not None), default=0.0)
+            max_score = max((d.cvss_v3_score for d in details if d.cvss_v3_score is not None), default=None)
             result = CVEResult(cves=details, total_cves=len(details), max_cvss_score=max_score)
-            logger.info("CVE lookup complete: %d/%d succeeded, max_cvss=%.1f", len(details), len(valid_ids), max_score)
+            logger.info("CVE lookup complete: %d/%d succeeded, max_cvss=%s", len(details), len(valid_ids), "unscored" if max_score is None else f"{max_score:.1f}")
             partial = f"partial:{len(details)}/{len(valid_ids)}" if len(details) < len(valid_ids) else None
             all_cached = from_cache == len(details) and not self._use_mock
             out = prov.ok(SOURCE, result, http_status=None if (self._use_mock or all_cached) else 200,
@@ -688,7 +688,7 @@ class CVEClient:
         started = prov.start_timer()
         if self._use_mock:
             details = await self._mock_lookup_by_cpe(std)
-            max_score = max((d.cvss_v3_score for d in details if d.cvss_v3_score is not None), default=0.0)
+            max_score = max((d.cvss_v3_score for d in details if d.cvss_v3_score is not None), default=None)
             return prov.ok(SOURCE, CVEResult(cves=details, total_cves=len(details), max_cvss_score=max_score),
                            http_status=None, started=started, mock=True)
 
@@ -721,7 +721,7 @@ class CVEClient:
             if not items or start_index >= total:
                 break
 
-        max_score = max((d.cvss_v3_score for d in collected if d.cvss_v3_score is not None), default=0.0)
+        max_score = max((d.cvss_v3_score for d in collected if d.cvss_v3_score is not None), default=None)
         result = CVEResult(cves=collected, total_cves=len(collected), max_cvss_score=max_score)
         truncated = total is not None and len(collected) < total
         reason = f"truncated:{len(collected)}/{total}" if truncated else None
@@ -771,7 +771,7 @@ class CVEClient:
         if units_ok == 0:
             return self._best_failure(all_failures, started)
         cves = list(merged.values())
-        max_score = max((d.cvss_v3_score for d in cves if d.cvss_v3_score is not None), default=0.0)
+        max_score = max((d.cvss_v3_score for d in cves if d.cvss_v3_score is not None), default=None)
         result = CVEResult(cves=cves, total_cves=len(cves), max_cvss_score=max_score)
         reason = f"partial:{units_ok}/{units_total}" if units_ok < units_total else None
         all_cached = not self._use_mock and from_cache == len(details) and cpe_cached == len(cpe_results) - len(cpe_failures)

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { NetworkAlert, SignalContribution } from "@/api";
 import { cn } from "@/lib/utils";
+import { verdictView } from "@/lib/verdict";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -140,15 +141,13 @@ export function NetworkAlertDetail({ alert, onBack }: Props) {
                 ) : (
                   <Badge variant="outline">Not flagged</Badge>
                 )}
-                <Badge variant={app.live ? "outline" : "subtle"}>
-                  {app.live ? "Live VirusTotal" : "Mock data"}
-                </Badge>
               </div>
               <RiskScorePanel
-                baselineScore={Math.round((app.baseline_score ?? 0) * 100)}
-                mlScore={Math.round((app.ml_score ?? 0) * 100)}
-                severityLabel={app.ml_label}
-                revealKey={alert.alert_id}
+                showHeadline={false}
+                view={verdictView({
+                  baseline_score: app.baseline_score ?? null, baseline_label: null, ml_score: app.ml_score ?? null, ml_label: app.ml_label ?? "Unknown",
+                  headline_band: null, driven_by: null, agreement: null, baseline_terms: [], url_risk: null,
+                })}
               />
               {typeof app.vt_malicious_count === "number" && (
                 <p className="font-mono text-xs text-subtle">

@@ -32,6 +32,8 @@ type SortDir = "asc" | "desc";
 // Headline = the transparent baseline. The ML score is experimental (VirusTotal-only model) and
 // is shown in its own column; a missing score stays missing ("—") — no silent substitution.
 const finalScore = (s: ScanHistoryItem): number | null => s.baseline_score;
+// The severity shown is the headline: the higher-risk band of the URL model and the provider evidence.
+const bandOf = (s: ScanHistoryItem): string | null | undefined => s.headline_band ?? s.baseline_label;
 const fmt100 = (n: number | null | undefined) => (n == null ? "—" : (n * 100).toFixed(0));
 
 /** A single monochrome KPI tile. */
@@ -238,7 +240,7 @@ export const History: React.FC = () => {
               </TableRow>
             ) : (
               sorted.map((scan) => {
-                const sev = resolveSeverity(finalScore(scan), scan.baseline_label);
+                const sev = resolveSeverity(finalScore(scan), bandOf(scan));
                 return (
                   <TableRow key={scan.scan_id}>
                     <TableCell className="max-w-[240px] truncate font-mono text-xs text-foreground">
@@ -266,10 +268,10 @@ export const History: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-2.5">
-                        <RiskMeter score={finalScore(scan)} label={scan.baseline_label} />
+                        <RiskMeter score={finalScore(scan)} label={bandOf(scan)} />
                         <SeverityTag
                           score={finalScore(scan)}
-                          label={scan.baseline_label}
+                          label={bandOf(scan)}
                           showIcon={false}
                           className={cn("w-[62px] justify-end", sev.weight)}
                         />

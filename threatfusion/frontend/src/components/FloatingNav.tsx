@@ -42,43 +42,16 @@ const NAV: {
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
-/** Compact mock/live indicator — solid dot = live, hollow ring = mock. */
+/** Shown only when the API cannot be reached. */
 function ModeDot({ health }: { health: HealthResponse | null | "error" }) {
-  if (health === "error") {
-    return (
-      <span
-        className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide2 text-subtle sm:inline-flex"
-        title="API unreachable"
-      >
-        <span className="size-1.5 rounded-full ring-1 ring-subtle" />
-        Offline
-      </span>
-    );
-  }
-  if (!health) {
-    return (
-      <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide2 text-subtle sm:inline-flex">
-        <span className="size-1.5 animate-pulse rounded-full bg-subtle" />
-        …
-      </span>
-    );
-  }
-  const mock = health.mock_mode;
+  if (health !== "error") return null;
   return (
     <span
-      className={cn(
-        "hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide2 sm:inline-flex",
-        mock ? "text-muted" : "text-foreground"
-      )}
-      title={mock ? "Serving synthetic/mock data" : "Serving live intelligence"}
+      className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide2 text-subtle sm:inline-flex"
+      title="API unreachable"
     >
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          mock ? "ring-1 ring-muted" : "bg-foreground"
-        )}
-      />
-      {mock ? "Mock" : "Live"}
+      <span className="size-1.5 rounded-full ring-1 ring-subtle" />
+      Offline
     </span>
   );
 }

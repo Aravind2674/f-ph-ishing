@@ -45,7 +45,6 @@ function CardShell({
             reason={outcome.reason}
             retryAfter={outcome.retry_after}
             cached={outcome.cached}
-            mock={outcome.mock}
             latencyMs={outcome.latency_ms}
             showReason={false}
             className="ml-auto"
@@ -107,11 +106,11 @@ export function HostSignals({ result }: { result: ScanResult }) {
           <span className="ml-auto flex flex-wrap gap-1.5">
             {techOutcome && (
               <SourceChip source="tech_fingerprint" state={techOutcome.status as ChipState} reason={techOutcome.reason}
-                latencyMs={techOutcome.latency_ms} cached={techOutcome.cached} mock={techOutcome.mock} showReason={false} />
+                latencyMs={techOutcome.latency_ms} cached={techOutcome.cached} showReason={false} />
             )}
             {eolOutcome && (
               <SourceChip source="endoflife" state={eolOutcome.status as ChipState} reason={eolOutcome.reason}
-                retryAfter={eolOutcome.retry_after} cached={eolOutcome.cached} mock={eolOutcome.mock} showReason={false} />
+                retryAfter={eolOutcome.retry_after} cached={eolOutcome.cached} showReason={false} />
             )}
           </span>
         </div>

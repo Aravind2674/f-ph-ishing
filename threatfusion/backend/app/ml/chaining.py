@@ -279,34 +279,51 @@ class VulnerabilityChainer:
                         if not vuln_nodes_in_path:
                             continue
                         
-                        # Calculate path probability (Joint risk score)
-                        # High CVSS / EPSS / KEV drops the edge weight, increasing probability
+                        # Joint risk: P(A union B union C...) over the CVEs that have evidence. A CVE with no CVSS, no EPSS
+                        # and no KEV listing is *unrated*: it is left out of the figure and named, never given a made-up value.
                         risk_factors = []
+                        unrated: list[str] = []
                         for n in vuln_nodes_in_path:
-                            base_prob = (n.cvss_score or 5.0) / 10.0
-                            if n.is_in_kev:
-                                prob = 0.99
+                            prob = node_probability(n)
+                            if prob is None:
+                                unrated.append(n.cve_id)
                             else:
-                                # Blend CVSS and EPSS; with no EPSS the severity alone speaks (no invented 0.0 term)
-                                prob = base_prob if n.epss_score is None else (base_prob * 0.7) + (n.epss_score * 0.3)
-                            risk_factors.append(prob)
-                            
-                        # Joint risk: P(A union B union C...)
-                        total_risk = 1.0
-                        for rf in risk_factors:
-                            total_risk *= (1.0 - rf)
-                        final_prob = 1.0 - total_risk
+                                risk_factors.append(prob)
+
+                        final_prob = None
+                        if risk_factors:
+                            total_risk = 1.0
+                            for rf in risk_factors:
+                                total_risk *= (1.0 - rf)
+                            final_prob = round(1.0 - total_risk, 2)
 
                         summary_cves = " -> ".join([n.cve_id for n in vuln_nodes_in_path])
                         paths_found.append(AttackPath(
                             path_id=str(uuid4())[:8],
                             nodes=vuln_nodes_in_path,
-                            total_risk_score=round(final_prob, 2),
+                            total_risk_score=final_prob,
+                            unrated_cves=unrated,
                             summary=f"Path exploits {summary_cves} to achieve {target.replace('_', ' ')}."
                         ))
                 except Exception:
                     pass
 
-        # Sort by highest probability first
-        paths_found.sort(key=lambda p: p.total_risk_score, reverse=True)
+        # Highest probability first; paths with no rated CVE last
+        paths_found.sort(key=lambda p: (p.total_risk_score is not None, p.total_risk_score or 0.0), reverse=True)
         return paths_found
+
+
+def node_probability(n: AttackChainNode) -> Optional[float]:
+    """Exploitation probability of one CVE from the evidence it has; ``None`` when it has none.
+
+    KEV = exploitation observed in the wild (0.99). Otherwise CVSS/10 blended 70/30 with EPSS when both are known; whichever
+    one is known stands alone; neither known = ``None`` (the old code assumed a CVSS of 5.0 here).
+    """
+    if n.is_in_kev:
+        return 0.99
+    base = None if n.cvss_score is None else n.cvss_score / 10.0
+    if base is None and n.epss_score is None:
+        return None
+    if base is None:
+        return n.epss_score
+    return base if n.epss_score is None else (base * 0.7) + (n.epss_score * 0.3)

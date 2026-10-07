@@ -108,7 +108,8 @@ class ScanStore:
             async with db.execute(
                 "SELECT scan_id, target, target_type, timestamp, baseline_score, baseline_label, "
                 "ml_score, ml_label, json_extract(result_json,'$.neural_score'), "
-                "json_extract(result_json,'$.neural_label') "
+                "json_extract(result_json,'$.neural_label'), "
+                "json_extract(result_json,'$.headline_band'), json_extract(result_json,'$.driven_by') "
                 "FROM scans WHERE status = 'ok' ORDER BY timestamp DESC LIMIT ? OFFSET ?",
                 (limit, offset),
             ) as cur:
@@ -117,7 +118,7 @@ class ScanStore:
             ScanHistoryItem(
                 scan_id=r[0], target=r[1], target_type=r[2], timestamp=r[3],
                 baseline_score=r[4], baseline_label=r[5], ml_score=r[6], ml_label=r[7],
-                neural_score=r[8], neural_label=r[9],
+                neural_score=r[8], neural_label=r[9], headline_band=r[10], driven_by=r[11],
             )
             for r in rows
         ]

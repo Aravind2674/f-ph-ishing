@@ -13,7 +13,7 @@
  */
 import { Check, CircleAlert, CircleHelp, KeyRound, Minus, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { humanReason, sourceLabel, type ChipState } from "@/lib/evidence";
+import { humanReason, sourceLabel, visibleOutcomes, type ChipState } from "@/lib/evidence";
 import type { ProviderOutcome } from "@/api";
 
 const WORD: Record<ChipState, string> = {
@@ -55,20 +55,18 @@ export interface SourceChipProps {
   reason?: string | null;
   retryAfter?: number | null;
   cached?: boolean;
-  mock?: boolean;
   latencyMs?: number | null;
   /** Show the plain-words reason next to the chip (e.g. "Timed out"). */
   showReason?: boolean;
   className?: string;
 }
 
-export function SourceChip({ source, state, reason, retryAfter, cached, mock, latencyMs, showReason = true, className }: SourceChipProps) {
+export function SourceChip({ source, state, reason, retryAfter, cached, latencyMs, showReason = true, className }: SourceChipProps) {
   const why = humanReason(reason, retryAfter);
   const detail = [
     `${sourceLabel(source)}: ${WORD[state]}`,
     why,
     cached ? "served from the local cache" : null,
-    mock ? "mock data" : null,
     latencyMs != null ? `${Math.round(latencyMs)} ms` : null,
   ].filter(Boolean).join(" · ");
   const inlineWhy = showReason && why && (state === "error" || state === "skipped" || state === "not_found" || state === "not_configured");
@@ -87,7 +85,6 @@ export function SourceChip({ source, state, reason, retryAfter, cached, mock, la
       <span className="text-subtle">· {WORD[state]}</span>
       {inlineWhy && <span className="text-subtle">· {why}</span>}
       {cached && state === "ok" && <span className="text-subtle">· cached</span>}
-      {mock && <span className="text-subtle">· mock</span>}
     </span>
   );
 }
@@ -96,7 +93,7 @@ export function SourceChip({ source, state, reason, retryAfter, cached, mock, la
 export function SourceChips({ outcomes, className }: { outcomes: ProviderOutcome[]; className?: string }) {
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      {outcomes.map((o) => (
+      {visibleOutcomes(outcomes).map((o) => (
         <SourceChip
           key={o.source}
           source={o.source}
@@ -104,7 +101,6 @@ export function SourceChips({ outcomes, className }: { outcomes: ProviderOutcome
           reason={o.reason}
           retryAfter={o.retry_after}
           cached={o.cached}
-          mock={o.mock}
           latencyMs={o.latency_ms}
         />
       ))}

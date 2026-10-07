@@ -250,7 +250,7 @@ class VirusTotalClient:
             suspicious_count=stats.get("suspicious", 0),
             undetected_count=stats.get("undetected", 0),
             total_engines=sum(stats.values()),
-            reputation_score=attrs.get("reputation", 0),
+            reputation_score=attrs["reputation"] if isinstance(attrs.get("reputation"), int) else None,   # absent = unknown, not 0
             last_analysis_date=last_date,
             categories=categories
         )

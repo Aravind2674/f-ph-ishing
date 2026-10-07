@@ -17,6 +17,7 @@ import {
   humanReason,
   sourceLabel,
   summarizeEvidence,
+  visibleOutcomes,
   type LiveState,
 } from "./evidence.ts";
 import type { ProviderOutcome } from "../api.ts";
@@ -27,7 +28,6 @@ const outcome = (source: string, status: ProviderOutcome["status"], extra: Parti
   status,
   fetched_at: NOW,
   cached: false,
-  mock: false,
   ...extra,
 });
 
@@ -70,17 +70,26 @@ test("skipped sources are not applicable and are not counted against the score",
 });
 
 test("no answering source reads as no evidence, not as zero risk", () => {
-  const none = summarizeEvidence([outcome("virustotal", "error", { reason: "auth" }), outcome("dns", "not_configured")]);
+  const none = summarizeEvidence([outcome("virustotal", "error", { reason: "auth" }), outcome("dns", "error", { reason: "timeout" })]);
   assert.equal(none.level, "none");
   assert.equal(none.text, "Based on 0 of 2 sources");
   assert.equal(summarizeEvidence(undefined).text, "No sources were queried");
   assert.equal(summarizeEvidence([]).level, "none");
 });
 
-test("'not configured' and 'no record' count as missing evidence", () => {
-  const s = summarizeEvidence([outcome("virustotal", "ok"), outcome("nvd", "not_configured"), outcome("rdap", "not_found")]);
+test("'no record' counts as missing evidence", () => {
+  const s = summarizeEvidence([outcome("virustotal", "ok"), outcome("nvd", "error", { reason: "timeout" }), outcome("rdap", "not_found")]);
   assert.equal(s.answered, 1);
   assert.equal(s.applicable, 3);
+});
+
+test("a source without a key is hidden, not listed as 'not configured', and not counted", () => {
+  const outcomes = [outcome("virustotal", "ok"), outcome("urlhaus", "not_configured"), outcome("abuseipdb", "not_configured")];
+  const s = summarizeEvidence(outcomes);
+  assert.equal(s.text, "Based on 1 of 1 sources");
+  assert.deepEqual(s.missing, []);
+  assert.deepEqual(visibleOutcomes(outcomes).map((o) => o.source), ["virustotal"]);
+  assert.deepEqual(visibleOutcomes(undefined), []);
 });
 
 // ── wording ─────────────────────────────────────────────────────────────────
@@ -160,7 +169,7 @@ test("features absent from older scans do not crash the table", () => {
 // ── live progress ───────────────────────────────────────────────────────────
 test("live events fold into per-source chips", () => {
   let s: LiveState = emptyLiveState();
-  s = applyLiveEvent(s, { type: "start", scan_id: "x", target_type: "domain", providers: ["virustotal", "tls"], mock: false });
+  s = applyLiveEvent(s, { type: "start", scan_id: "x", target_type: "domain", providers: ["virustotal", "tls"] });
   assert.deepEqual(s.order, ["virustotal", "tls"]);
   assert.equal(s.chips["virustotal"].status, "pending");
 

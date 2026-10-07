@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings, log_provider_table, startup_warnings
+from app.core.config import assert_mock_mode_allowed, get_settings, log_provider_table, startup_warnings
 from app.core.auth import get_api_token, log_token_location
 from app.core.db import init_db
 from app.core.hub import hub
@@ -78,7 +78,8 @@ async def lifespan(app: FastAPI):
     4. Signal readiness
     """
     settings = get_settings()
-    
+    assert_mock_mode_allowed(settings)      # synthetic data is for tests only: refuse before anything is opened
+
     # Step 1: Set up logging before anything else so all startup messages
     # are properly formatted
     setup_logging(settings.LOG_LEVEL)

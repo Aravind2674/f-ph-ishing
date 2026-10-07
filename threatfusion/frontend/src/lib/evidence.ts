@@ -107,14 +107,20 @@ export interface MissingSource {
 export interface EvidenceSummary {
   /** Sources that answered with data. */
   answered: number;
-  /** Sources that applied to this target (answered, no record, failed or not configured; `skipped` is excluded). */
+  /** Sources that applied to this target (answered, no record or failed; `skipped` and `not_configured` are excluded). */
   applicable: number;
   missing: MissingSource[];
   text: string;
   level: "complete" | "partial" | "none";
 }
 
-const APPLICABLE: ReadonlyArray<ProviderOutcome["status"]> = ["ok", "not_found", "error", "not_configured"];
+// A source with no key is not part of this scan: it is hidden (never listed as "not configured") and not counted in "N of M".
+const APPLICABLE: ReadonlyArray<ProviderOutcome["status"]> = ["ok", "not_found", "error"];
+
+/** The outcomes worth showing: everything except sources that were never usable here (no key). */
+export function visibleOutcomes<T extends { status: string }>(outcomes: T[] | undefined | null): T[] {
+  return (outcomes ?? []).filter((o) => o.status !== "not_configured");
+}
 
 export function summarizeEvidence(outcomes: ProviderOutcome[] | undefined | null): EvidenceSummary {
   if (!outcomes) {
@@ -130,7 +136,7 @@ export function summarizeEvidence(outcomes: ProviderOutcome[] | undefined | null
       status: o.status,
       detail:
         humanReason(o.reason, o.retry_after) ??
-        (o.status === "not_found" ? "No record of this target" : o.status === "not_configured" ? "Not configured" : "Unavailable"),
+        (o.status === "not_found" ? "No record of this target" : "Unavailable"),
     }));
   const level = applicable.length > 0 && answered.length === applicable.length ? "complete" : answered.length === 0 ? "none" : "partial";
   const text = applicable.length === 0 ? "No sources were queried" : `Based on ${answered.length} of ${applicable.length} sources`;
@@ -231,14 +237,13 @@ export function featureProvenance(
 
 // ── live progress (Server-Sent Events from GET /scan/{id}/events) ───────────
 export type ScanEvent =
-  | { type: "start"; scan_id: string; target_type: string; providers: string[]; mock: boolean }
+  | { type: "start"; scan_id: string; target_type: string; providers: string[] }
   | {
       type: "provider";
       source: string;
       status: "running" | "ok" | "not_found" | "error" | "skipped" | "not_configured";
       reason?: string | null;
       cached?: boolean;
-      mock?: boolean;
       latency_ms?: number | null;
       retry_after?: number | null;
     }

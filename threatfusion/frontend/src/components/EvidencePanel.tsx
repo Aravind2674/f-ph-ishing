@@ -23,7 +23,7 @@ export function EvidencePanel({
 }) {
   const summary = summarizeEvidence(outcomes);
   const caution = evidenceCaution(verdict ?? (summary.level === "complete" ? "ok" : summary.level === "none" ? "unknown" : "partial"));
-  const applicable = (outcomes ?? []).filter((o) => ["ok", "not_found", "error", "not_configured"].includes(o.status));
+  const applicable = (outcomes ?? []).filter((o) => ["ok", "not_found", "error"].includes(o.status));
 
   return (
     <Card className={cn("flex flex-col gap-4 p-5", className)}>
