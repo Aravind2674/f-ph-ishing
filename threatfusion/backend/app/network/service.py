@@ -324,6 +324,7 @@ class NetworkMonitorService:
         self._alerts.clear()
         self._alerts_by_id.clear()
         self._ring.clear()
+        self.engine.reset()
         return counts
 
     # ------------------------------------------------------------------
@@ -343,6 +344,7 @@ class NetworkMonitorService:
                 await wake.wait()
                 continue
             try:
+                self._broadcast_packet(event)
                 for alert in await self.engine.correlate(event):
                     seq = await self._store_alert(alert)
                     self._broadcast(seq, alert)
@@ -404,6 +406,30 @@ class NetworkMonitorService:
                 q.put_nowait((seq, alert))
             except asyncio.QueueFull:
                 logger.debug("Dropping alert for a slow SSE subscriber")     # a slow client must not stall the pipeline
+
+    # ------------------------------------------------------------------
+    # Packet (Event) pub/sub
+    # ------------------------------------------------------------------
+
+    def subscribe_packets(self) -> "asyncio.Queue[SensorEvent]":
+        q: "asyncio.Queue[SensorEvent]" = asyncio.Queue(maxsize=200)
+        if not hasattr(self, "_packet_subscribers"):
+            self._packet_subscribers = set()
+        self._packet_subscribers.add(q)
+        return q
+
+    def unsubscribe_packets(self, q: "asyncio.Queue[SensorEvent]") -> None:
+        if hasattr(self, "_packet_subscribers"):
+            self._packet_subscribers.discard(q)
+
+    def _broadcast_packet(self, event: SensorEvent) -> None:
+        if not hasattr(self, "_packet_subscribers"):
+            self._packet_subscribers = set()
+        for q in list(self._packet_subscribers):
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass # Drop silently for slow clients to protect backend
 
     @property
     def last_sequence(self) -> int:

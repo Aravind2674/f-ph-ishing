@@ -99,7 +99,7 @@ test("alerts merge newest first without duplicates and stay capped", () => {
 test("rows are filtered by severity and worded for people", () => {
   const rows = alertRows([alert({ alert_id: "1", severity: "High" }), alert({ alert_id: "2", severity: "Low", alert_type: "dga_suspect", device_mac: "aa:aa:aa:aa:aa:aa" })]);
   assert.equal(rows.length, 2);
-  assert.deepEqual([rows[1].type, rows[1].device, rows[0].score], ["NXDOMAIN burst", "aa:aa:aa:aa:aa:aa", "64"]);
+  assert.deepEqual([rows[1].type, rows[1].fallbackDevice, rows[0].score], ["NXDOMAIN burst", "aa:aa:aa:aa:aa:aa", "64"]);
   assert.deepEqual(alertRows([alert({ severity: "High" }), alert({ alert_id: "z", severity: "Low" })], "Low").map((r) => r.id), ["z"]);
 });
 

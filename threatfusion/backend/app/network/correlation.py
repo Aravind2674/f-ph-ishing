@@ -141,6 +141,16 @@ class CorrelationEngine:
         self._warmup_until = 0.0
         self._connected_ssid: Optional[str] = None
 
+    def reset(self) -> None:
+        """Reset state tracking when the user clears data."""
+        self._alerted_new_devices.clear()
+        self._active_macs.clear()
+        self.resolutions = ResolutionMap(max_entries=50_000, clock=self._clock)
+        self._nx = NxdomainBurst(self._settings.NXDOMAIN_BURST_THRESHOLD, self._settings.NXDOMAIN_BURST_WINDOW_SECONDS)
+        self._beacon = BeaconDetector(self._settings.BEACON_MIN_EVENTS, self._settings.BEACON_MIN_SPAN_SECONDS, self._settings.BEACON_MAX_JITTER)
+        self._recent_names.clear()
+        self._alert_seen.clear()
+
     # ------------------------------------------------------------------
     # Session
     # ------------------------------------------------------------------

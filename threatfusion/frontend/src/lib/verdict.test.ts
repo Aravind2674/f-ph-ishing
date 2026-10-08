@@ -31,7 +31,7 @@ test("scores are shown as computed (0..1 -> 0..100), not adjusted to agree", () 
 test("URL model drives: the reason names the provider band", () => {
   const v = verdictView(base());
   assert.equal(v.headline, "Critical");
-  assert.equal(v.reason, "Flagged by the URL model — provider evidence is Low");
+  assert.equal(v.reason, "Flagged by XGBoost heuristic — the Baseline score is Low");
 });
 
 test("provider evidence drives: says the URL text looks benign and lists the top reasons", () => {
@@ -39,14 +39,14 @@ test("provider evidence drives: says the URL text looks benign and lists the top
     baseline_score: 0.8, baseline_label: "Critical", ml_score: 0.03, ml_label: "Low", headline_band: "Critical", driven_by: "provider_evidence",
     baseline_terms: [{ text: "6 antivirus engines flag it", weight: 0.5 }, { text: "RDP port open", weight: 0.15 }, { text: "newly registered", weight: 0.04 }, { text: "ten ports open", weight: 0.01 }],
   }));
-  assert.equal(v.reason, "Flagged by provider evidence — URL text looks benign");
+  assert.equal(v.reason, "Flagged by the Baseline score — URL text looks benign");
   assert.deepEqual(v.providerReasons, ["6 antivirus engines flag it", "RDP port open", "newly registered"]);
   assert.equal(v.disagree, true);
 });
 
 test("no provider answered: the URL model carries the verdict and says so", () => {
   const v = verdictView(base({ baseline_score: null, baseline_label: "Unknown", agreement: null }));
-  assert.equal(v.reason, "Flagged by the URL model — no provider evidence");
+  assert.equal(v.reason, "Flagged by XGBoost heuristic — no Baseline score");
   assert.equal(v.disagree, false);                 // nothing to disagree with
   assert.equal(v.channels[1].text, DASH);
 });
@@ -69,6 +69,6 @@ test("a low URL band with no provider answering is not described as a clearance"
 
 test("the URL model's what-if at realistic prevalence is carried through", () => {
   const url_risk = { at_prevalence: { "1%": 0.12, "0.1%": 0.014 }, flagged: true } as unknown as ScanResult["url_risk"];
-  assert.equal(verdictView(base({ url_risk })).prevalence, "At 1 % phishing: 12 %");
+  assert.equal(verdictView(base({ url_risk })).prevalence, "At 1 % vulnerable: 12 %");
   assert.equal(verdictView(base()).prevalence, null);
 });

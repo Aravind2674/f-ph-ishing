@@ -33,7 +33,6 @@ export function InterfacePicker() {
     }
   };
 
-  const usable = (choice?.interfaces ?? []).filter((i) => i.usable);
   return (
     <Card className="flex flex-col gap-3 p-5">
       <span className="text-sm font-semibold text-foreground">Capture interface</span>
@@ -45,9 +44,11 @@ export function InterfacePicker() {
           className="h-9 min-w-[16rem] rounded border border-line-strong bg-surface-2 px-2 text-sm text-foreground"
         >
           <option value="">Automatic (default route)</option>
-          {usable.map((i) => (
+          {(choice?.interfaces ?? []).map((i) => (
             <option key={i.name} value={i.name}>
-              {i.name} — {i.address ?? i.ipv4[0] ?? i.ipv6[0] ?? "no address"}{i.virtual ? " (virtual)" : ""}
+              {i.name} - {i.address ?? i.ipv4[0] ?? i.ipv6[0] ?? "no address"}
+              {i.virtual ? " (virtual)" : ""}
+              {!i.usable ? " (may not capture)" : ""}
             </option>
           ))}
         </select>

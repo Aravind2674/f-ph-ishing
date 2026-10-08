@@ -76,7 +76,7 @@ export function lookalikeView(check: BrandCheck | null | undefined): LookalikeVi
     return {
       status: "official",
       headline: `This is one of ${check.official_of ?? "a known brand"}'s own domains`,
-      detail: "",
+      detail: "The registered domain matches the brand's official list, so it is not treated as an impersonation.",
       match: null,
       ...common,
     };

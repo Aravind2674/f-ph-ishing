@@ -35,7 +35,7 @@ export function AccessPointTable({ aps, error, fix, onMark }: Props) {
       )}
       <label className="flex items-center gap-2 text-xs text-muted">
         <input type="checkbox" checked={onlyWatched} onChange={(e) => setOnlyWatched(e.target.checked)} />
-        Watched networks only (connected + NETWORK_MONITORED_SSIDS)
+        Only the networks being watched (the one you are connected to, and NETWORK_MONITORED_SSIDS)
       </label>
       {shown.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted">{aps.length === 0 ? "No access points seen yet" : "No access points on a watched network"}</p>
@@ -47,6 +47,7 @@ export function AccessPointTable({ aps, error, fix, onMark }: Props) {
                 <TableHead>Network</TableHead>
                 <TableHead>BSSID</TableHead>
                 <TableHead>Security</TableHead>
+                <TableHead>Packets</TableHead>
                 <TableHead>Channels</TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead>Status</TableHead>
@@ -59,6 +60,7 @@ export function AccessPointTable({ aps, error, fix, onMark }: Props) {
                   <TableCell className="text-sm">{a.ssid || "(hidden)"}</TableCell>
                   <TableCell className="font-mono text-xs">{a.bssid}</TableCell>
                   <TableCell className="text-xs">{a.security ?? "—"}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{a.sightings.toLocaleString("en-US")}</TableCell>
                   <TableCell className="font-mono text-xs tabular-nums">{a.channels.length ? a.channels.join(", ") : "—"}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs text-muted">{timeAgo(a.last_seen)}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">

@@ -26,13 +26,15 @@ import { NetworkAlertDetail } from "./NetworkAlertDetail";
 import { AccessPointTable } from "./network/AccessPointTable";
 import { AlertTable } from "./network/AlertTable";
 import { DeviceTable } from "./network/DeviceTable";
+import { PacketTable } from "./network/PacketTable";
 import { StatusStrip } from "./network/StatusStrip";
 
-type Tab = "alerts" | "devices" | "aps";
+type Tab = "alerts" | "devices" | "aps" | "packets";
 const TABS: { id: Tab; label: string }[] = [
   { id: "alerts", label: "Alerts" },
   { id: "devices", label: "Devices" },
   { id: "aps", label: "Access points" },
+  { id: "packets", label: "Packets" },
 ];
 
 export function NetworkSection() {
@@ -46,6 +48,19 @@ export function NetworkSection() {
   const [everConnected, setEverConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setSelected(null);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const openAlert = useCallback((alert: NetworkAlert) => {
+    window.history.pushState({ alertId: alert.alert_id }, "", "#alert-" + alert.alert_id);
+    setSelected(alert);
+  }, []);
   const running = useRef(false);
 
   const refreshStatus = useCallback(async () => {
@@ -91,11 +106,11 @@ export function NetworkSection() {
 
   // devices and access points load when their tab is open, and refresh while it stays open
   useEffect(() => {
-    if (tab === "alerts") return;
+    if (tab === "alerts" || tab === "packets") return;
     let alive = true;
     const load = () => {
       if (tab === "devices") fetchDevices().then((d) => alive && setDevices(d)).catch(() => {});
-      else fetchAccessPoints().then((a) => alive && setAps(a)).catch(() => {});
+      else if (tab === "aps") fetchAccessPoints().then((a) => alive && setAps(a)).catch(() => {});
     };
     load();
     const t = setInterval(load, 15_000);
@@ -125,12 +140,14 @@ export function NetworkSection() {
   }, []);
 
   const erase = useCallback(async () => {
-    if (!window.confirm("Erase all stored network data (devices, domains, alerts, access points)? This cannot be undone.")) return;
+    // Aggressively clear frontend state immediately for UI responsiveness
+    setAlerts([]);
+    setDevices([]);
+    setAps([]);
+    setMessage("Clearing data...");
+    
     try {
       const c = await deleteNetworkData();
-      setAlerts([]);
-      setDevices([]);
-      setAps([]);
       setMessage(`Erased ${c.devices ?? 0} devices, ${c.domains ?? 0} domain records, ${c.alerts ?? 0} alerts, ${c.access_points ?? 0} access points.`);
     } catch (e: any) {
       setMessage(e?.message || "Could not erase network data");
@@ -141,7 +158,7 @@ export function NetworkSection() {
   const sensors = useMemo(() => sensorRows(status), [status]);
   const wifi = status ? status.sensors?.wifi : undefined;
 
-  if (selected) return <NetworkAlertDetail alert={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <NetworkAlertDetail alert={selected} onBack={() => { window.history.back(); setSelected(null); }} />;
 
   return (
     <div className="flex flex-col gap-5">
@@ -156,24 +173,31 @@ export function NetworkSection() {
       />
       {message && <p className="text-sm text-muted">{message}</p>}
 
-      <div role="tablist" className="flex gap-1 border-b border-line">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === t.id ? "border-accent-2 text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
-          >
-            {t.label}
-            {t.id === "alerts" && alerts.length > 0 && <span className="ml-1.5 font-mono text-xs text-subtle">{alerts.length}</span>}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between border-b border-line pb-[1px]">
+        <div role="tablist" className="flex gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={`-mb-[2px] border-b-2 px-3 py-2 text-sm ${tab === t.id ? "border-accent-2 text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
+            >
+              {t.label}
+              {t.id === "alerts" && alerts.length > 0 && <span className="ml-1.5 font-mono text-xs text-subtle">{alerts.length}</span>}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={erase} className="mb-1 flex items-center gap-1.5 rounded border border-line px-2.5 py-1 text-xs text-muted hover:text-foreground">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21v-5h5"/></svg>
+          Clear Data
+        </button>
       </div>
 
-      {tab === "alerts" && <AlertTable alerts={alerts} onOpen={setSelected} />}
+      {tab === "alerts" && <AlertTable alerts={alerts} onOpen={openAlert} />}
       {tab === "devices" && <DeviceTable devices={devices} />}
+      {tab === "packets" && <PacketTable running={status?.running ?? false} devices={devices} />}
       {tab === "aps" && (
         <AccessPointTable
           aps={aps}

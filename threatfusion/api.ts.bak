@@ -522,16 +522,6 @@ export interface AlertEvidence {
   raw: Record<string, any>;
 }
 
-export interface SensorEvent {
-  event_type: string;
-  timestamp: string;
-  sensor: string;
-  mac: string | null;
-  ip: string | null;
-  domain: string | null;
-  raw: Record<string, any>;
-}
-
 export type NetworkSeverity = "Low" | "Medium" | "High" | "Critical";
 
 export type NetworkAlertType =
@@ -1002,66 +992,6 @@ export const subscribeAlerts = (
   };
 
   connect();
-  return {
-    close: () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      es?.close();
-      es = null;
-    },
-  };
-};
-
-export const subscribePackets = (
-  onPacket: (event: SensorEvent) => void,
-  onOpen?: () => void,
-  onError?: () => void,
-): { close: () => void } => {
-  let es: EventSource | null = null;
-  let closed = false;
-  let delay = 1000;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const retry = () => {
-    onError?.();
-    if (closed) return;
-    timer = setTimeout(connect, delay);
-    delay = Math.min(delay * 2, 15000);
-  };
-
-  const connect = async () => {
-    if (closed) return;
-    try {
-      const res = await fetch(`${API_BASE}/network/stream-ticket`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: "{}",
-      });
-      if (!res.ok) throw new Error("ticket fetch failed");
-      const { ticket } = (await res.json()) as { ticket: string };
-      if (closed) return;
-      es = new EventSource(`${API_BASE}/network/packets?ticket=${encodeURIComponent(ticket)}`);
-      es.addEventListener("packet", (ev) => {
-        try {
-          onPacket(JSON.parse((ev as MessageEvent).data));
-        } catch { /* ignore */ }
-      });
-      es.onopen = () => {
-        delay = 1000;
-        onOpen?.();
-      };
-      es.onerror = () => {
-        es?.close();
-        es = null;
-        retry();
-      };
-    } catch {
-      retry();
-    }
-  };
-
-  connect();
-
   return {
     close: () => {
       closed = true;

@@ -42,7 +42,6 @@ export const SOURCE_LABELS: Record<string, string> = {
   abuseipdb: "AbuseIPDB",
   greynoise: "GreyNoise",
   tranco: "Tranco",
-  wigle: "WiGLE",
 };
 
 export function sourceLabel(source: string): string {
@@ -148,11 +147,11 @@ export function summarizeEvidence(outcomes: ProviderOutcome[] | undefined | null
 export function evidenceCaution(verdict: "ok" | "partial" | "unknown" | undefined | null): string | null {
   switch (verdict) {
     case "ok":
-      return "No findings ≠ safe";
+      return "No findings ≠ safe. These sources had nothing to report; that does not prove the target is harmless.";
     case "partial":
-      return "No findings ≠ safe — some sources did not answer";
+      return "No findings ≠ safe. Some sources did not answer, so this score rests on partial evidence.";
     case "unknown":
-      return "Risk unknown — no reputation evidence";
+      return "Risk unknown — there is no reputation evidence for this target. Absence of evidence is not evidence of safety.";
     default:
       return null;
   }

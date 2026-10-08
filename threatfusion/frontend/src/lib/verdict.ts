@@ -14,6 +14,7 @@ export type DrivenBy = "url_model" | "provider_evidence" | "both";
 export interface ChannelView {
   key: "url_model" | "provider_evidence";
   label: string;
+  hint: string;
   /** 0..100, or null when the channel produced no score. */
   value: number | null;
   /** "87", or "—". */
@@ -62,10 +63,10 @@ function reasonFor(headline: string | null, drivenBy: DrivenBy | null, urlBand: 
   const verb = headline === "Medium" ? "Raised by" : "Flagged by";
   if (drivenBy === "both") return "Both channels agree";
   if (drivenBy === "url_model") {
-    return providerBand ? `${verb} the URL model — provider evidence is ${providerBand}` : `${verb} the URL model — no provider evidence`;
+    return providerBand ? `${verb} XGBoost heuristic — the Baseline score is ${providerBand}` : `${verb} XGBoost heuristic — no Baseline score`;
   }
-  if (!urlBand) return `${verb} provider evidence — the URL model did not run`;
-  return flagged === false || urlBand === "Low" ? `${verb} provider evidence — URL text looks benign` : `${verb} provider evidence — URL text is below the flag threshold`;
+  if (!urlBand) return `${verb} the Baseline score — XGBoost heuristic did not run`;
+  return flagged === false || urlBand === "Low" ? `${verb} the Baseline score — URL text looks benign` : `${verb} the Baseline score — URL text is below the flag threshold`;
 }
 
 export function verdictView(r: VerdictInput): VerdictView {
@@ -82,10 +83,10 @@ export function verdictView(r: VerdictInput): VerdictView {
     reason: reasonFor(headline, drivenBy, urlBand, providerBand, r.url_risk?.flagged, r.verdict_status === "unknown"),
     disagree: r.agreement === false,
     channels: [
-      { key: "url_model", label: "URL model", value: url, text: scoreText(url), band: urlBand },
-      { key: "provider_evidence", label: "Provider evidence", value: provider, text: scoreText(provider), band: providerBand },
+      { key: "url_model", label: "XGBoost heuristic", hint: "URL text only", value: url, text: scoreText(url), band: urlBand },
+      { key: "provider_evidence", label: "Baseline score", hint: "Reputation, ports, CVEs, TLS", value: provider, text: scoreText(provider), band: providerBand },
     ],
     providerReasons: drivenBy === "provider_evidence" ? [...(r.baseline_terms ?? [])].sort((a, b) => b.weight - a.weight).slice(0, 3).map((t) => t.text) : [],
-    prevalence: prevalence ? `At ${prevalence[0].replace("%", " %")} phishing: ${percent(prevalence[1])}` : null,
+    prevalence: prevalence ? `At ${prevalence[0].replace("%", " %")} vulnerable: ${percent(prevalence[1])}` : null,
   };
 }

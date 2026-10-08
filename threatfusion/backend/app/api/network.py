@@ -231,3 +231,35 @@ async def stream_alerts(
             "X-Accel-Buffering": "no",
         },
     )
+
+@stream_router.get("/packets", summary="Live raw packet stream (SSE)")
+async def stream_packets(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream for raw captured packets/events."""
+    svc = get_service()
+    queue = svc.subscribe_packets()
+
+    async def packet_generator():
+        yield "retry: 3000\n: connected\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                payload = event.model_dump(mode="json")
+                yield f"event: packet\ndata: {json.dumps(payload)}\n\n"
+        finally:
+            svc.unsubscribe_packets(queue)
+
+    return StreamingResponse(
+        packet_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

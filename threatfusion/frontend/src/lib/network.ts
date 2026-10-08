@@ -146,18 +146,42 @@ export interface AlertRow {
   time: string;
   severity: NetworkAlert["severity"];
   type: string;
-  device: string;
+  deviceName: string | null;
+  deviceMac: string | null;
+  deviceIp: string | null;
+  fallbackDevice: string;
   summary: string;
   score: string;
+  target: string | null;
+  packets: string;
 }
 
 export function alertRows(alerts: NetworkAlert[], severity: NetworkAlert["severity"] | "All" = "All"): AlertRow[] {
   return alerts
     .filter((a) => severity === "All" || a.severity === severity)
-    .map((a) => ({
-      id: a.alert_id, time: a.timestamp, severity: a.severity, type: alertTypeLabel(a.alert_type), device: deviceLabel(a),
-      summary: a.title, score: String(Math.round(a.fused_score)),
-    }));
+    .map((a) => {
+      // Try to extract a domain or target from involved (e.g. DNS names, URLs)
+      const target = a.involved?.find(x => x.includes(".") && !x.includes(":")) || null;
+      
+      const raw = a.evidence?.raw || {};
+      const pktCount = raw.packets ?? raw.count ?? raw.packet_count ?? a.evidence?.baseline?.observations ?? a.evidence?.wigle?.total_observations;
+      const packets = typeof pktCount === "number" ? pktCount.toLocaleString("en-US") : DASH;
+
+      return {
+        id: a.alert_id, 
+        time: a.timestamp, 
+        severity: a.severity, 
+        type: alertTypeLabel(a.alert_type), 
+        deviceName: a.device_name ?? null,
+        deviceMac: a.device_mac ?? null,
+        deviceIp: a.device_ip ?? null,
+        fallbackDevice: deviceLabel(a),
+        summary: a.title, 
+        score: String(Math.round(a.fused_score)),
+        target,
+        packets,
+      };
+    });
 }
 
 export function connectionView(connected: boolean, everConnected: boolean): { label: string; tone: Tone } {

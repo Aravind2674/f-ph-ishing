@@ -1,4 +1,16 @@
-/** One provider's state as a chip: icon, word and border style (colour is never the only signal). Hover shows reason, cache and latency. */
+/**
+ * SourceChip — one provider's state as a chip (A1-7).
+ *
+ * The UI is strictly monochrome, so state is carried by **icon + wording + border style**, never by colour:
+ *   ok            solid border, check mark          "ok"
+ *   running       pulsing dot, solid border          "running"
+ *   pending       dashed border, empty circle        "waiting"
+ *   no record     dotted border, question mark       "no record"   (answered, but nothing on this target)
+ *   failed        solid border, alert icon           "failed"      (+ the reason in plain words)
+ *   skipped       dashed border, minus               "skipped"
+ *   not configured dotted border, key                "not configured"
+ * Hover/focus shows the full detail (reason, cache, latency).
+ */
 import { Check, CircleAlert, CircleHelp, KeyRound, Minus, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { humanReason, sourceLabel, visibleOutcomes, type ChipState } from "@/lib/evidence";
@@ -15,11 +27,11 @@ const WORD: Record<ChipState, string> = {
 };
 
 const BORDER: Record<ChipState, string> = {
-  ok: "border-ok/40 text-ok",
-  running: "border-accent-2/50 text-accent-2",
+  ok: "border-line-strong bg-foreground/[0.06] text-foreground",
+  running: "border-line-strong text-foreground",
   pending: "border-dashed border-line text-subtle",
   not_found: "border-dotted border-line-strong text-muted",
-  error: "border-danger/50 text-danger",
+  error: "border-line-strong text-foreground",
   skipped: "border-dashed border-line text-subtle",
   not_configured: "border-dotted border-line-strong text-muted",
 };
@@ -28,7 +40,7 @@ function StateIcon({ state }: { state: ChipState }) {
   const cls = "size-3 shrink-0";
   switch (state) {
     case "ok": return <Check className={cls} aria-hidden />;
-    case "running": return <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent-2" aria-hidden />;
+    case "running": return <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-foreground" aria-hidden />;
     case "pending": return <Circle className={cls} aria-hidden />;
     case "not_found": return <CircleHelp className={cls} aria-hidden />;
     case "error": return <CircleAlert className={cls} aria-hidden />;
